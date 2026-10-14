@@ -1,11 +1,10 @@
-# Raw and processed data never goes in git (see CLAUDE.md §9)
-data/raw/
-data/processed/
+# Raw and processed data never goes in git (see CLAUDE.md §9).
+# **/ matches at any depth — a bare "data/raw/" only matches a
+# top-level folder, which is not where this data lives.
+**/data/raw/
+**/data/processed/
 *.parquet
 *.quarter.csv
-
-# Keep the small, intentional exceptions
-!profiles/*.csv
 
 # Python
 __pycache__/

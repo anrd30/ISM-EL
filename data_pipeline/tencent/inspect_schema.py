@@ -1,12 +1,13 @@
 """
-B0 helper (not a B3 deliverable): inspect a sample Tencent subscription file
-and a sample load-trace file to confirm the column names and units on
-PPT slide 16 before writing the real B3/B4 parser.
+Read-only schema check for the Tencent Cloud Virtual Disk dataset.
 
-Read-only. Does not filter, convert, or write anything.
+Both source files are headerless CSV; column names are assigned from the
+dataset README field order. Nothing is filtered, converted, or written.
 
 Usage:
-    python inspect_schema.py <subscription_csv> <one_load_trace_csv>
+    python -I inspect_schema.py <dataset_root> [n_sample_files]
+
+<dataset_root> contains `disk_subscript_info` and `disk_load_data/`.
 """
 from __future__ import annotations
 
@@ -15,34 +16,43 @@ from pathlib import Path
 
 import pandas as pd
 
+SUB_COLUMNS = [
+    "disk_uid", "disk_capacity", "disk_attr", "disk_type",
+    "user_type", "vm_cpu", "vm_memory",
+]
+LOAD_COLUMNS = [
+    "timestamp", "read_iops", "read_bw_kbps",
+    "write_iops", "write_bw_kbps", "disk_usage_mb",
+]
+SAMPLE_STEP_S = 300
 
-def inspect(sub_path: Path, load_path: Path) -> None:
-    sub = pd.read_csv(sub_path, nrows=20)
-    print(f"Subscription file: {sub_path.name}")
-    print(f"  columns: {list(sub.columns)}")
-    print(f"  sample row:\n{sub.iloc[0].to_dict()}\n")
 
-    load = pd.read_csv(load_path, nrows=20)
-    print(f"Load trace file: {load_path.name}")
-    print(f"  columns: {list(load.columns)}")
-    print(f"  sample row:\n{load.iloc[0].to_dict()}\n")
+def inspect(root: Path, n_sample: int) -> None:
+    sub = pd.read_csv(root / "disk_subscript_info", header=None, names=SUB_COLUMNS)
+    print(f"subscription rows={len(sub)} unique_disk_uid={sub['disk_uid'].nunique()}")
+    print(sub.dtypes.to_string())
+    print(sub.drop(columns="disk_uid").describe().T.to_string())
 
-    if "timestamp" in load.columns and len(load) > 1:
-        deltas = load["timestamp"].diff().dropna().unique()
-        print(f"  timestamp deltas seen (expect 300s): {sorted(deltas)[:10]}")
+    load_dir = root / "disk_load_data"
+    files = sorted(p for p in load_dir.iterdir() if p.is_file() and not p.name.startswith("."))
+    uids_sub = set(sub["disk_uid"])
+    uids_load = {p.name for p in files}
+    print(f"\nload files={len(files)}")
+    print(f"in_subscription_only={len(uids_sub - uids_load)} in_load_only={len(uids_load - uids_sub)}")
 
-    print(
-        "\nUNRESOLVED before B3/B4 can be finalized (see CLAUDE.md Open Questions):\n"
-        "  - bandwidth columns appear to be KB/s, not MB/s — confirm, and confirm\n"
-        "    who performs the KB/s -> MB/s conversion (proposal: the simulator-side\n"
-        "    adapter, not this pipeline).\n"
-        "  - t_seconds origin: epoch timestamp, or seconds since window start?\n"
-        "  - how does one virtual disk's load map onto the simulated group's scale?\n"
-    )
+    step = max(1, len(files) // n_sample)
+    for p in files[::step][:n_sample]:
+        df = pd.read_csv(p, header=None, names=LOAD_COLUMNS)
+        deltas = sorted(int(d) for d in df["timestamp"].diff().dropna().unique())
+        print(
+            f"{p.name} rows={len(df)} ts=[{df['timestamp'].min()},{df['timestamp'].max()}] "
+            f"deltas={deltas[:5]} nulls={int(df.isna().sum().sum())} "
+            f"read_bw_kbps_max={df['read_bw_kbps'].max()} write_bw_kbps_max={df['write_bw_kbps'].max()}"
+        )
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (2, 3):
         print(__doc__)
         sys.exit(1)
-    inspect(Path(sys.argv[1]), Path(sys.argv[2]))
+    inspect(Path(sys.argv[1]), int(sys.argv[2]) if len(sys.argv) == 3 else 5)

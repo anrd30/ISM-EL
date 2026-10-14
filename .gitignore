@@ -1,8 +1,7 @@
-# Raw and processed data never goes in git (see CLAUDE.md §9).
-# **/ matches at any depth — a bare "data/raw/" only matches a
-# top-level folder, which is not where this data lives.
-**/data/raw/
-**/data/processed/
+# Nothing under data_pipeline/data/ goes in git, ever (see CLAUDE.md §9) —
+# not raw files, not processed files, not a stray placeholder. Scripts
+# create this folder and its subfolders at runtime; git never tracks it.
+data_pipeline/data/
 *.parquet
 *.quarter.csv
 

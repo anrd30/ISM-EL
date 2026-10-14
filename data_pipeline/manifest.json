@@ -1,4 +1,3 @@
 {
-  "_comment": "One entry per output file this lane produces. Filled in by each B-task's script after it runs, never hand-edited. See CLAUDE.md §9 and PREPROCESSING.md.",
   "files": []
 }

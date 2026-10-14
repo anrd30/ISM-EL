@@ -187,7 +187,32 @@ You are on branch `data/B0-setup`, repo is otherwise empty. The interface contra
 
 ---
 
-## 10. What NOT to build in this lane
+## 10. Code and comment standards
+
+Code is read by a compiler/interpreter and by engineers, never by a person
+being talked to. Keep it that way:
+
+- **No narration in `print`/`log` output.** Runtime output reports facts the
+  code computed — counts, paths, pass/fail — never advice, next steps, or
+  who to ask. `print("rows_in=91234 rows_out=90112 dropped=1122")`, not
+  `print("Next, confirm with X...")`.
+- **No names of teammates, or references to who should do what, anywhere in
+  `.py`/`.json`/config files.** Ownership and coordination live in
+  `CLAUDE.md` and `PREPROCESSING.md`, not in code.
+- **Docstrings and comments explain WHAT the code does and WHY, technically**
+  (a one-line purpose, a `Usage:` block, a non-obvious invariant) — not
+  project status, scaffolding apologies ("currently a stub"), or
+  motivational asides. A skipped test's `reason=` names the missing
+  dependency in one short phrase, nothing more.
+- **A TODO is a single short line naming the missing input**, e.g.
+  `# TODO: quarter/models/SMART columns`, never a sentence addressed to a
+  person.
+- Citing a spec section in a comment (e.g. "see CLAUDE.md §6") is fine when
+  it points at a real, load-bearing constraint — keep these rare and short.
+
+Applies to every file in `data_pipeline/`, present and future.
+
+## 11. What NOT to build in this lane
 
 - Do not implement `RecoveryEnv`, the hazard model, PPO, baselines, or the safety filter — that's Aniruddh's T2–T9.
 - Do not implement the horizon label `Y_H`, survival/hazard fitting, or calibration metrics — that's Aakarsh's A2–A5. Your job stops at clean timelines with censoring info exposed.

@@ -1,13 +1,8 @@
 """
-Grid test for B5 (four intensity profiles).
+Grid test for the four intensity profile files (B5).
 
 Each profile file must be exactly 288 rows (24h at a 300-second interval)
-with no gaps and no duplicate timestamps. This is part of the literal
-B-lane acceptance check: "the four profiles are visibly different when
-plotted" and must be "checkable in under a minute" (CLAUDE.md §4).
-
-Scaffold only until data_pipeline/tencent/profiles.py exists and B5 has
-produced output files under profiles/.
+with no gaps and no duplicate timestamps.
 """
 from pathlib import Path
 
@@ -18,7 +13,7 @@ PROFILES_DIR = Path(__file__).resolve().parents[2] / "profiles"
 EXPECTED_PROFILES = ["idle", "diurnal", "bursty", "peak"]
 
 
-@pytest.mark.skip(reason="B5 profile files not generated yet — see CLAUDE.md §8 execution order")
+@pytest.mark.skip(reason="profile files not generated")
 @pytest.mark.parametrize("profile", EXPECTED_PROFILES)
 def test_profile_has_288_rows_at_300s_spacing(profile: str):
     f = PROFILES_DIR / f"profile_{profile}.csv"

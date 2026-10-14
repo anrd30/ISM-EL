@@ -1,25 +1,21 @@
 """
-Leakage test for B2 (per-drive timelines).
+Leakage test for per-drive timelines (B2).
 
-CLAUDE.md §7: "never let a feature use information from a later date than
-the row it describes... all rolling-window features must be trailing."
+Rolling-window features must be trailing: no feature may use information
+from a later date than the row it describes.
 
-The test: cut the raw input at a date `d`, recompute B2's features on the
+Method: cut the raw input at a date `d`, recompute features on the
 truncated data, and compare to the same rows' features computed on the
-full dataset. They must be byte-identical for every row with
-date <= d. If anything differs, a feature is reading the future.
-
-Scaffold only until data_pipeline/backblaze/timelines.py exists.
+full dataset. They must be identical for every row with date <= d.
 """
 import pytest
 
 
-@pytest.mark.skip(reason="B2 timelines.py not implemented yet — see CLAUDE.md §8 execution order")
+@pytest.mark.skip(reason="backblaze/timelines.py not implemented")
 def test_truncated_and_full_features_match_for_past_rows():
-    # Once implemented:
-    #   full = build_timelines(full_df)
-    #   cut_date = <some date in the middle of the sample>
-    #   truncated = build_timelines(full_df[full_df.date <= cut_date])
-    #   compare = full[full.date <= cut_date]
-    #   pd.testing.assert_frame_equal(truncated, compare)
+    # full = build_timelines(full_df)
+    # cut_date = <a date in the middle of the sample>
+    # truncated = build_timelines(full_df[full_df.date <= cut_date])
+    # compare = full[full.date <= cut_date]
+    # pd.testing.assert_frame_equal(truncated, compare)
     raise NotImplementedError

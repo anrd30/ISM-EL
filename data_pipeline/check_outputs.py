@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """
-B6 lane-acceptance check: "the files load with the exact column names,
-row counts match PREPROCESSING.md, and the four profiles are visibly
-different when plotted. Checkable in under a minute." (CLAUDE.md §4)
+Verifies data_pipeline output: column names, row counts against
+PREPROCESSING.md, and the profile file grid (B6 acceptance check).
 
-Run from data_pipeline/:
+Usage:
     python check_outputs.py
-
-Currently a scaffold — most checks are stubs that print what they will
-verify once B1-B5 produce real output files. Wire each one up as its
-task is implemented; keep this file the single command the team runs to
-confirm the lane is done.
 """
 from __future__ import annotations
 
@@ -42,8 +36,8 @@ def check_preprocessing_exists() -> bool:
 
 def check_profiles() -> bool:
     if not PROFILES_DIR.exists():
-        print("[PENDING] profiles/ does not exist yet — B5 not implemented")
-        return True  # not a failure yet, just not started
+        print("[PENDING] profiles/ contains no output files")
+        return True
     import pandas as pd
 
     all_ok = True
@@ -68,7 +62,7 @@ def main() -> int:
         check_profiles(),
     ]
     ok = all(results)
-    print("\nRESULT:", "PASS" if ok else "INCOMPLETE (expected while B1-B6 are still in progress)")
+    print("\nRESULT:", "PASS" if ok else "INCOMPLETE")
     return 0 if ok else 1
 
 

@@ -58,12 +58,6 @@ def inspect_quarter(quarter_dir: Path) -> None:
         for m, n in sorted(models.items(), key=lambda kv: -kv[1]):
             print(f"  {m}: {n}")
 
-    print(
-        "\nNext: confirm with Aakarsh (A1) which quarter, which 1-2 models, "
-        "and which SMART columns to keep, then fill in PREPROCESSING.md "
-        "and backblaze/extract.py's constants."
-    )
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:

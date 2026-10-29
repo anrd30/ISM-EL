@@ -12,12 +12,31 @@ in as each task (B1–B5) is implemented.
 
 ## B1 — Backblaze extract
 
-- Quarter used: `TODO — confirm with Aakarsh (A1)`
-- Drive model(s) kept: `TODO — confirm with Aakarsh (A1)`
-- SMART columns kept: `TODO — confirm with Aakarsh (A1)`
-- Source files and sha256: `TODO`
-- Rows before filtering → after column projection → after model subset → after dedup: `TODO`
-- Duplicate `(serial_number, date)` rows dropped: `TODO`
+- Quarter: `backblaze_2022Q1` (provisional)
+- Models kept: `ST4000DM000, ST8000NM0055, ST12000NM0008` (provisional)
+- SMART columns kept: every `smart_*_raw` column present in any daily file (provisional)
+- Source file digests: `manifest.json` key `sources`
+- Counts from the last run of `backblaze/extract.py`:
+
+- `quarter_dir=backblaze_2022Q1 daily_files=90`
+- `models=ST4000DM000,ST8000NM0055,ST12000NM0008`
+- `columns_out=92 smart_columns=87`
+- `smart_columns_all_null=60`
+- `files_missing_some_smart_column=0`
+- `rows_in=18845260`
+- `rows_after_model_subset=4775365 dropped_other_models=14069895`
+- `duplicate_serial_date_dropped=0`
+- `rows_out=4775365`
+- `rows_date_not_iso=53144`
+- `rows_date_differs_from_filename=0`
+- `rows_null_capacity_bytes=0`
+- `model=ST4000DM000 drive_days=1670395 drives=18614 failures=117`
+- `model=ST8000NM0055 drive_days=1289659 drives=14409 failures=86`
+- `model=ST12000NM0008 drive_days=1815311 drives=20212 failures=73`
+- `pooled drive_days=4775365 failures=276 afr=2.1096%`
+- `output=data/processed/backblaze_filtered.parquet sha256=0cce95ff31b2fb6b3d4da14badefe8a46d42714ca2e16ca1b815d55de8471c9c`
+
+- `smart_columns_all_null` counts aligned SMART columns that hold no value for the kept models; they are retained so the column list stays fixed.
 
 ## B2 — Per-drive timelines
 

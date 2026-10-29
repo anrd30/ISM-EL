@@ -6,7 +6,7 @@ This document is the human-readable spec for `contracts/contracts.py`. It fixes 
 
 | Item | Value |
 |---|---|
-| `CONTRACT_VERSION` | `1.0.0` |
+| `CONTRACT_VERSION` | `1.1.0` |
 | Freeze point | End of week 1 |
 | Change rule | Changeable only with the sign-off of all four teammates, recorded in the changelog at the bottom of this file |
 
@@ -216,7 +216,7 @@ All values are design decisions. The arithmetic is shown so that each can be re-
 
 | Constant | Value | Justification (design decision) |
 |---|---|---|
-| `CONTRACT_VERSION` | `"1.0.0"` | Semantic version of this contract |
+| `CONTRACT_VERSION` | `"1.1.0"` | Semantic version of this contract |
 | `CONTROL_INTERVAL_S` | 300 | Matches the Tencent trace sampling interval, so one control step is one trace sample and no resampling is needed |
 | `HORIZON_DAYS` | 30 | Hazard prediction window |
 | `HORIZON_HOURS` | 720.0 | 30 d x 24 h/d. Horizon H of the hazard model. A 30-day window is standard in the SMART failure-prediction literature, which keeps published PR-AUC figures comparable |
@@ -334,10 +334,36 @@ These are decisions, not omissions. Each is exercised by the implementation as s
 
 A log transform of field 5 would condition the input better across the several orders of magnitude a SMART-based hazard can span. It was rejected because it would make field 5 no longer a plain normalised rate (so `Observation.to_vector` and `from_vector` would no longer be the simple `clip(value / scale, 0, 1)` pair) and would put a non-uniform rule into a contract whose value is being simple to check. The scheme stays uniform: one linear scale per field, no special cases. This was a considered decision, not an oversight.
 
-## 12. Changelog
+## 12. Replay file schema
+
+A replay file is the foreground-load trace the simulator consumes. It has exactly the six columns of `REPLAY_COLUMNS`, in this order, and each column has the dtype pinned by `REPLAY_DTYPES`.
+
+| Column | Required dtype | Meaning |
+|---|---|---|
+| `t_seconds` | `int64` | Episode-relative seconds, starting at 0, step `CONTROL_INTERVAL_S` (section 10, decision 4) |
+| `read_iops` | `int64` | Read operations per second |
+| `write_iops` | `int64` | Write operations per second |
+| `read_bw_kbps` | `int64` | Read bandwidth in KB/s, unconverted (section 10, decision 3) |
+| `write_bw_kbps` | `int64` | Write bandwidth in KB/s, unconverted |
+| `disk_usage_mb` | `int64` | Disk usage in MB |
+
+**Why the dtypes are pinned.** Column names and order alone do not fix a format. The Tencent Cloud source fields are integer counts as distributed (for example `read_IOPS=11`, `read_bandwidth=50` KB/s, `disk_usage=3360` MB), and the documented aggregation of N disk traces into one group load (section 10, decision 5) is a sum of integers, so it stays integral. Pinning `int64` keeps a synthetic fallback generator and the real pipeline byte-comparable, which is what lets either feed the simulator interchangeably. Without it a consumer can behave differently depending on which source produced its input (a float column from one source and an integer column from the other), which is the divergence this contract exists to prevent. The aggregation of N traces is a modelling assumption, and a replay file built from it is a simulated aggregate (section 10).
+
+**`validate_replay_frame(df) -> None`** is the single check a producer should run before writing a replay file and a consumer before reading one. It takes a pandas `DataFrame` and raises `ContractViolation` unless:
+
+1. the columns equal `REPLAY_COLUMNS` exactly, in order, not merely as a set;
+2. no column contains a null (checked before the dtype, because a null forces an integer column to float and the null is the more useful thing to report);
+3. every column's dtype equals `REPLAY_DTYPES`;
+4. no value is negative;
+5. `validate_replay_grid` passes on the `t_seconds` column (non-empty, starts at 0, no duplicates, strictly increasing by exactly `CONTROL_INTERVAL_S`).
+
+Every error names the offending column, and a dtype mismatch names both the expected and the actual dtype. pandas is imported inside the function, not at module top level, so `contracts.contracts` keeps its numpy-and-stdlib-only import surface for lanes that do not use pandas. `validate_replay_grid` remains available for a time grid held outside a frame.
+
+## 13. Changelog
 
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 2026-10-29 | Initial freeze. |
+| 1.1.0 | 2026-10-29 | Pinned replay-file dtypes via `REPLAY_DTYPES` (all `int64`) and added `validate_replay_frame`; the schema previously fixed column names and order but not types. |
 
-The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the row above; every subsequent row requires the sign-off of all four teammates.
+The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently.

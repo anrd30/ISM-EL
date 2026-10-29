@@ -11,6 +11,8 @@ import enum
 import inspect
 import math
 import re
+import subprocess
+import sys
 import typing
 import warnings
 from pathlib import Path
@@ -42,6 +44,7 @@ from contracts.contracts import (
     OBS_SCALES,
     REBUILD_WORK_GB,
     REPLAY_COLUMNS,
+    REPLAY_DTYPES,
     RISK_BUDGET_EPS,
     ContractViolation,
     HazardModel,
@@ -59,6 +62,7 @@ from contracts.contracts import (
     latency_violation,
     validate_info,
     termination_flags,
+    validate_replay_frame,
     validate_replay_grid,
 )
 
@@ -1687,6 +1691,237 @@ class TestReturnTypeIdentity:
         assert hazard_p_to_per_hour(np.float64(0.25), np.float64(720.0)) == reference
         assert hazard_p_to_per_hour(np.float32(0.25), np.float32(720.0)) == reference
         assert hazard_p_to_per_hour(np.int64(0), np.int64(720)) == 0.0
+
+
+class TestReplayDtypes:
+    def test_keys_equal_replay_columns_in_order(self):
+        """The dtype table is part of the replay schema: its keys are the six columns
+        in schema order, not merely the same set, since order is what a positional
+        reader of the file relies on."""
+        assert tuple(REPLAY_DTYPES) == REPLAY_COLUMNS
+        assert len(REPLAY_DTYPES) == len(REPLAY_COLUMNS) == 6
+
+    @pytest.mark.parametrize("column", REPLAY_COLUMNS)
+    def test_every_dtype_is_exactly_int64(self, column):
+        """The source fields are integer counts.  A float column silently changes the
+        format (and loses exactness above 2**53), so the schema pins int64 exactly,
+        not any integer or numeric kind."""
+        dtype = REPLAY_DTYPES[column]
+        assert dtype == np.dtype("int64")
+        assert dtype.kind == "i" and dtype.itemsize == 8
+
+
+def _make_frame(pd, n=3, **columns):
+    """Return a valid replay frame of ``n`` rows, with any column replaced by ``columns``."""
+    data = {
+        "t_seconds": np.arange(n, dtype="int64") * 300,
+        "read_iops": np.arange(n, dtype="int64") + 10,
+        "write_iops": np.arange(n, dtype="int64") + 20,
+        "read_bw_kbps": np.arange(n, dtype="int64") + 30,
+        "write_bw_kbps": np.arange(n, dtype="int64") + 40,
+        "disk_usage_mb": np.arange(n, dtype="int64") + 50,
+    }
+    data.update(columns)
+    return pd.DataFrame(data, columns=list(REPLAY_COLUMNS))
+
+
+class TestReplayFrame:
+    @pytest.fixture(autouse=True)
+    def pd(self):
+        return pytest.importorskip("pandas")
+
+    def _violation(self, df):
+        with pytest.raises(ContractViolation) as err:
+            validate_replay_frame(df)
+        return str(err.value)
+
+    def test_valid_frame_passes_silently(self, pd):
+        """A well-formed frame returns None; this guards the rejections below against
+        passing only because everything is rejected."""
+        assert validate_replay_frame(_make_frame(pd)) is None
+        assert validate_replay_frame(_make_frame(pd, n=1)) is None
+        assert validate_replay_frame(_make_frame(pd, n=50)) is None
+
+    @pytest.mark.parametrize("bad", [{}, {"t_seconds": [0, 300]}, [[0, 1]], None, np.zeros((3, 6), dtype="int64")], ids=repr)
+    def test_non_dataframe_is_rejected(self, bad):
+        """Only a DataFrame carries the column names and dtypes the schema constrains."""
+        msg = self._violation(bad)
+        assert "DataFrame" in msg
+
+    def test_wrong_column_order_is_rejected(self, pd):
+        """Columns are positional in the schema; the same names in another order are a
+        different file format."""
+        df = _make_frame(pd)[list(REPLAY_COLUMNS[::-1])]
+        msg = self._violation(df)
+        assert "order" in msg
+
+    def test_missing_column_is_rejected_and_named(self, pd):
+        """The message names the column that is absent."""
+        msg = self._violation(_make_frame(pd).drop(columns=["write_iops"]))
+        assert "write_iops" in msg
+
+    def test_extra_column_is_rejected_and_named(self, pd):
+        """The message names the unexpected column."""
+        df = _make_frame(pd)
+        df["queue_depth"] = np.zeros(len(df), dtype="int64")
+        msg = self._violation(df)
+        assert "queue_depth" in msg
+
+    def test_duplicate_column_name_is_rejected_and_named(self, pd):
+        """A repeated name makes column lookup ambiguous."""
+        df = _make_frame(pd)
+        df = pd.concat([df, df[["read_iops"]]], axis=1)
+        msg = self._violation(df)
+        assert "read_iops" in msg and "duplicate" in msg
+
+    @pytest.mark.parametrize("dtype", ["float64", "int32", "uint64", "bool"])
+    def test_wrong_dtype_is_rejected_naming_column_expected_and_actual(self, pd, dtype):
+        """Each wrong integer width, signedness, float or boolean dtype is a different
+        format; the message names the column, the expected dtype and the actual one."""
+        df = _make_frame(pd)
+        df["read_bw_kbps"] = df["read_bw_kbps"].astype(dtype)
+        msg = self._violation(df)
+        assert "read_bw_kbps" in msg
+        assert "int64" in msg, f"expected dtype missing from message: {msg!r}"
+        assert dtype in msg, f"actual dtype missing from message: {msg!r}"
+
+    def test_nullable_int64_without_nulls_is_a_dtype_mismatch(self, pd):
+        """pandas' nullable ``Int64`` is not NumPy ``int64`` even with no missing value."""
+        df = _make_frame(pd)
+        df["read_iops"] = df["read_iops"].astype("Int64")
+        msg = self._violation(df)
+        assert "read_iops" in msg and "Int64" in msg and "int64" in msg
+
+    def test_nan_in_float_column_is_reported_as_null(self, pd):
+        """A NaN in a float column is a null, named with its column."""
+        df = _make_frame(pd)
+        df["write_iops"] = df["write_iops"].astype("float64")
+        df.loc[1, "write_iops"] = np.nan
+        msg = self._violation(df)
+        assert "write_iops" in msg and "null" in msg.lower()
+
+    def test_pd_na_in_nullable_int_column_is_reported_as_null(self, pd):
+        """A ``pd.NA`` in an ``Int64`` column is a null, named with its column."""
+        df = _make_frame(pd)
+        df["disk_usage_mb"] = df["disk_usage_mb"].astype("Int64")
+        df.loc[2, "disk_usage_mb"] = pd.NA
+        msg = self._violation(df)
+        assert "disk_usage_mb" in msg and "null" in msg.lower()
+
+    def test_null_is_reported_as_null_not_as_dtype_mismatch(self, pd):
+        """Check order: nulls are tested before dtypes.  A null coerces an integer
+        column to float or object, so a dtype-first implementation would report the
+        symptom (wrong dtype) instead of the cause (missing value), and the message is
+        what someone debugging a broken file reads.  In both cases the column here has
+        a non-int64 dtype *because of* the null, and the message must say null only."""
+        for dtype, na in (("float64", np.nan), ("Int64", pd.NA), ("object", None)):
+            df = _make_frame(pd)
+            df["read_iops"] = df["read_iops"].astype(dtype)
+            df.loc[1, "read_iops"] = na
+            msg = self._violation(df)
+            assert "null" in msg.lower(), f"{dtype}: null not reported: {msg!r}"
+            assert "dtype" not in msg.lower(), f"{dtype}: null reported as a dtype mismatch: {msg!r}"
+
+    def test_negative_value_is_rejected_with_column_and_row(self, pd):
+        """Counts and sizes cannot be negative; the message gives the column and the row."""
+        df = _make_frame(pd)
+        df.loc[2, "write_bw_kbps"] = -7
+        msg = self._violation(df)
+        assert "write_bw_kbps" in msg
+        assert re.search(r"\b2\b", msg), f"row index missing from message: {msg!r}"
+        assert "negative" in msg.lower()
+
+    def test_negative_value_row_index_tracks_position(self, pd):
+        """The reported row follows the offending row rather than being a constant."""
+        for row in (0, 1, 4):
+            df = _make_frame(pd, n=5)
+            df.loc[row, "read_iops"] = -1
+            assert re.search(rf"\b{row}\b", self._violation(df))
+
+    @pytest.mark.parametrize(
+        "t_seconds",
+        [
+            np.array([300, 600, 900], dtype="int64"),  # does not start at 0
+            np.array([0, 60, 120], dtype="int64"),  # wrong step
+            np.array([0, 300, 300], dtype="int64"),  # duplicate timestamp
+            np.array([0, 600, 300], dtype="int64"),  # not increasing
+            np.array([0, 300, 900], dtype="int64"),  # gap
+        ],
+        ids=["bad_origin", "wrong_step", "duplicate", "not_increasing", "gap"],
+    )
+    def test_bad_time_grid_is_rejected(self, pd, t_seconds):
+        """The time column must be the 300 s lattice from 0, as ``validate_replay_grid`` requires."""
+        self._violation(_make_frame(pd, t_seconds=t_seconds))
+
+    def test_empty_frame_is_rejected(self, pd):
+        """A frame with the right columns and dtypes but no rows has no replay grid."""
+        self._violation(_make_frame(pd, n=0))
+
+    # -- ordering of the checks -------------------------------------------------
+
+    def test_check_order_type_before_columns(self, pd):
+        """The argument type is checked first; a dict is not inspected for columns."""
+        assert "DataFrame" in self._violation({"anything": 1})
+
+    def test_check_order_columns_before_nulls(self, pd):
+        """A frame with a wrong column set and a null reports the columns."""
+        df = _make_frame(pd).drop(columns=["write_iops"])
+        df["read_iops"] = df["read_iops"].astype("float64")
+        df.loc[0, "read_iops"] = np.nan
+        msg = self._violation(df)
+        assert "write_iops" in msg and "null" not in msg.lower()
+
+    def test_check_order_nulls_before_dtypes_before_negatives(self, pd):
+        """Nulls, then dtypes, then negatives: each earlier defect masks the later one."""
+        df = _make_frame(pd)
+        df["read_iops"] = df["read_iops"].astype("float64")
+        df.loc[0, "read_iops"] = np.nan
+        df["write_iops"] = df["write_iops"].astype("float64")  # wrong dtype as well
+        df.loc[1, "write_bw_kbps"] = -1  # negative as well
+        assert "null" in self._violation(df).lower()
+
+        df = _make_frame(pd)
+        df["write_iops"] = df["write_iops"].astype("float64")  # dtype defect, no null
+        df.loc[1, "write_bw_kbps"] = -1  # negative as well
+        msg = self._violation(df)
+        assert "write_iops" in msg and "dtype" in msg.lower() and "negative" not in msg.lower()
+
+    def test_check_order_negatives_before_grid(self, pd):
+        """A negative value is reported before a time-grid defect."""
+        df = _make_frame(pd, t_seconds=np.array([300, 600, 900], dtype="int64"))
+        df.loc[1, "read_iops"] = -3
+        msg = self._violation(df)
+        assert "negative" in msg.lower() and "read_iops" in msg
+
+
+class TestImportSurface:
+    _PROBE = (
+        "import sys; sys.path.insert(0, {root!r}); "
+        "import contracts.contracts; "
+        "sys.exit(1 if 'pandas' in sys.modules else 0)"
+    )
+
+    def _run(self, code):
+        return subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+        )
+
+    def test_importing_the_contract_does_not_load_pandas(self):
+        """pandas is imported lazily inside ``validate_replay_frame`` so that lanes
+        which do not use pandas keep a numpy-and-stdlib-only import surface.  This runs
+        in a fresh interpreter because this test session has already loaded pandas."""
+        result = self._run(self._PROBE.format(root=str(Path(__file__).resolve().parent.parent)))
+        assert result.returncode == 0, (
+            "importing contracts.contracts loaded pandas (or failed): "
+            f"{result.stdout!r} {result.stderr!r}"
+        )
+
+    def test_probe_detects_pandas_when_it_is_loaded(self):
+        """Control: the same probe fails if pandas is imported first, so the check above
+        is capable of failing rather than vacuously passing."""
+        pytest.importorskip("pandas")
+        code = "import pandas; " + self._PROBE.format(root=str(Path(__file__).resolve().parent.parent))
+        assert self._run(code).returncode == 1
 
 
 class TestUnitConversion:

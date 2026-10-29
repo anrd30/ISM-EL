@@ -50,6 +50,7 @@ __all__ = [
     "OBS_DIM",
     "INFO_KEYS",
     "REPLAY_COLUMNS",
+    "REPLAY_DTYPES",
     "DISK_INDEX_COLUMNS",
     "ContractViolation",
     "Observation",
@@ -68,6 +69,7 @@ __all__ = [
     "aggregate_group_hazard",
     "kbps_to_mbps",
     "validate_replay_grid",
+    "validate_replay_frame",
 ]
 
 
@@ -79,7 +81,7 @@ class ContractViolation(Exception):
 # Frozen numeric constants (design decisions; rationale in INTERFACES.md)
 # --------------------------------------------------------------------------
 
-CONTRACT_VERSION: str = "1.0.0"
+CONTRACT_VERSION: str = "1.1.0"
 
 CONTROL_INTERVAL_S: int = 300  # equals the Tencent trace sampling interval
 HORIZON_DAYS: int = 30
@@ -852,6 +854,22 @@ REPLAY_COLUMNS: tuple[str, ...] = (
     "disk_usage_mb",
 )
 
+# Required numpy dtype of every replay column; the keys equal REPLAY_COLUMNS.
+# All six are integers: the source fields are integer counts as distributed,
+# and the aggregate of N disk traces into one group load is a sum of integers,
+# so it stays integral. Pinning the dtype keeps a synthetic fallback generator
+# and the real pipeline byte-comparable, so either can feed the simulator
+# interchangeably and a consumer cannot behave differently depending on which
+# source produced its input.
+REPLAY_DTYPES: dict[str, np.dtype] = {
+    "t_seconds": np.dtype("int64"),
+    "read_iops": np.dtype("int64"),
+    "write_iops": np.dtype("int64"),
+    "read_bw_kbps": np.dtype("int64"),
+    "write_bw_kbps": np.dtype("int64"),
+    "disk_usage_mb": np.dtype("int64"),
+}
+
 DISK_INDEX_COLUMNS: tuple[str, ...] = (
     "disk_uid",
     "disk_attr",
@@ -892,6 +910,68 @@ def validate_replay_grid(t_seconds: Sequence[int] | np.ndarray) -> None:
             )
 
 
+def validate_replay_frame(df: Any) -> None:
+    """Check a whole replay file held as a pandas ``DataFrame``.
+
+    One call checks the schema and the time grid, so it is the single check a
+    producer runs before writing a replay file and a consumer runs before
+    reading one. Checks, in order:
+
+    1. ``df`` is a ``pandas.DataFrame``.
+    2. The columns equal ``REPLAY_COLUMNS`` exactly, in that order (not merely
+       as a set).
+    3. No column contains a null (NaN, ``None`` or ``pandas.NA``). This is
+       checked before the dtype because a null forces an integer column to
+       float or object, and the null is the more useful thing to report.
+    4. Every column's dtype equals ``REPLAY_DTYPES`` (all ``int64``).
+    5. No value is negative.
+    6. ``validate_replay_grid`` passes on the ``t_seconds`` column.
+
+    Raises:
+        ContractViolation: naming the offending column; a dtype mismatch names
+            both the expected and the actual dtype.
+    """
+    # pandas is imported here, not at module top level, so that importing this
+    # module keeps a numpy-and-stdlib-only surface for lanes that do not use it.
+    import pandas as pd
+
+    if not isinstance(df, pd.DataFrame):
+        raise ContractViolation(f"replay frame must be a pandas DataFrame, got {type(df).__name__}")
+    columns = list(df.columns)
+    expected_columns = list(REPLAY_COLUMNS)
+    if columns != expected_columns:
+        missing = [c for c in expected_columns if c not in columns]
+        unexpected = [c for c in columns if c not in expected_columns]
+        if missing or unexpected:
+            detail = f"missing {missing}, unexpected {unexpected}"
+        elif len(columns) != len(set(columns)):
+            detail = "duplicate column names"
+        else:
+            detail = "same columns in the wrong order"
+        raise ContractViolation(
+            f"replay columns must equal {expected_columns} in order, got {columns}: {detail}"
+        )
+    for name in REPLAY_COLUMNS:
+        if df[name].isna().any():
+            raise ContractViolation(f"replay column {name!r} contains null values")
+    for name in REPLAY_COLUMNS:
+        expected = REPLAY_DTYPES[name]
+        actual = df[name].dtype
+        if actual != expected:
+            raise ContractViolation(
+                f"replay column {name!r} has dtype {actual}, expected {expected}"
+            )
+    for name in REPLAY_COLUMNS:
+        negative = df[name] < 0
+        if negative.any():
+            position = int(np.argmax(negative.to_numpy()))
+            raise ContractViolation(
+                f"replay column {name!r} has a negative value at row {position}: "
+                f"{df[name].iloc[position]!r}"
+            )
+    validate_replay_grid(df["t_seconds"].to_numpy())
+
+
 # --------------------------------------------------------------------------
 # Import-time self-consistency
 # --------------------------------------------------------------------------
@@ -910,6 +990,7 @@ def _check_internal_consistency() -> None:
             MAX_EPISODE_STEPS * CONTROL_INTERVAL_S
             >= REBUILD_WORK_GB * 1000.0 / min(ACTIONS_MBPS)
         ),
+        "REPLAY_DTYPES keys must equal REPLAY_COLUMNS in order": tuple(REPLAY_DTYPES) == REPLAY_COLUMNS,
         "REBUILD_WORK_GB must equal DRIVE_CAPACITY_GB": REBUILD_WORK_GB == DRIVE_CAPACITY_GB,
         "GROUP_SIZE must equal GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES": GROUP_SIZE == GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES,
         "hazard scales must equal (GROUP_SIZE - 1) * 2e-5": all(

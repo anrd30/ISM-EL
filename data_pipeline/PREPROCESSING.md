@@ -40,10 +40,48 @@ in as each task (B1–B5) is implemented.
 
 ## B2 — Per-drive timelines
 
-- Rolling-window sizes used (e.g. `_d1`, `_d7`) and why: `TODO — confirm with Aakarsh`
-- Missingness columns added: `TODO`
-- Censoring fields added (`first_seen`, `last_seen`, `days_observed`, `failed_in_window`): `TODO`
-- Rows before → after: `TODO`
+- Input: `data/processed/backblaze_filtered.parquet` (provisional B1 subset)
+- SMART columns: `smart_5_raw`, `smart_9_raw`, `smart_12_raw`, `smart_187_raw`, `smart_188_raw`, `smart_193_raw`, `smart_194_raw`, `smart_197_raw`, `smart_198_raw`
+- Windows (calendar days, trailing): 7, 30; `smart_188_raw` uses 7 only and has no level column
+- Minimum observations for a difference: 2
+- Feature columns: `smart_5_raw`, `smart_5_raw_diff7d`, `smart_5_raw_diff30d`, `smart_9_raw`, `smart_9_raw_diff7d`, `smart_9_raw_diff30d`, `smart_12_raw`, `smart_12_raw_diff7d`, `smart_12_raw_diff30d`, `smart_187_raw`, `smart_187_raw_diff7d`, `smart_187_raw_diff30d`, `smart_188_raw_diff7d`, `smart_193_raw`, `smart_193_raw_diff7d`, `smart_193_raw_diff30d`, `smart_194_raw`, `smart_194_raw_diff7d`, `smart_194_raw_diff30d`, `smart_197_raw`, `smart_197_raw_diff7d`, `smart_197_raw_diff30d`, `smart_198_raw`, `smart_198_raw_diff7d`, `smart_198_raw_diff30d`
+- Missingness: one `<feature>_missing` boolean per feature column; no value is imputed
+- Timelines table holds backward-looking columns only; `last_seen`, `days_observed`, `failed_in_window` and `failure_date` are in the drive index
+- Counts from the last run of `backblaze/timelines.py`:
+
+- `rows_in=4775365 drives=53235`
+- `timelines_rows=4775365 timelines_columns=58`
+- `drive_index_rows=53235 failed_in_window=276`
+- `drives_with_multiple_failure_rows=0`
+- `rows_with_gap_days_before_gt_1=420`
+- `rows_first_observation=53235`
+- `smart_5_raw_missing=528`
+- `smart_5_raw_diff7d_missing=54357`
+- `smart_5_raw_diff30d_missing=54732`
+- `smart_9_raw_missing=528`
+- `smart_9_raw_diff7d_missing=54357`
+- `smart_9_raw_diff30d_missing=54732`
+- `smart_12_raw_missing=528`
+- `smart_12_raw_diff7d_missing=54357`
+- `smart_12_raw_diff30d_missing=54732`
+- `smart_187_raw_missing=528`
+- `smart_187_raw_diff7d_missing=54357`
+- `smart_187_raw_diff30d_missing=54732`
+- `smart_188_raw_diff7d_missing=54357`
+- `smart_193_raw_missing=528`
+- `smart_193_raw_diff7d_missing=54357`
+- `smart_193_raw_diff30d_missing=54732`
+- `smart_194_raw_missing=528`
+- `smart_194_raw_diff7d_missing=54357`
+- `smart_194_raw_diff30d_missing=54732`
+- `smart_197_raw_missing=528`
+- `smart_197_raw_diff7d_missing=54357`
+- `smart_197_raw_diff30d_missing=54732`
+- `smart_198_raw_missing=528`
+- `smart_198_raw_diff7d_missing=54357`
+- `smart_198_raw_diff30d_missing=54732`
+- `output=data/processed/backblaze_timelines.parquet rows=4775365 sha256=e69a9f721555a375967570cbff4aca3e22f6d54eef78670e0c18e34b39f241cb`
+- `output=data/processed/backblaze_drive_index.parquet rows=53235 sha256=8164b58225818faf6cb56cbe490ee81c6f1e4eb1df60cea8641d3fc84b44f594`
 
 ## B3 — Tencent extract
 

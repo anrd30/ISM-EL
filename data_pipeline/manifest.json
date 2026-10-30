@@ -29,6 +29,11 @@
       "file": "data/processed/tencent_disk_runs.parquet",
       "rows": 32032,
       "sha256": "454a6369571498dafc87fd95777a4d7b3f87ab7051c5281279aecf8652326029"
+    },
+    {
+      "file": "data/processed/tencent_disk_index.parquet",
+      "rows": 16296,
+      "sha256": "43521cb615bc73c7f205d5d69a14441b53012131e302307b748ec8db11f6be7b"
     }
   ],
   "sources": {

@@ -131,11 +131,20 @@ in as each task (B1–B5) is implemented.
 
 ## B4 — Metadata join
 
-- Metadata columns attached (`disk_attr, disk_type, vm_cpu, vm_memory,
-  disk_capacity`) by `disk_uid`: `TODO`
-- Unmatched `disk_uid` count (subscription side / load side): `TODO`
-- Stored as a separate disk-index file, not merged into the B3 replay files
-  (see CLAUDE.md §4, B3 vs B4 note).
+- Output `data/processed/tencent_disk_index.parquet`: one row per unique `disk_uid`, columns `disk_uid, disk_capacity, disk_attr, disk_type, user_type, vm_cpu, vm_memory` (`DISK_INDEX_COLUMNS`, the dataset README field order); `disk_uid` is a string, the other columns int64
+- Stored as a separate disk-index file, not merged into the B3 replay files (see CLAUDE.md §4, B3 vs B4 note); join on `disk_uid`
+- Duplicate `disk_uid` rule: the first row in file order is kept. `conflicting_uid` lines below are ids whose repeated rows disagree; they are compared with the `conflicting_uid` lines of the B3 section
+- Ids present on one side only (subscription vs `tencent_load_clean.parquet`) are counted and listed (first 10 per side); no row or disk is dropped for a mismatch
+- Counts from the last run of `tencent/build_disk_index.py`:
+
+- `subscription_rows_in=16311`
+- `duplicate_rows_dropped=15 repeated_uids=15`
+- `disk_index_rows=16296`
+- `conflicting_uids=2 documented_in_b3=2 match=True`
+- `conflicting_uid=3fb7e888-6abd-4b89-8252-72bfa4a15dc1`
+- `conflicting_uid=c94098d8-c464-4396-af24-87e7a701d377`
+- `subscription_only_uids=0 load_only_uids=0`
+- `output=data/processed/tencent_disk_index.parquet rows=16296 sha256=43521cb615bc73c7f205d5d69a14441b53012131e302307b748ec8db11f6be7b`
 
 ## B5 — Four intensity profiles
 

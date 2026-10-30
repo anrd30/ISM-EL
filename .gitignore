@@ -18,3 +18,5 @@ venv/
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+
+.coverage

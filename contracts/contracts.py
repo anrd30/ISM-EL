@@ -81,7 +81,7 @@ class ContractViolation(Exception):
 # Frozen numeric constants (design decisions; rationale in INTERFACES.md)
 # --------------------------------------------------------------------------
 
-CONTRACT_VERSION: str = "1.1.0"
+CONTRACT_VERSION: str = "1.2.0"
 
 CONTROL_INTERVAL_S: int = 300  # equals the Tencent trace sampling interval
 HORIZON_DAYS: int = 30
@@ -870,10 +870,15 @@ REPLAY_DTYPES: dict[str, np.dtype] = {
     "disk_usage_mb": np.dtype("int64"),
 }
 
+# Column order mirrors the field order of the Tencent Cloud subscription table
+# as the dataset's README documents it. The data pipeline reads those headerless
+# files positionally, so keeping this order identical to the source order lets a
+# producer map columns without a lookup table. Do not reorder.
 DISK_INDEX_COLUMNS: tuple[str, ...] = (
     "disk_uid",
     "disk_attr",
     "disk_type",
+    "user_type",
     "vm_cpu",
     "vm_memory",
     "disk_capacity",

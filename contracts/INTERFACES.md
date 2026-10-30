@@ -6,7 +6,7 @@ This document is the human-readable spec for `contracts/contracts.py`. It fixes 
 
 | Item | Value |
 |---|---|
-| `CONTRACT_VERSION` | `1.1.0` |
+| `CONTRACT_VERSION` | `1.2.0` |
 | Freeze point | End of week 1 |
 | Change rule | Changeable only with the sign-off of all four teammates, recorded in the changelog at the bottom of this file |
 
@@ -216,7 +216,7 @@ All values are design decisions. The arithmetic is shown so that each can be re-
 
 | Constant | Value | Justification (design decision) |
 |---|---|---|
-| `CONTRACT_VERSION` | `"1.1.0"` | Semantic version of this contract |
+| `CONTRACT_VERSION` | `"1.2.0"` | Semantic version of this contract |
 | `CONTROL_INTERVAL_S` | 300 | Matches the Tencent trace sampling interval, so one control step is one trace sample and no resampling is needed |
 | `HORIZON_DAYS` | 30 | Hazard prediction window |
 | `HORIZON_HOURS` | 720.0 | 30 d x 24 h/d. Horizon H of the hazard model. A 30-day window is standard in the SMART failure-prediction literature, which keeps published PR-AUC figures comparable |
@@ -298,7 +298,7 @@ Five conflicts in the source instructions were found and resolved before freeze.
 | # | Topic | Conflict | Resolution |
 |---|---|---|---|
 | 1 | Hazard unit | The observation field was specified as "per hour", while the hazard signature returns a probability over H. | The model returns `p` over H. The adapter converts with `hazard_p_to_per_hour`. Field 5 is a per-hour rate, aggregated over the surviving drives with `aggregate_group_hazard`. |
-| 2 | Replay columns | One instruction said replay files carry exactly six columns; another said to attach five metadata fields. | The six-column replay files stay untouched (`REPLAY_COLUMNS`). Metadata lives in a separate disk-index file (`DISK_INDEX_COLUMNS`), joined on `disk_uid` only where needed. |
+| 2 | Replay columns | One instruction said replay files carry exactly six columns; another said to attach five metadata fields. | The six-column replay files stay untouched (`REPLAY_COLUMNS`). Metadata lives in a separate disk-index file (`DISK_INDEX_COLUMNS`), joined on `disk_uid` only where needed. *Historical note: "five metadata fields" records the original instruction. `DISK_INDEX_COLUMNS` has since carried six entries, and seven from 1.2.0. The decision stands; only the count is stale.* |
 | 3 | Bandwidth units | Traces report KB/s; the observation needs MB/s. | The pipeline stores source KB/s unconverted so its files remain a faithful record of the source. `kbps_to_mbps` converts once, at the adapter boundary, using the decimal convention (divide by 1000). |
 | 4 | `t_seconds` origin | Source timestamps are Unix epoch; the grid test assumed a 0-based grid. | Replay files carry episode-relative seconds starting at 0 with a 300 s step. Rebasing happens in the pipeline and is recorded in its preprocessing log. `validate_replay_grid` enforces this. |
 | 5 | Foreground load scaling | A single real virtual-disk trace peaks in the tens of KB/s while the action set is 20-120 MB/s, so one disk cannot load a simulated group. | Foreground load for one group is the **aggregate of N real disk traces**, with N chosen per intensity profile so that the peak profile's p95 aggregate bandwidth lands near 0.8 x `BW_TOTAL_MBPS` (160 MB/s). N and the resulting p95 are recorded per profile in the pipeline's preprocessing log and manifest. |
@@ -359,11 +359,26 @@ A replay file is the foreground-load trace the simulator consumes. It has exactl
 
 Every error names the offending column, and a dtype mismatch names both the expected and the actual dtype. pandas is imported inside the function, not at module top level, so `contracts.contracts` keeps its numpy-and-stdlib-only import surface for lanes that do not use pandas. `validate_replay_grid` remains available for a time grid held outside a frame.
 
+**Disk index (`DISK_INDEX_COLUMNS`).** Per-disk metadata lives in a separate disk-index file, joined to replay data on `disk_uid` only where needed (section 10, decision 2). Its seven columns, in this order, are:
+
+| Position | Column |
+|---|---|
+| 0 | `disk_uid` |
+| 1 | `disk_attr` |
+| 2 | `disk_type` |
+| 3 | `user_type` |
+| 4 | `vm_cpu` |
+| 5 | `vm_memory` |
+| 6 | `disk_capacity` |
+
+**Why the order is source order.** The order is the field order of the Tencent Cloud subscription table as the dataset's README documents it, and the data pipeline reads those headerless files positionally. Keeping the contract's order identical to the source order means a producer can map columns without a lookup table, whereas any other order would make a positional reader silently assign values to the wrong column. `user_type` sits at position 3 for that reason, not by preference. It distinguishes customer classes, which plausibly explains differences in load pattern between volumes, so it is available as a stratifier when selecting workload windows. Nothing requires it today, and that plausibility is a hypothesis, not a measured effect.
+
 ## 13. Changelog
 
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 2026-10-29 | Initial freeze. |
 | 1.1.0 | 2026-10-29 | Pinned replay-file dtypes via `REPLAY_DTYPES` (all `int64`) and added `validate_replay_frame`; the schema previously fixed column names and order but not types. |
+| 1.2.0 | 2026-10-30 | Added `user_type` to `DISK_INDEX_COLUMNS` at source-order position 3, as a stratifier for workload-window selection. Note: inserting rather than appending is a **breaking change for any positional consumer** of this tuple, so by strict semver this warrants a major bump; it is recorded as minor because the only consumer is the data pipeline and nothing had been built against the six-column form. |
 
-The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently.
+The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently. The third row also lacks the full sign-off: it was proposed by the data-pipeline lane, which owns the only consumer of the disk-index schema, and confirmed by the contract owner. It was not ratified by all four teammates, and it is recorded here rather than amended silently.

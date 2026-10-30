@@ -14,6 +14,21 @@
       "file": "data/processed/backblaze_drive_index.parquet",
       "rows": 53235,
       "sha256": "8164b58225818faf6cb56cbe490ee81c6f1e4eb1df60cea8641d3fc84b44f594"
+    },
+    {
+      "file": "data/processed/tencent_load_clean.parquet",
+      "rows": 268927296,
+      "sha256": "afb5c4823f5eb657b455b1116b0e80053d7816ecf76245cea4b90d379a1c3de3"
+    },
+    {
+      "file": "data/processed/tencent_disk_summary.parquet",
+      "rows": 16296,
+      "sha256": "d8dc097d58232a4f12302dfb8fc7c23b5c5235c44236e4efbf6c1fd6858fe337"
+    },
+    {
+      "file": "data/processed/tencent_disk_runs.parquet",
+      "rows": 32032,
+      "sha256": "454a6369571498dafc87fd95777a4d7b3f87ab7051c5281279aecf8652326029"
     }
   ],
   "sources": {
@@ -108,6 +123,11 @@
       "2022-03-29.csv": "14c7dd2b780790ced5b9dc8db1e1707e682553f6c1f559f3328c673949670a5a",
       "2022-03-30.csv": "079f20d3756c599ab5105aedfc0e02bdb21c48357f2bfa219f0dc2e04d392af7",
       "2022-03-31.csv": "4b536806af5f1b87e9e31bc46518962524fe8c4faf54eb288276883bbfb37fe0"
+    },
+    "tencent": {
+      "subscription": "9e1ee2e2f367a13fce8e1fc96e62788681f7c17e915cea6d2d7dddad24c1d91c",
+      "load_files": 16296,
+      "combined": "e10edba3c3ede2eabf2d6cac3daca385b8736e87df49e35cd40411599f5e781f"
     }
   }
 }

@@ -85,13 +85,49 @@ in as each task (B1–B5) is implemented.
 
 ## B3 — Tencent extract
 
-- Disk(s) / warehouse(s) selected and why: `TODO`
-- Column mapping applied (source → canonical `t_seconds, read_iops, write_iops,
-  read_bw_kbps, write_bw_kbps, disk_usage_mb`): `TODO`
-- Units: bandwidth stored as **KB/s** (source unit, not pre-converted — see
-  CLAUDE.md §6 Open Question 4). Conversion to MB/s happens in the
-  simulator-side adapter, not here.
-- Gap / duplicate / negative-value counts per disk: `TODO`
+- Source field order (dataset README): `timestamp, read_iops, read_bw_kbps, write_iops, write_bw_kbps, disk_usage_mb`; files are headerless
+- Clean table `data/processed/tencent_load_clean.parquet`: columns `disk_uid, timestamp, read_iops, write_iops, read_bw_kbps, write_bw_kbps, disk_usage_mb`, all int64, one row group per disk, rows sorted by timestamp
+- `timestamp` is source epoch seconds; the rebase to `t_seconds` starting at 0 happens when a window is cut (`to_replay_frame`)
+- Units: bandwidth stored as **KB/s** (source unit, not pre-converted — see CLAUDE.md §6 Open Question 4)
+- Cleaning order: sort by timestamp; drop exact duplicate rows; drop every row of a timestamp that still repeats with differing values; drop rows with a negative value. Gaps are reported, never filled
+- Subscription table: first row kept per `disk_uid`; `conflicting_uid` lines below are uids whose repeated rows disagree
+- Counts from the last run of `tencent/extract_load.py`:
+
+- `load_files=16296`
+- `rows_raw=271868975`
+- `out_of_order_rows=7812 disks=5646`
+- `exact_duplicate_rows_dropped=1592593 disks=5168`
+- `conflict_timestamps=674543 conflict_rows_dropped=1349086 disks=3294`
+- `negative_rows_dropped=0 disks=0`
+- `rows_clean=268927296`
+- `off_grid_rows=0 disks=0`
+- `disks_with_breaks=7298 missing_slots=4693480`
+- `disks_with_17280_clean_rows=9132`
+- `subscription_rows=16311 unique_uids=16296 repeated_uids=15 conflicting_uids=2`
+- `subscription_only_uids=0 load_only_uids=0`
+- `conflicting_uid=3fb7e888-6abd-4b89-8252-72bfa4a15dc1`
+- `conflicting_uid=c94098d8-c464-4396-af24-87e7a701d377`
+- `output=data/processed/tencent_load_clean.parquet rows=268927296 sha256=afb5c4823f5eb657b455b1116b0e80053d7816ecf76245cea4b90d379a1c3de3`
+- `output=data/processed/tencent_disk_summary.parquet rows=16296 sha256=d8dc097d58232a4f12302dfb8fc7c23b5c5235c44236e4efbf6c1fd6858fe337`
+- `output=data/processed/tencent_disk_runs.parquet rows=32032 sha256=454a6369571498dafc87fd95777a4d7b3f87ab7051c5281279aecf8652326029`
+- `conflict_diagnostic timestamps=674543`
+- `conflict_load_identical_usage_differs=167824`
+- `conflict_load_rounding_level(abs<=1)=1568`
+- `conflict_load_small(rel<=0.1)=0`
+- `conflict_load_large(rel>0.1)=505151`
+- `conflict_load_abs_spread_where_differs median=47 p90=298 p99=9376 max=1.514e+05`
+- `conflict_load_rel_spread_where_differs median=1 p90=1 p99=1 max=1`
+- `conflict_usage_spread_mb median=0 p90=2048 p99=1.843e+04 max=5.56e+05`
+- `conflict_rows_per_timestamp pairs=674543 more_than_two=0 max=2`
+- `conflict_blocks=5520 block_rows median=136 p90=288 p99=288 max=1440 multiple_of_288=895`
+- `disks_with_conflicts_and_out_of_order=3294`
+- `agg_disks=16296 disks_with_clean_rows=16296`
+- `agg_mean_total_bw_kbps median=85.37 p90=495.3 p99=5559 max=4.372e+04`
+- `agg_peak_total_bw_kbps median=4458 p90=2.435e+04 p99=6.972e+04 max=1.581e+05`
+- `agg_burstiness_p99_over_median disks_defined=14408 disks_median_zero=1888 median=2.733 p90=45.54 p99=299.9 max=4539`
+- `agg_disks_with_24h_window=16296 sampling_offset_classes=1`
+- `agg_disks_sharing_a_24h_window=16296`
+- `agg_largest_24h_group=6817 window_start_ts=1596686400 window_start_utc=2020-08-06 04:00`
 
 ## B4 — Metadata join
 

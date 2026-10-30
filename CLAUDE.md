@@ -87,7 +87,7 @@ Group by `serial_number`, sort by `date`, emit a per-drive sequence with rolling
 Parse load traces into canonical replay files with **exactly** these columns: `t_seconds, read_iops, write_iops, read_bw_kbps, write_bw_kbps, disk_usage_mb`.
 
 ### B4 — Join the metadata
-Attach `disk_attr, disk_type, vm_cpu, vm_memory, disk_capacity` by `disk_uid`.
+Attach `disk_capacity, disk_attr, disk_type, vm_cpu, vm_memory` by `disk_uid`.
 **Note:** B3 says "exactly" six columns and B4 says to attach five more — these two instructions conflict as literally written. **[PROPOSED]** resolve by keeping B3's six-column replay files untouched and writing B4's metadata into a *separate* disk-index file, joined on `disk_uid` only when something downstream needs it.
 
 ### B5 — Four intensity profiles
@@ -122,8 +122,8 @@ The v0 synthetic workload generator (Aniruddh's T4) covers all four profiles. Re
 
 ### Tencent Cloud Virtual Disk Traces
 - ~16,000 cloud virtual disks sampled from 10 warehouses in a Shanghai data center. ~1.3 GB compressed total. Source: github.com/Tencent/Cloud-Volume-Workload-Traces (README).
-- **Subscription table** (metadata, one row per disk): `disk_uid, disk_attr, disk_type, user_type, vm_cpu, vm_memory, disk_capacity`.
-  Example: `disk_uid=0a0a7b84-2279-405e-9cbc-b395c725e01a, disk_attr=0, disk_type=1, user_type=0, vm_cpu=4, vm_memory=32, disk_capacity=50`
+- **Subscription table** (metadata, one row per disk): `disk_uid, disk_capacity, disk_attr, disk_type, user_type, vm_cpu, vm_memory`. **Verified directly against the dataset's own README** (its field-order sentence and example row), not inferred — this order was wrong in an earlier revision of this document (capacity listed last) and propagated into contract v1.2.0 before being caught; corrected here and in the contract at v1.3.0.
+  Example: `disk_uid=0a0a7b84-2279-405e-9cbc-b395c725e01a, disk_capacity=50, disk_attr=0, disk_type=1, user_type=0, vm_cpu=4, vm_memory=32`
 - **Load trace table** (time series, one row per sample): `timestamp, read_IOPS, read_bandwidth, write_IOPS, write_bandwidth, disk_usage`. Up to two months per disk, **300-second (5-minute) sampling interval.**
   Example: `timestamp=1593748800, read_IOPS=11, read_bandwidth=50 KB/s, write_IOPS=7, write_bandwidth=12 KB/s, disk_usage=3360 MB`
 - **Units:** bandwidth is reported in **KB/s**, not MB/s. The observation contract's `fg_bw` is MB/s. A conversion must happen somewhere in the pipeline — see Open Questions.

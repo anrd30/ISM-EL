@@ -6,7 +6,7 @@ This document is the human-readable spec for `contracts/contracts.py`. It fixes 
 
 | Item | Value |
 |---|---|
-| `CONTRACT_VERSION` | `1.2.0` |
+| `CONTRACT_VERSION` | `1.3.0` |
 | Freeze point | End of week 1 |
 | Change rule | Changeable only with the sign-off of all four teammates, recorded in the changelog at the bottom of this file |
 
@@ -216,7 +216,7 @@ All values are design decisions. The arithmetic is shown so that each can be re-
 
 | Constant | Value | Justification (design decision) |
 |---|---|---|
-| `CONTRACT_VERSION` | `"1.2.0"` | Semantic version of this contract |
+| `CONTRACT_VERSION` | `"1.3.0"` | Semantic version of this contract |
 | `CONTROL_INTERVAL_S` | 300 | Matches the Tencent trace sampling interval, so one control step is one trace sample and no resampling is needed |
 | `HORIZON_DAYS` | 30 | Hazard prediction window |
 | `HORIZON_HOURS` | 720.0 | 30 d x 24 h/d. Horizon H of the hazard model. A 30-day window is standard in the SMART failure-prediction literature, which keeps published PR-AUC figures comparable |
@@ -364,14 +364,16 @@ Every error names the offending column, and a dtype mismatch names both the expe
 | Position | Column |
 |---|---|
 | 0 | `disk_uid` |
-| 1 | `disk_attr` |
-| 2 | `disk_type` |
-| 3 | `user_type` |
-| 4 | `vm_cpu` |
-| 5 | `vm_memory` |
-| 6 | `disk_capacity` |
+| 1 | `disk_capacity` |
+| 2 | `disk_attr` |
+| 3 | `disk_type` |
+| 4 | `user_type` |
+| 5 | `vm_cpu` |
+| 6 | `vm_memory` |
 
-**Why the order is source order.** The order is the field order of the Tencent Cloud subscription table as the dataset's README documents it, and the data pipeline reads those headerless files positionally. Keeping the contract's order identical to the source order means a producer can map columns without a lookup table, whereas any other order would make a positional reader silently assign values to the wrong column. `user_type` sits at position 3 for that reason, not by preference. It distinguishes customer classes, which plausibly explains differences in load pattern between volumes, so it is available as a stratifier when selecting workload windows. Nothing requires it today, and that plausibility is a hypothesis, not a measured effect.
+**Why the order is source order.** The order is the field order of the Tencent Cloud Volume Workload Traces README for the subscription table: cloud disk ID, cloud disk capacity (GB), product type, cloud disk type, user type, number of virtual machine CPU cores, virtual machine memory size (GB). The README's own example row, `a2049546-cd8b-49ff-b863-c503baa79429,50,1,1,0,2.0,4.0`, confirms that capacity is the second field. `disk_attr` is the README's "product type" and `disk_type` is its "cloud disk type". The subscription files are headerless and the data pipeline reads them positionally, so keeping the contract's order identical to the source order means a producer can map columns without a lookup table, whereas any other order would make a positional reader silently assign values to the wrong column: it does not raise, it mis-maps every later field. `user_type` distinguishes customer classes, which plausibly explains differences in load pattern between volumes, so it is available as a stratifier when selecting workload windows. Nothing requires it today, and that plausibility is a hypothesis, not a measured effect.
+
+**Rule: verify this order against the dataset's README only.** If this order is ever changed again, it must be verified against the dataset's own README and its example row, never against a project document. The earlier order was taken from a secondhand schema description in a project document, not from the dataset, and was wrong (see the latest changelog row). A wrong position does not raise an error; it silently mis-maps every later field.
 
 ## 13. Changelog
 
@@ -379,6 +381,7 @@ Every error names the offending column, and a dtype mismatch names both the expe
 |---|---|---|
 | 1.0.0 | 2026-10-29 | Initial freeze. |
 | 1.1.0 | 2026-10-29 | Pinned replay-file dtypes via `REPLAY_DTYPES` (all `int64`) and added `validate_replay_frame`; the schema previously fixed column names and order but not types. |
-| 1.2.0 | 2026-10-30 | Added `user_type` to `DISK_INDEX_COLUMNS` at source-order position 3, as a stratifier for workload-window selection. Note: inserting rather than appending is a **breaking change for any positional consumer** of this tuple, so by strict semver this warrants a major bump; it is recorded as minor because the only consumer is the data pipeline and nothing had been built against the six-column form. |
+| 1.2.0 | 2026-10-30 | Added `user_type` to `DISK_INDEX_COLUMNS` at source-order position 3, as a stratifier for workload-window selection. Note: inserting rather than appending is a **breaking change for any positional consumer** of this tuple, so by strict semver this warrants a major bump; it is recorded as minor because the only consumer is the data pipeline and nothing had been built against the six-column form. **Superseded:** that position was wrong — the order came from a project document, not the dataset. See the next row. |
+| 1.3.0 | 2026-10-30 | Corrected `DISK_INDEX_COLUMNS` to the dataset README's field order, moving `disk_capacity` from last position to index 1. The 1.2.0 order was taken from a project document rather than the dataset and was wrong; the subscription file is headerless, so a positional reader using the 1.2.0 order would have mis-mapped every field after the first. Caught by the data-pipeline lane, which had the correct order in its own extractor code. |
 
-The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently. The third row also lacks the full sign-off: it was proposed by the data-pipeline lane, which owns the only consumer of the disk-index schema, and confirmed by the contract owner. It was not ratified by all four teammates, and it is recorded here rather than amended silently.
+The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently. The third row also lacks the full sign-off: it was proposed by the data-pipeline lane, which owns the only consumer of the disk-index schema, and confirmed by the contract owner. It was not ratified by all four teammates, and it is recorded here rather than amended silently. The fourth row has the same caveat: the correction was raised by the data-pipeline lane and confirmed by the contract owner, and was not ratified by all four teammates.

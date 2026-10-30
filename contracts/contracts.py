@@ -81,7 +81,7 @@ class ContractViolation(Exception):
 # Frozen numeric constants (design decisions; rationale in INTERFACES.md)
 # --------------------------------------------------------------------------
 
-CONTRACT_VERSION: str = "1.2.0"
+CONTRACT_VERSION: str = "1.3.0"
 
 CONTROL_INTERVAL_S: int = 300  # equals the Tencent trace sampling interval
 HORIZON_DAYS: int = 30
@@ -870,18 +870,26 @@ REPLAY_DTYPES: dict[str, np.dtype] = {
     "disk_usage_mb": np.dtype("int64"),
 }
 
-# Column order mirrors the field order of the Tencent Cloud subscription table
-# as the dataset's README documents it. The data pipeline reads those headerless
-# files positionally, so keeping this order identical to the source order lets a
-# producer map columns without a lookup table. Do not reorder.
+# Column order is the field order of the Tencent Cloud Volume Workload Traces
+# README for the subscription table, confirmed by the README's own example row
+# (a2049546-cd8b-49ff-b863-c503baa79429,50,1,1,0,2.0,4.0, where 50 is the
+# capacity in GB at index 1). The subscription file is headerless, so a
+# positional reader depends on this order exactly. README names -> contract
+# names: "product type" = disk_attr, "cloud disk type" = disk_type.
+#
+# RULE: if this order is ever changed again, verify it against the dataset's own
+# README, never against a project document. The earlier order was copied from a
+# secondhand schema description (data_pipeline/CLAUDE.md section 5), was wrong,
+# and had to be corrected (see the latest INTERFACES.md changelog row). A wrong
+# position does not raise; it silently mis-maps every later field.
 DISK_INDEX_COLUMNS: tuple[str, ...] = (
     "disk_uid",
+    "disk_capacity",
     "disk_attr",
     "disk_type",
     "user_type",
     "vm_cpu",
     "vm_memory",
-    "disk_capacity",
 )
 
 

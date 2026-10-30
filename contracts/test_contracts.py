@@ -364,20 +364,21 @@ class TestConstants:
         )
         assert DISK_INDEX_COLUMNS == (
             "disk_uid",
+            "disk_capacity",
             "disk_attr",
             "disk_type",
             "user_type",
             "vm_cpu",
             "vm_memory",
-            "disk_capacity",
         )
 
-    def test_user_type_sits_at_source_order_position_3(self):
-        """The disk-index order mirrors the source subscription table."""
-        assert DISK_INDEX_COLUMNS.index("user_type") == 3, (
-            "user_type must sit at index 3 of DISK_INDEX_COLUMNS: the order mirrors the "
-            "source table's field order, and reordering would silently mis-map columns "
-            f"for a positional reader (got {DISK_INDEX_COLUMNS!r})"
+    def test_disk_capacity_sits_at_index_1(self):
+        """disk_capacity is the second field of the dataset README's subscription table."""
+        assert DISK_INDEX_COLUMNS.index("disk_capacity") == 1, (
+            "disk_capacity must sit at index 1 of DISK_INDEX_COLUMNS: the order is the "
+            "dataset README's field order (confirmed by its example row), the "
+            "subscription file is headerless, and a wrong position silently mis-maps "
+            f"every later field rather than raising (got {DISK_INDEX_COLUMNS!r})"
         )
 
     def test_contract_violation_is_an_exception(self):

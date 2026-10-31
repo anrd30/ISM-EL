@@ -1,0 +1,4 @@
+# Files under data_pipeline/profiles are hashed byte for byte in data_pipeline/manifest.json.
+# Keep LF line endings on every platform so a Windows checkout does not change their bytes.
+data_pipeline/profiles/*.csv text eol=lf
+data_pipeline/profiles/*.json text eol=lf

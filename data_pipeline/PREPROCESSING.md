@@ -5,8 +5,13 @@ data, with row counts before and after. Updated incrementally in every PR —
 never written only at the end. This file is the B6 deliverable and is what
 the B-lane acceptance check (`check_outputs.py`) verifies counts against.
 
-Status: **scaffold only — no data processed yet.** Sections below are filled
-in as each task (B1–B5) is implemented.
+Status: B1–B5 are implemented and have been run on the full data; the counts in
+sections B1–B5 below are written by the scripts named in each section on their
+last run. B6 is in progress: `check_outputs.py` re-verifies those outputs
+against `manifest.json`, this file and the contract validators (see the B6
+section). B1 and B2 use one provisional quarter and a provisional three-model
+subset; B5 profiles are aggregates of selected extreme volumes over one shared
+24 h window.
 
 ---
 
@@ -87,7 +92,7 @@ in as each task (B1–B5) is implemented.
 
 - Source field order (dataset README): `timestamp, read_iops, read_bw_kbps, write_iops, write_bw_kbps, disk_usage_mb`; files are headerless
 - Clean table `data/processed/tencent_load_clean.parquet`: columns `disk_uid, timestamp, read_iops, write_iops, read_bw_kbps, write_bw_kbps, disk_usage_mb`, all int64, one row group per disk, rows sorted by timestamp
-- `timestamp` is source epoch seconds; the rebase to `t_seconds` starting at 0 happens when a window is cut (`to_replay_frame`)
+- `timestamp` is source epoch seconds; the rebase to `t_seconds` starting at 0 happens when a window is cut (`contracts.contracts.to_replay_frame`)
 - Units: bandwidth stored as **KB/s** (source unit, not pre-converted — see CLAUDE.md §6 Open Question 4)
 - Cleaning order: sort by timestamp; drop exact duplicate rows; drop every row of a timestamp that still repeats with differing values; drop rows with a negative value. Gaps are reported, never filled
 - Subscription table: first row kept per `disk_uid`; `conflicting_uid` lines below are uids whose repeated rows disagree
@@ -148,15 +153,74 @@ in as each task (B1–B5) is implemented.
 
 ## B5 — Four intensity profiles
 
-- Selection thresholds used for idle / diurnal / bursty / peak: `TODO — written
-  down here before any window is chosen, per CLAUDE.md §4`
-- Disk(s) and original time ranges chosen for each profile: `TODO`
-- Row count per profile file: target 288 rows (24h at 300s). Verified by
-  `tests/test_profile_grid.py`.
+- Each profile is the sum of N real volumes over one shared 24 h window (288 samples, 300 s), in the six-column replay schema, bandwidth in KB/s. Each is an aggregate of N volumes chosen by character: selected extremes, not a representative sample of volumes or of a storage group
+- Bursty: selected extremes, not a representative sample; volumes are ranked by window-local p99/median and the same statistic is then reported for the aggregate (selection on the outcome), so the reported value is high partly by construction
+- Window: the start timestamp shared by the most volumes with a gap-free 24 h run; only those volumes are candidates
+- Selection rules: peak = highest mean total bandwidth; diurnal = highest `daily_strength` (share of total-bandwidth variance explained by the 288-bin time-of-day mean, at least 14 days of clean rows); bursty = highest window-local p99/median of total bandwidth (the 288 window samples of the volume, median > 0); idle = lowest mean total bandwidth. Ties are broken by `disk_uid`
+- N: every N from 1 to the number of ranked candidates is evaluated. All four profiles use the same one-sided rule: the largest N whose aggregate p95 does not exceed target x 1.005 (targets: peak 160, diurnal 100, bursty 120, idle 20 MB/s; the 0.5% tolerance keeps a p95 a hair above the literal target from being counted as an overshoot)
+- "Closest to target" was dropped for all four profiles in favour of "largest N at or below target x 1.005": a symmetric distance is the wrong fit for a one-sided feasibility ceiling. Overshoot uses up the headroom the simulator's latency limit (`sim/config.py`) leaves for rebuild traffic, while undershoot only makes the profile lighter. No disk is skipped or swapped to move p95 or p99/median toward a target
+- p99/median of a profile is computed over its 288 window samples of total bandwidth (read + write); the synthetic generator's bursty profile gives 8.5-9.8 on the same definition
+- Files: `data/processed/tencent_profile_<name>.parquet` and `profiles/profile_<name>.csv` (identical rows); selected disks in `tencent_profile_disks.parquet`; candidate statistics (daily-cycle strength, window-local p99/median) in `tencent_profile_candidates.parquet`
+- Visual check: `profiles/profile_comparison.png`, one panel per profile on a shared bandwidth axis and a shared 24 h time axis
+- Counts and measurements from the last run of `tencent/build_profiles.py`:
+
+- `window_start_ts=1596686400 window_start_utc=2020-08-06 04:00`
+- `candidate_disks=6817 diurnal_candidates=6759`
+- `profile=idle n_disks=748 label=aggregate_of_748_lowest-mean-bandwidth_volumes rule="lowest mean total bandwidth" tuned=True target_p95_mbps=20 p95_mbps=20.09 p99_over_median=1.224 mean_mbps=14.13 max_mbps=22.86`
+- `profile=idle mean_total_bw_kbps_range=[0,45.18] zero_bandwidth_disks=26`
+- `profile=idle user_type_counts={0: 463, 1: 285} disk_type_counts={0: 317, 1: 431}`
+- `profile=diurnal n_disks=39 label=aggregate_of_39_strongest-daily-cycle_volumes rule="highest daily_strength (variance share of the time-of-day mean profile)" tuned=True target_p95_mbps=100 p95_mbps=96.83 p99_over_median=1.395 mean_mbps=69.13 max_mbps=111.8`
+- `profile=diurnal daily_strength_range=[0.8678,0.9965] zero_bandwidth_disks=0`
+- `profile=diurnal user_type_counts={0: 19, 1: 20} disk_type_counts={0: 13, 1: 26}`
+- `profile=bursty n_disks=23 label=aggregate_of_23_highest-window-p99/median_volumes rule="highest window-local p99/median of total bandwidth" tuned=True target_p95_mbps=120 p95_mbps=116 p99_over_median=5.909 mean_mbps=38.92 max_mbps=153.5`
+- `profile=bursty burstiness_range=[130.7,2398] zero_bandwidth_disks=0`
+- `profile=bursty user_type_counts={0: 15, 1: 8} disk_type_counts={0: 7, 1: 16}`
+- `profile=peak n_disks=4 label=aggregate_of_4_highest-mean-bandwidth_volumes rule="highest mean total bandwidth" tuned=True target_p95_mbps=160 p95_mbps=144.4 p99_over_median=1.064 mean_mbps=135.9 max_mbps=148.9`
+- `profile=peak start_n=64 p95_mbps_at_start_n=752.1`
+- `profile=peak mean_total_bw_kbps_range=[2.135e+04,4.372e+04] zero_bandwidth_disks=0`
+- `profile=peak user_type_counts={0: 3, 1: 1} disk_type_counts={0: 1, 1: 3}`
+- `bursty_p99_over_median=5.909 synthetic_reference_range=8.5-9.8 below_reference=True ranking_statistic=window_p99_over_median selected_on_reported_statistic=True`
+- `overlap_idle_diurnal=3`
+- `overlap_idle_bursty=0`
+- `overlap_idle_peak=0`
+- `overlap_diurnal_bursty=1`
+- `overlap_diurnal_peak=0`
+- `overlap_bursty_peak=0`
+- `output=data/processed/tencent_profile_idle.parquet rows=288 sha256=4c2d82aee4a29cb056d5f4178ea788bf97ef1887f499ca851e651f3296afef65`
+- `output=profiles/profile_idle.csv rows=288 sha256=a8977c722067997f248eac271ccc44211b7eb6801168a0eb1a5b55b60258d6fd`
+- `output=data/processed/tencent_profile_diurnal.parquet rows=288 sha256=7794fd7754e81dac2ab082a24cf0216f530fa9f7872d9e08eb144b3082c6b02d`
+- `output=profiles/profile_diurnal.csv rows=288 sha256=83643f1fb9717441966b3532548104787750e08d9e70079c2061dc96916c6ca9`
+- `output=data/processed/tencent_profile_bursty.parquet rows=288 sha256=6e3b44e69d59ad7215701299b8b67f4918fb6b069d1962bb589c2f553c1acf48`
+- `output=profiles/profile_bursty.csv rows=288 sha256=6432c2bac432380944a2a190bf13921579efe0e1330f323eade4ee8c988a7985`
+- `output=data/processed/tencent_profile_peak.parquet rows=288 sha256=da71bb6d1774a859a5b0d6c8a6f1b835d436096dc5e0b861391fef94d62b8574`
+- `output=profiles/profile_peak.csv rows=288 sha256=b57927ff6fbb3e465d391c5ac63e22a8d255cbb6dab664f11938b71f34e50f4d`
+- `output=profiles/profile_comparison.png sha256=2b2e11be223e9f8e2311b3ec1498817204ffc44ce0c155a9af6567b22d35cf3d`
+- `output=data/processed/tencent_profile_disks.parquet rows=814 sha256=60c4a9946a40167da73e00c0f77c727b44a8c18521d1908555c1a492257c8e4c`
+- `output=data/processed/tencent_profile_candidates.parquet rows=6817 sha256=7064a68540bec367c26d6bc8b8dbd8098090187733df6c7665b5324709e3c696`
 
 ## B6 — This file / acceptance
 
-- `manifest.json` lists every output file with row count and sha256.
-- `check_outputs.py` re-verifies every count in this file against the actual
-  output files, plus column names, dtypes, unique keys, and the 288-row /
-  300-second grid for each profile.
+- `manifest.json` lists every output file with its sha256 and, for tables, its
+  row count (the plot has no row count).
+- `check_outputs.py` prints one PASS / FAIL / MISSING line per check and exits
+  with status 1 on any FAIL or MISSING:
+  - `manifest.json` and `PREPROCESSING.md` exist, and the manifest lists every
+    output file;
+  - sha256 of every file in the manifest, and its row count where one is
+    recorded;
+  - row counts of the Backblaze extract, timelines and drive index, the Tencent
+    clean table, summary, runs and disk index, and the profile files, against
+    the counts recorded in this file;
+  - key uniqueness: `(serial_number, date)` in the extract and the timelines,
+    `serial_number` in the drive index, `disk_uid` in the disk summary;
+  - `validate_disk_index_frame` (contract) on the disk index;
+  - `validate_replay_frame` and `validate_replay_grid` (contract) on each of
+    the four profiles as CSV and as Parquet, the 288-row length, and equality
+    of the CSV and Parquet versions;
+  - `profile_comparison.png`, `tencent_profile_disks.parquet` and
+    `tencent_profile_candidates.parquet` are present, listed in the manifest
+    and named in this file, and the per-profile disk counts in the manifest
+    agree with `tencent_profile_disks.parquet`.
+- `check_outputs.py` does not re-run the pipeline scripts and does not judge
+  the plot; whether the four profiles are visibly different is read from
+  `profiles/profile_comparison.png`.

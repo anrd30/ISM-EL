@@ -34,6 +34,61 @@
       "file": "data/processed/tencent_disk_index.parquet",
       "rows": 16296,
       "sha256": "43521cb615bc73c7f205d5d69a14441b53012131e302307b748ec8db11f6be7b"
+    },
+    {
+      "file": "data/processed/tencent_profile_idle.parquet",
+      "rows": 288,
+      "sha256": "4c2d82aee4a29cb056d5f4178ea788bf97ef1887f499ca851e651f3296afef65"
+    },
+    {
+      "file": "profiles/profile_idle.csv",
+      "rows": 288,
+      "sha256": "a8977c722067997f248eac271ccc44211b7eb6801168a0eb1a5b55b60258d6fd"
+    },
+    {
+      "file": "data/processed/tencent_profile_diurnal.parquet",
+      "rows": 288,
+      "sha256": "7794fd7754e81dac2ab082a24cf0216f530fa9f7872d9e08eb144b3082c6b02d"
+    },
+    {
+      "file": "profiles/profile_diurnal.csv",
+      "rows": 288,
+      "sha256": "83643f1fb9717441966b3532548104787750e08d9e70079c2061dc96916c6ca9"
+    },
+    {
+      "file": "data/processed/tencent_profile_bursty.parquet",
+      "rows": 288,
+      "sha256": "6e3b44e69d59ad7215701299b8b67f4918fb6b069d1962bb589c2f553c1acf48"
+    },
+    {
+      "file": "profiles/profile_bursty.csv",
+      "rows": 288,
+      "sha256": "6432c2bac432380944a2a190bf13921579efe0e1330f323eade4ee8c988a7985"
+    },
+    {
+      "file": "data/processed/tencent_profile_peak.parquet",
+      "rows": 288,
+      "sha256": "da71bb6d1774a859a5b0d6c8a6f1b835d436096dc5e0b861391fef94d62b8574"
+    },
+    {
+      "file": "profiles/profile_peak.csv",
+      "rows": 288,
+      "sha256": "b57927ff6fbb3e465d391c5ac63e22a8d255cbb6dab664f11938b71f34e50f4d"
+    },
+    {
+      "file": "profiles/profile_comparison.png",
+      "rows": null,
+      "sha256": "2b2e11be223e9f8e2311b3ec1498817204ffc44ce0c155a9af6567b22d35cf3d"
+    },
+    {
+      "file": "data/processed/tencent_profile_disks.parquet",
+      "rows": 814,
+      "sha256": "60c4a9946a40167da73e00c0f77c727b44a8c18521d1908555c1a492257c8e4c"
+    },
+    {
+      "file": "data/processed/tencent_profile_candidates.parquet",
+      "rows": 6817,
+      "sha256": "7064a68540bec367c26d6bc8b8dbd8098090187733df6c7665b5324709e3c696"
     }
   ],
   "sources": {
@@ -133,6 +188,56 @@
       "subscription": "9e1ee2e2f367a13fce8e1fc96e62788681f7c17e915cea6d2d7dddad24c1d91c",
       "load_files": 16296,
       "combined": "e10edba3c3ede2eabf2d6cac3daca385b8736e87df49e35cd40411599f5e781f"
+    }
+  },
+  "profiles": {
+    "idle": {
+      "n_disks": 748,
+      "label": "aggregate of 748 lowest-mean-bandwidth volumes (selected extremes, not a representative sample)",
+      "disclosure": "selected extremes, not a representative sample",
+      "selection_rule": "lowest mean total bandwidth",
+      "n_selection_mode": "not_above",
+      "window_start_ts": 1596686400,
+      "tuned": true,
+      "target_p95_mbps": 20.0,
+      "p95_mbps": 20.091249999999995,
+      "p99_over_median": 1.2242072756119675
+    },
+    "diurnal": {
+      "n_disks": 39,
+      "label": "aggregate of 39 strongest-daily-cycle volumes (selected extremes, not a representative sample)",
+      "disclosure": "selected extremes, not a representative sample",
+      "selection_rule": "highest daily_strength (variance share of the time-of-day mean profile)",
+      "n_selection_mode": "not_above",
+      "window_start_ts": 1596686400,
+      "tuned": true,
+      "target_p95_mbps": 100.0,
+      "p95_mbps": 96.82589999999999,
+      "p99_over_median": 1.3952528506550788
+    },
+    "bursty": {
+      "n_disks": 23,
+      "label": "aggregate of 23 highest-window-p99/median volumes (selected extremes, not a representative sample)",
+      "disclosure": "selected extremes, not a representative sample; volumes are ranked by window-local p99/median and the same statistic is then reported for the aggregate (selection on the outcome), so the reported value is high partly by construction",
+      "selection_rule": "highest window-local p99/median of total bandwidth",
+      "n_selection_mode": "not_above",
+      "window_start_ts": 1596686400,
+      "tuned": true,
+      "target_p95_mbps": 120.0,
+      "p95_mbps": 115.96419999999999,
+      "p99_over_median": 5.90936544774091
+    },
+    "peak": {
+      "n_disks": 4,
+      "label": "aggregate of 4 highest-mean-bandwidth volumes (selected extremes, not a representative sample)",
+      "disclosure": "selected extremes, not a representative sample",
+      "selection_rule": "highest mean total bandwidth",
+      "n_selection_mode": "not_above",
+      "window_start_ts": 1596686400,
+      "tuned": true,
+      "target_p95_mbps": 160.0,
+      "p95_mbps": 144.39515,
+      "p99_over_median": 1.0637449773663599
     }
   }
 }

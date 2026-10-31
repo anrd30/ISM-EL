@@ -17,8 +17,8 @@ each disk, and cross-disk load and shared-window statistics are reported;
 see `conflict_lines` and `aggregation_lines`.
 
 Timestamps stay as source epoch seconds and bandwidth stays in source KB/s.
-`to_replay_frame` rebases a gap-free 300 s window to the six-column int64
-replay schema (`t_seconds` starting at 0) used downstream.
+A gap-free 300 s window of the clean table is rebased to the six-column int64
+replay schema (`t_seconds` starting at 0) by `contracts.contracts.to_replay_frame`.
 
 Usage:
     python -I extract_load.py [dataset_root]
@@ -68,7 +68,6 @@ SOURCE_COLUMNS = ["timestamp", "read_iops", "read_bw_kbps",
                   "write_iops", "write_bw_kbps", "disk_usage_mb"]
 VALUE_COLUMNS = ["read_iops", "write_iops", "read_bw_kbps", "write_bw_kbps", "disk_usage_mb"]
 CLEAN_COLUMNS = ["timestamp"] + VALUE_COLUMNS
-REPLAY_COLUMNS = ["t_seconds"] + VALUE_COLUMNS
 
 CLEAN_SCHEMA = pa.schema(
     [pa.field("disk_uid", pa.string())] + [pa.field(c, pa.int64()) for c in CLEAN_COLUMNS]
@@ -179,16 +178,6 @@ def trace_runs(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     starts = np.concatenate(([0], break_idx + 1))
     lengths = np.diff(np.concatenate(([-1], break_idx, [len(ts) - 1])))
     return ts[starts].astype("int64"), lengths.astype("int64")
-
-
-def to_replay_frame(window: pd.DataFrame) -> pd.DataFrame:
-    """Rebase a contiguous 300 s window of the clean table to the replay schema."""
-    ts = window["timestamp"].to_numpy(dtype="int64")
-    if len(ts) == 0 or not np.array_equal(ts - ts[0], np.arange(len(ts), dtype="int64") * STEP_S):
-        raise ValueError("window is not a contiguous 300 s grid")
-    out = window[VALUE_COLUMNS].astype("int64").reset_index(drop=True)
-    out.insert(0, "t_seconds", ts - ts[0])
-    return out[REPLAY_COLUMNS]
 
 
 def read_subscription(path: Path | io.BytesIO) -> pd.DataFrame:
@@ -465,7 +454,7 @@ def update_preprocessing(lines: list[str]) -> None:
         "`disk_uid, timestamp, read_iops, write_iops, read_bw_kbps, write_bw_kbps, "
         "disk_usage_mb`, all int64, one row group per disk, rows sorted by timestamp\n"
         "- `timestamp` is source epoch seconds; the rebase to `t_seconds` starting at 0 "
-        "happens when a window is cut (`to_replay_frame`)\n"
+        "happens when a window is cut (`contracts.contracts.to_replay_frame`)\n"
         "- Units: bandwidth stored as **KB/s** (source unit, not pre-converted — see "
         "CLAUDE.md §6 Open Question 4)\n"
         "- Cleaning order: sort by timestamp; drop exact duplicate rows; drop every row of a "

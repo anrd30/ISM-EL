@@ -6,7 +6,7 @@ This document is the human-readable spec for `contracts/contracts.py`. It fixes 
 
 | Item | Value |
 |---|---|
-| `CONTRACT_VERSION` | `1.3.0` |
+| `CONTRACT_VERSION` | `1.4.0` |
 | Freeze point | End of week 1 |
 | Change rule | Changeable only with the sign-off of all four teammates, recorded in the changelog at the bottom of this file |
 
@@ -216,7 +216,7 @@ All values are design decisions. The arithmetic is shown so that each can be re-
 
 | Constant | Value | Justification (design decision) |
 |---|---|---|
-| `CONTRACT_VERSION` | `"1.3.0"` | Semantic version of this contract |
+| `CONTRACT_VERSION` | `"1.4.0"` | Semantic version of this contract |
 | `CONTROL_INTERVAL_S` | 300 | Matches the Tencent trace sampling interval, so one control step is one trace sample and no resampling is needed |
 | `HORIZON_DAYS` | 30 | Hazard prediction window |
 | `HORIZON_HOURS` | 720.0 | 30 d x 24 h/d. Horizon H of the hazard model. A 30-day window is standard in the SMART failure-prediction literature, which keeps published PR-AUC figures comparable |
@@ -359,6 +359,8 @@ A replay file is the foreground-load trace the simulator consumes. It has exactl
 
 Every error names the offending column, and a dtype mismatch names both the expected and the actual dtype. pandas is imported inside the function, not at module top level, so `contracts.contracts` keeps its numpy-and-stdlib-only import surface for lanes that do not use pandas. `validate_replay_grid` remains available for a time grid held outside a frame.
 
+**`to_replay_frame(window)`** builds a replay frame from a window of the cleaned Tencent load table. The window is a pandas `DataFrame` with a `timestamp` column (source Unix epoch seconds, exactly `CONTROL_INTERVAL_S` apart, no gap) and the five value columns of `REPLAY_COLUMNS` after `t_seconds`; other columns are ignored. It returns the six `REPLAY_COLUMNS` in order, all `int64`, with `t_seconds` rebased to start at 0 (section 10, decision 4) and bandwidth left in KB/s (decision 3). It raises `ContractViolation` if the argument is not a DataFrame, a required column is absent, or the timestamps are not a gap-free grid of at least one row. It lives in the contract so that the rebasing rule is defined once; it was previously a function of the data pipeline's extractor.
+
 **Disk index (`DISK_INDEX_COLUMNS`).** Per-disk metadata lives in a separate disk-index file, joined to replay data on `disk_uid` only where needed (section 10, decision 2). Its seven columns, in this order, are:
 
 | Position | Column |
@@ -375,6 +377,17 @@ Every error names the offending column, and a dtype mismatch names both the expe
 
 **Rule: verify this order against the dataset's README only.** If this order is ever changed again, it must be verified against the dataset's own README and its example row, never against a project document. The earlier order was taken from a secondhand schema description in a project document, not from the dataset, and was wrong (see the latest changelog row). A wrong position does not raise an error; it silently mis-maps every later field.
 
+**`validate_disk_index_frame(df) -> None`** is the single check a producer should run before writing the disk-index file and a consumer before reading it. It takes a pandas `DataFrame` and raises `ContractViolation` unless:
+
+1. the argument is a `DataFrame`;
+2. the columns equal `DISK_INDEX_COLUMNS` exactly, in order, not merely as a set;
+3. no column contains a null (checked before the dtype, for the same reason as in `validate_replay_frame`);
+4. `disk_uid` is a string column (NumPy `object` holding only `str`, or a pandas string dtype) and the other six columns have dtype `int64`;
+5. `disk_uid` has no duplicate value, the error naming the first repeated value and its row;
+6. no value in the six numeric columns is negative, the error naming the column and the row.
+
+Every error names the offending column, and a dtype mismatch names both the expected and the actual dtype. pandas string dtypes are accepted for `disk_uid` because the default string dtype of current pandas is not NumPy `object`; a frame read back from Parquet carries it. A frame with the right columns and dtypes but no rows passes. pandas is imported inside the function, as in `validate_replay_frame`.
+
 ## 13. Changelog
 
 | Version | Date | Change |
@@ -383,5 +396,6 @@ Every error names the offending column, and a dtype mismatch names both the expe
 | 1.1.0 | 2026-10-29 | Pinned replay-file dtypes via `REPLAY_DTYPES` (all `int64`) and added `validate_replay_frame`; the schema previously fixed column names and order but not types. |
 | 1.2.0 | 2026-10-30 | Added `user_type` to `DISK_INDEX_COLUMNS` at source-order position 3, as a stratifier for workload-window selection. Note: inserting rather than appending is a **breaking change for any positional consumer** of this tuple, so by strict semver this warrants a major bump; it is recorded as minor because the only consumer is the data pipeline and nothing had been built against the six-column form. **Superseded:** that position was wrong — the order came from a project document, not the dataset. See the next row. |
 | 1.3.0 | 2026-10-30 | Corrected `DISK_INDEX_COLUMNS` to the dataset README's field order, moving `disk_capacity` from last position to index 1. The 1.2.0 order was taken from a project document rather than the dataset and was wrong; the subscription file is headerless, so a positional reader using the 1.2.0 order would have mis-mapped every field after the first. Caught by the data-pipeline lane, which had the correct order in its own extractor code. |
+| 1.4.0 | 2026-10-31 | Added `validate_disk_index_frame` and moved `to_replay_frame` into the contract. The data pipeline's disk-index output (section 12, disk index) had no contract-level validator while its replay frames did, so `build_disk_index.py` validated itself with ad-hoc checks instead of a shared, tested contract function; the new function checks columns, nulls, dtypes, duplicate `disk_uid` and negative values in the same order and with the same error conventions as `validate_replay_frame`. `to_replay_frame`, which rebases a cleaned Tencent window to the replay schema, previously lived in the pipeline's extractor; it is the producer-side counterpart of `validate_replay_frame` and its only users were inside the data pipeline, so it now sits beside `REPLAY_COLUMNS` with `ContractViolation` as its error type. Both are additions; no existing name, column or value changed. |
 
-The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently. The third row also lacks the full sign-off: it was proposed by the data-pipeline lane, which owns the only consumer of the disk-index schema, and confirmed by the contract owner. It was not ratified by all four teammates, and it is recorded here rather than amended silently. The fourth row has the same caveat: the correction was raised by the data-pipeline lane and confirmed by the contract owner, and was not ratified by all four teammates.
+The rationale for each design decision lives in the numbered sections above, not in this table. This contract is frozen at the first row; every subsequent row requires the sign-off of all four teammates. The second row was added without that sign-off: the gap was found by the first consumer built against the contract, before any other workstream had built against it, and it is recorded here rather than amended silently. The third row also lacks the full sign-off: it was proposed by the data-pipeline lane, which owns the only consumer of the disk-index schema, and confirmed by the contract owner. It was not ratified by all four teammates, and it is recorded here rather than amended silently. The fourth row has the same caveat: the correction was raised by the data-pipeline lane and confirmed by the contract owner, and was not ratified by all four teammates. The fifth row has the same caveat: it was raised by the data-pipeline lane, which owns the only consumers of both functions, and ratification by all four teammates is not recorded in this repository; it is listed here rather than amended silently.

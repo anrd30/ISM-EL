@@ -107,22 +107,49 @@ def test_dedupe_without_duplicates():
     assert info["repeated_uids"] == 0 and info["conflicting_uids"] == []
 
 
-def test_validate_index_accepts_deduped_frame():
-    bd.validate_index(bd.dedupe_subscription(sub_frame())[0])
+def test_deduped_frame_satisfies_the_contract_validator():
+    assert contracts.validate_disk_index_frame(bd.dedupe_subscription(sub_frame())[0]) is None
 
 
-def test_validate_index_rejects_bad_frames():
+def test_build_calls_the_contract_validator_on_the_index(env, monkeypatch):
+    calls = []
+    original = contracts.validate_disk_index_frame
+
+    def spy(frame):
+        calls.append(frame.copy())
+        return original(frame)
+
+    monkeypatch.setattr(bd.contracts, "validate_disk_index_frame", spy)
+    bd.build(env)
+    assert len(calls) == 1
+    assert list(calls[0].columns) == list(contracts.DISK_INDEX_COLUMNS)
+    assert calls[0]["disk_uid"].tolist() == ["d1", "d2", "dX", "dY"]
+
+
+def _duplicate_uid(good):
+    return pd.concat([good, good.iloc[:1]], ignore_index=True)
+
+
+def _float_vm_cpu(good):
+    return good.astype({"vm_cpu": "float64"})
+
+
+def _reversed_columns(good):
+    return good[list(reversed(good.columns))]
+
+
+@pytest.mark.parametrize(
+    "break_frame, message",
+    [(_duplicate_uid, "duplicate"), (_float_vm_cpu, "vm_cpu"), (_reversed_columns, "order")],
+    ids=["duplicate_disk_uid", "wrong_dtype", "wrong_column_order"],
+)
+def test_build_rejects_a_broken_frame_before_writing(env, monkeypatch, break_frame, message):
     good = bd.dedupe_subscription(sub_frame())[0]
-    with pytest.raises(ValueError, match="columns"):
-        bd.validate_index(good[list(reversed(good.columns))])
-    with pytest.raises(ValueError, match="duplicate disk_uid"):
-        bd.validate_index(pd.concat([good, good.iloc[:1]], ignore_index=True))
-    nulled = good.astype({"vm_cpu": "float64"})
-    nulled.loc[0, "vm_cpu"] = None
-    with pytest.raises(ValueError, match="null"):
-        bd.validate_index(nulled)
-    with pytest.raises(ValueError, match="not int64"):
-        bd.validate_index(good.astype({"vm_cpu": "float64"}))
+    monkeypatch.setattr(bd, "dedupe_subscription", lambda sub: (break_frame(good), {}))
+    with pytest.raises(contracts.ContractViolation, match=message):
+        bd.build(env)
+    assert not bd.OUT_INDEX.exists()
+    assert not bd.OUT_INDEX.with_suffix(".parquet.tmp").exists()
 
 
 def test_documented_conflicting_uids():
@@ -235,9 +262,12 @@ def test_main_explicit_and_default_root_are_idempotent(env, capsys):
 
 
 def test_cli_entry_point_in_subprocess(tmp_path, env):
-    pipe = tmp_path / "cli"
+    repo = tmp_path / "repo"
+    pipe = repo / "data_pipeline"
     (pipe / "tencent").mkdir(parents=True)
     (pipe / "data" / "processed").mkdir(parents=True)
+    shutil.copytree(Path(contracts.__file__).parent, repo / "contracts",
+                    ignore=shutil.ignore_patterns("__pycache__", "test_*"))
     shutil.copy(Path(bd.__file__), pipe / "tencent" / "build_disk_index.py")
     shutil.copy(bd.CLEAN, pipe / "data" / "processed" / "tencent_load_clean.parquet")
     (pipe / "manifest.json").write_text('{"files": []}')

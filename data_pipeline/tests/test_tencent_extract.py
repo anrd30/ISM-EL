@@ -138,22 +138,22 @@ def test_trace_summary_empty():
     assert s["rows_clean"] == 0 and s["first_ts"] is None and s["longest_run_rows"] == 0
 
 
-def test_to_replay_frame_matches_contract():
+def test_clean_window_converts_with_the_contract_to_replay_frame():
     clean, _, _ = ex.clean_trace(parsed(D2))
-    frame = ex.to_replay_frame(clean)
+    frame = contracts.to_replay_frame(clean)
     assert list(frame.columns) == list(contracts.REPLAY_COLUMNS)
     assert frame["t_seconds"].tolist() == [0, 300, 600, 900, 1200]
     contracts.validate_replay_frame(frame)
     assert ex.STEP_S == contracts.CONTROL_INTERVAL_S
 
 
-def test_to_replay_frame_rejects_gap_and_empty():
+def test_clean_window_with_a_gap_or_no_rows_is_rejected_by_the_contract():
     clean, _, _ = ex.clean_trace(parsed(D1))
-    with pytest.raises(ValueError, match="contiguous"):
-        ex.to_replay_frame(clean)
-    with pytest.raises(ValueError, match="contiguous"):
-        ex.to_replay_frame(clean.iloc[0:0])
-    contracts.validate_replay_frame(ex.to_replay_frame(clean.iloc[:4]))
+    with pytest.raises(contracts.ContractViolation, match="contiguous"):
+        contracts.to_replay_frame(clean)
+    with pytest.raises(contracts.ContractViolation, match="contiguous"):
+        contracts.to_replay_frame(clean.iloc[0:0])
+    contracts.validate_replay_frame(contracts.to_replay_frame(clean.iloc[:4]))
 
 
 def test_dedupe_subscription_keeps_first_and_lists_conflicts(tmp_path):

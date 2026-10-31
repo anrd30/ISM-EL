@@ -5,6 +5,8 @@ Reads the headerless subscription table, keeps the first row of every
 repeated `disk_uid`, and writes one row per unique disk with the columns of
 the contract's DISK_INDEX_COLUMNS (source field order). The table is kept
 separate from the load traces and is joined on `disk_uid` only where needed.
+The frame is checked with the contract's `validate_disk_index_frame` before it
+is written.
 
 Cross-checks against the cleaned load table: ids present on only one side are
 counted and listed, never dropped. Ids whose repeated rows disagree are
@@ -33,6 +35,12 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+try:
+    from contracts import contracts
+except ImportError:  # pragma: no cover - script mode, repo root not on sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from contracts import contracts
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = ROOT / "data" / "raw" / "tencent" / "Cloud_Disk_dataset"
 PROCESSED = ROOT / "data" / "processed"
@@ -41,15 +49,29 @@ OUT_INDEX = PROCESSED / "tencent_disk_index.parquet"
 MANIFEST = ROOT / "manifest.json"
 PREPROCESSING = ROOT / "PREPROCESSING.md"
 
-# Equal to contracts.contracts.DISK_INDEX_COLUMNS and to the source field order.
-DISK_INDEX_COLUMNS = ("disk_uid", "disk_capacity", "disk_attr", "disk_type",
-                      "user_type", "vm_cpu", "vm_memory")
+# The contract's column tuple, which is also the source field order of the subscription file.
+DISK_INDEX_COLUMNS = contracts.DISK_INDEX_COLUMNS
 VALUE_COLUMNS = DISK_INDEX_COLUMNS[1:]
 LISTED_MISMATCHES = 10
 
 
 def read_subscription(source) -> pd.DataFrame:
-    sub = pd.read_csv(source, header=None, names=list(DISK_INDEX_COLUMNS))
+    """Read the headerless subscription table with exactly one field per contract column.
+
+    Read without names so that a row with extra fields cannot shift the columns
+    or become an implicit index. Raises SystemExit when the first row's field
+    count differs from the column count, a later row has more fields (parser
+    error), any field is missing, or a numeric column is not integer.
+    """
+    try:
+        sub = pd.read_csv(source, header=None)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as err:
+        raise SystemExit(f"subscription: {err}") from err
+    if sub.shape[1] != len(DISK_INDEX_COLUMNS):
+        raise SystemExit(f"subscription: {sub.shape[1]} columns, expected {len(DISK_INDEX_COLUMNS)}")
+    sub.columns = list(DISK_INDEX_COLUMNS)
+    if sub.isna().any().any():
+        raise SystemExit("subscription: rows with missing fields")
     bad = [c for c in VALUE_COLUMNS if not pd.api.types.is_integer_dtype(sub[c])]
     if bad:
         raise SystemExit(f"subscription: non-integer columns {bad}")
@@ -73,18 +95,6 @@ def dedupe_subscription(sub: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         "conflicting_uids": conflicting,
     }
     return index, info
-
-
-def validate_index(index: pd.DataFrame) -> None:
-    if tuple(index.columns) != DISK_INDEX_COLUMNS:
-        raise ValueError(f"columns {tuple(index.columns)} != {DISK_INDEX_COLUMNS}")
-    if index.isna().any().any():
-        raise ValueError("null values in disk index")
-    if index["disk_uid"].duplicated().any():
-        raise ValueError("duplicate disk_uid in disk index")
-    bad = [c for c in VALUE_COLUMNS if str(index[c].dtype) != "int64"]
-    if bad:
-        raise ValueError(f"columns not int64: {bad}")
 
 
 def documented_conflicting_uids(preprocessing_text: str) -> list[str]:
@@ -128,7 +138,7 @@ def build(root: Path) -> dict:
         raise SystemExit(f"missing {CLEAN.name}")
     sub_raw = (root / "disk_subscript_info").read_bytes()
     index, info = dedupe_subscription(read_subscription(io.BytesIO(sub_raw)))
-    validate_index(index)
+    contracts.validate_disk_index_frame(index)
 
     sub_only, load_only = compare_ids(set(index["disk_uid"]), clean_disk_uids(CLEAN))
     documented = documented_conflicting_uids(PREPROCESSING.read_text(encoding="utf-8"))

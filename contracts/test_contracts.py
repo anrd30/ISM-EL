@@ -62,6 +62,8 @@ from contracts.contracts import (
     latency_violation,
     validate_info,
     termination_flags,
+    to_replay_frame,
+    validate_disk_index_frame,
     validate_replay_frame,
     validate_replay_grid,
 )
@@ -1904,6 +1906,311 @@ class TestReplayFrame:
         assert "negative" in msg.lower() and "read_iops" in msg
 
 
+def _make_disk_index(pd, n=3, **columns):
+    """Return a valid disk-index frame of ``n`` rows, with any column replaced by ``columns``."""
+    data = {
+        "disk_uid": [f"disk-{i}" for i in range(n)] if n else pd.Series([], dtype=object),
+        "disk_capacity": np.arange(n, dtype="int64") + 50,
+        "disk_attr": np.ones(n, dtype="int64"),
+        "disk_type": np.arange(n, dtype="int64") % 2,
+        "user_type": np.zeros(n, dtype="int64"),
+        "vm_cpu": np.arange(n, dtype="int64") + 1,
+        "vm_memory": np.arange(n, dtype="int64") + 2,
+    }
+    data.update(columns)
+    return pd.DataFrame(data, columns=list(DISK_INDEX_COLUMNS))
+
+
+class TestDiskIndexFrame:
+    @pytest.fixture(autouse=True)
+    def pd(self):
+        return pytest.importorskip("pandas")
+
+    def _violation(self, df):
+        with pytest.raises(ContractViolation) as err:
+            validate_disk_index_frame(df)
+        return str(err.value)
+
+    def test_valid_frame_passes_silently(self, pd):
+        """A well-formed frame returns None; this guards the rejections below against
+        passing only because everything is rejected."""
+        assert validate_disk_index_frame(_make_disk_index(pd)) is None
+        assert validate_disk_index_frame(_make_disk_index(pd, n=1)) is None
+        assert validate_disk_index_frame(_make_disk_index(pd, n=50)) is None
+
+    def test_empty_frame_with_right_schema_passes(self, pd):
+        """The contract sets no minimum disk count."""
+        assert validate_disk_index_frame(_make_disk_index(pd, n=0)) is None
+
+    @pytest.mark.parametrize("bad", [{}, [["a", 1]], None, np.zeros((3, 7), dtype="int64")], ids=repr)
+    def test_non_dataframe_is_rejected(self, bad):
+        assert "DataFrame" in self._violation(bad)
+
+    def test_wrong_column_order_is_rejected(self, pd):
+        """The file is read positionally, so the same names in another order are a
+        different format."""
+        df = _make_disk_index(pd)[list(DISK_INDEX_COLUMNS[::-1])]
+        assert "order" in self._violation(df)
+
+    def test_missing_column_is_rejected_and_named(self, pd):
+        assert "user_type" in self._violation(_make_disk_index(pd).drop(columns=["user_type"]))
+
+    def test_extra_column_is_rejected_and_named(self, pd):
+        df = _make_disk_index(pd)
+        df["region"] = np.zeros(len(df), dtype="int64")
+        assert "region" in self._violation(df)
+
+    def test_duplicate_column_name_is_rejected_and_named(self, pd):
+        df = _make_disk_index(pd)
+        df = pd.concat([df, df[["vm_cpu"]]], axis=1)
+        msg = self._violation(df)
+        assert "vm_cpu" in msg and "duplicate" in msg
+
+    def test_string_uid_in_object_and_pandas_string_dtypes_is_accepted(self, pd):
+        """Current pandas defaults to a string dtype that is not NumPy ``object``."""
+        df = _make_disk_index(pd)
+        df["disk_uid"] = df["disk_uid"].astype(object)
+        assert validate_disk_index_frame(df) is None
+        df["disk_uid"] = df["disk_uid"].astype("string")
+        assert validate_disk_index_frame(df) is None
+
+    @pytest.mark.parametrize("uid", [[1, 2, 3], [1.5, 2.5, 3.5]], ids=["ints", "floats"])
+    def test_non_string_uid_is_rejected_naming_the_column_and_dtype(self, pd, uid):
+        msg = self._violation(_make_disk_index(pd, disk_uid=uid))
+        assert "disk_uid" in msg and "string" in msg and "dtype" in msg
+
+    def test_object_uid_holding_a_non_string_is_rejected(self, pd):
+        df = _make_disk_index(pd)
+        df["disk_uid"] = pd.Series(["a", 2, "c"], dtype=object)
+        msg = self._violation(df)
+        assert "disk_uid" in msg and "object" in msg
+
+    @pytest.mark.parametrize("dtype", ["float64", "int32", "uint64", "bool"])
+    def test_wrong_numeric_dtype_is_rejected_naming_column_expected_and_actual(self, pd, dtype):
+        df = _make_disk_index(pd)
+        df["vm_memory"] = df["vm_memory"].astype(dtype)
+        msg = self._violation(df)
+        assert "vm_memory" in msg
+        assert "int64" in msg, f"expected dtype missing from message: {msg!r}"
+        assert dtype in msg, f"actual dtype missing from message: {msg!r}"
+
+    def test_nullable_int64_without_nulls_is_a_dtype_mismatch(self, pd):
+        df = _make_disk_index(pd)
+        df["disk_capacity"] = df["disk_capacity"].astype("Int64")
+        msg = self._violation(df)
+        assert "disk_capacity" in msg and "Int64" in msg and "int64" in msg
+
+    def test_nan_in_float_column_is_reported_as_null(self, pd):
+        df = _make_disk_index(pd)
+        df["vm_cpu"] = df["vm_cpu"].astype("float64")
+        df.loc[1, "vm_cpu"] = np.nan
+        msg = self._violation(df)
+        assert "vm_cpu" in msg and "null" in msg.lower()
+
+    def test_pd_na_in_nullable_int_column_is_reported_as_null(self, pd):
+        df = _make_disk_index(pd)
+        df["disk_attr"] = df["disk_attr"].astype("Int64")
+        df.loc[2, "disk_attr"] = pd.NA
+        msg = self._violation(df)
+        assert "disk_attr" in msg and "null" in msg.lower()
+
+    def test_none_in_uid_is_reported_as_null(self, pd):
+        df = _make_disk_index(pd)
+        df["disk_uid"] = pd.Series(["a", None, "c"], dtype=object)
+        msg = self._violation(df)
+        assert "disk_uid" in msg and "null" in msg.lower()
+
+    def test_null_is_reported_as_null_not_as_dtype_mismatch(self, pd):
+        """Nulls are tested before dtypes: a null coerces an integer column to float or
+        object, so the message must name the cause."""
+        for dtype, na in (("float64", np.nan), ("Int64", pd.NA), ("object", None)):
+            df = _make_disk_index(pd)
+            df["vm_cpu"] = df["vm_cpu"].astype(dtype)
+            df.loc[1, "vm_cpu"] = na
+            msg = self._violation(df)
+            assert "null" in msg.lower(), f"{dtype}: null not reported: {msg!r}"
+            assert "dtype" not in msg.lower(), f"{dtype}: null reported as a dtype mismatch: {msg!r}"
+
+    def test_duplicate_uid_is_rejected_naming_first_repeat_and_row(self, pd):
+        msg = self._violation(_make_disk_index(pd, n=4, disk_uid=["a", "b", "a", "b"]))
+        assert "disk_uid" in msg and "'a'" in msg and "duplicate" in msg
+        assert re.search(r"\b2\b", msg), f"row index missing from message: {msg!r}"
+        assert "'b'" not in msg
+
+    def test_negative_value_is_rejected_with_column_and_row(self, pd):
+        df = _make_disk_index(pd)
+        df.loc[2, "disk_capacity"] = -7
+        msg = self._violation(df)
+        assert "disk_capacity" in msg and "negative" in msg.lower()
+        assert re.search(r"\b2\b", msg), f"row index missing from message: {msg!r}"
+
+    def test_negative_value_row_index_tracks_position(self, pd):
+        for row in (0, 1, 4):
+            df = _make_disk_index(pd, n=5)
+            df.loc[row, "vm_cpu"] = -1
+            assert re.search(rf"\b{row}\b", self._violation(df))
+
+    # -- ordering of the checks -------------------------------------------------
+
+    def test_check_order_type_before_columns(self):
+        assert "DataFrame" in self._violation({"anything": 1})
+
+    def test_check_order_columns_before_nulls(self, pd):
+        df = _make_disk_index(pd).drop(columns=["vm_memory"])
+        df["vm_cpu"] = df["vm_cpu"].astype("float64")
+        df.loc[0, "vm_cpu"] = np.nan
+        msg = self._violation(df)
+        assert "vm_memory" in msg and "null" not in msg.lower()
+
+    def test_check_order_nulls_dtypes_duplicates_negatives(self, pd):
+        """Each earlier defect masks the later ones."""
+        df = _make_disk_index(pd, disk_uid=["a", "a", "c"])
+        df["vm_cpu"] = df["vm_cpu"].astype("float64")
+        df.loc[0, "vm_cpu"] = np.nan
+        df["vm_memory"] = df["vm_memory"].astype("float64")      # wrong dtype as well
+        df.loc[1, "disk_capacity"] = -1                          # negative as well
+        assert "null" in self._violation(df).lower()
+
+        df = _make_disk_index(pd, disk_uid=["a", "a", "c"])
+        df["vm_memory"] = df["vm_memory"].astype("float64")      # dtype defect, no null
+        df.loc[1, "disk_capacity"] = -1
+        msg = self._violation(df)
+        assert "vm_memory" in msg and "dtype" in msg.lower() and "duplicate" not in msg
+
+        df = _make_disk_index(pd, disk_uid=["a", "a", "c"])      # duplicate, plus a negative
+        df.loc[1, "disk_capacity"] = -1
+        msg = self._violation(df)
+        assert "duplicate" in msg and "negative" not in msg.lower()
+
+    def test_uid_dtype_is_checked_before_numeric_dtypes(self, pd):
+        df = _make_disk_index(pd, disk_uid=[1, 2, 3])
+        df["vm_memory"] = df["vm_memory"].astype("float64")
+        assert "disk_uid" in self._violation(df)
+
+
+def _make_window(pd, n=4, t0=1596686400, **columns):
+    data = {
+        "disk_uid": ["d"] * n,
+        "timestamp": t0 + np.arange(n, dtype="int64") * 300,
+        "read_iops": np.arange(n, dtype="int64") + 10,
+        "write_iops": np.arange(n, dtype="int64") + 20,
+        "read_bw_kbps": np.arange(n, dtype="int64") + 30,
+        "write_bw_kbps": np.arange(n, dtype="int64") + 40,
+        "disk_usage_mb": np.arange(n, dtype="int64") + 50,
+    }
+    data.update(columns)
+    return pd.DataFrame(data)
+
+
+class TestToReplayFrame:
+    @pytest.fixture(autouse=True)
+    def pd(self):
+        return pytest.importorskip("pandas")
+
+    def _violation(self, window):
+        with pytest.raises(ContractViolation) as err:
+            to_replay_frame(window)
+        return str(err.value)
+
+    def test_rebases_to_zero_and_satisfies_the_replay_validator(self, pd):
+        window = _make_window(pd)
+        frame = to_replay_frame(window)
+        assert list(frame.columns) == list(REPLAY_COLUMNS)
+        assert frame["t_seconds"].tolist() == [0, 300, 600, 900]
+        assert frame["read_bw_kbps"].tolist() == window["read_bw_kbps"].tolist()
+        assert validate_replay_frame(frame) is None
+
+    def test_result_is_int64_even_for_a_float_input(self, pd):
+        frame = to_replay_frame(_make_window(pd, read_iops=np.array([1.0, 2.0, 3.0, 4.0])))
+        assert all(frame[c].dtype == np.dtype("int64") for c in REPLAY_COLUMNS)
+
+    def test_single_row_window_is_accepted(self, pd):
+        assert to_replay_frame(_make_window(pd, n=1))["t_seconds"].tolist() == [0]
+
+    def test_input_is_not_modified(self, pd):
+        window = _make_window(pd)
+        before = window.copy()
+        to_replay_frame(window)
+        pd.testing.assert_frame_equal(window, before)
+
+    @pytest.mark.parametrize("bad", [{}, [[1, 2]], None], ids=repr)
+    def test_non_dataframe_is_rejected(self, bad):
+        assert "DataFrame" in self._violation(bad)
+
+    def test_missing_column_is_rejected_and_named(self, pd):
+        assert "write_bw_kbps" in self._violation(_make_window(pd).drop(columns=["write_bw_kbps"]))
+        assert "timestamp" in self._violation(_make_window(pd).drop(columns=["timestamp"]))
+
+    @pytest.mark.parametrize(
+        "timestamps",
+        [
+            np.array([0, 300, 900, 1200], dtype="int64"),    # gap
+            np.array([0, 300, 300, 600], dtype="int64"),     # duplicate
+            np.array([0, 600, 300, 900], dtype="int64"),     # not increasing
+            np.array([0, 60, 120, 180], dtype="int64"),      # wrong step
+        ],
+        ids=["gap", "duplicate", "not_increasing", "wrong_step"],
+    )
+    def test_non_contiguous_window_is_rejected(self, pd, timestamps):
+        assert "contiguous" in self._violation(_make_window(pd, timestamp=timestamps))
+
+    def test_empty_window_is_rejected(self, pd):
+        assert "contiguous" in self._violation(_make_window(pd, n=0))
+
+    # -- integrality, finiteness and the final replay validation ---------------
+
+    def test_fractional_timestamps_are_rejected_naming_the_column(self, pd):
+        """Truncating 0.5 and 300.5 would silently move every sample; the column is named."""
+        msg = self._violation(_make_window(pd, n=2, timestamp=np.array([0.5, 300.5])))
+        assert "timestamp" in msg and "non-integral" in msg
+
+    def test_fractional_value_is_rejected_naming_the_column(self, pd):
+        """10.9 would be truncated to 10 by an integer cast."""
+        msg = self._violation(_make_window(pd, read_iops=np.array([10.9, 11.0, 12.0, 13.0])))
+        assert "read_iops" in msg and "non-integral" in msg
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf], ids=["nan", "inf", "-inf"])
+    def test_non_finite_value_is_a_contract_violation_not_a_pandas_error(self, pd, bad):
+        """A NaN cannot be cast to int64; the failure must be the contract's, with the column."""
+        msg = self._violation(_make_window(pd, write_bw_kbps=np.array([1.0, bad, 3.0, 4.0])))
+        assert "write_bw_kbps" in msg and "non-finite" in msg
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf], ids=["nan", "inf"])
+    def test_non_finite_timestamp_is_rejected_naming_the_column(self, pd, bad):
+        msg = self._violation(_make_window(pd, timestamp=np.array([0.0, bad, 600.0, 900.0])))
+        assert "timestamp" in msg and "non-finite" in msg
+
+    def test_missing_value_in_a_nullable_integer_column_is_a_contract_violation(self, pd):
+        window = _make_window(pd)
+        window["write_iops"] = window["write_iops"].astype("Int64")
+        window.loc[1, "write_iops"] = pd.NA
+        assert "write_iops" in self._violation(window)
+
+    def test_non_numeric_column_is_rejected_naming_the_column(self, pd):
+        msg = self._violation(_make_window(pd, read_iops=["a", "b", "c", "d"]))
+        assert "read_iops" in msg and "numeric" in msg
+
+    def test_value_outside_the_int64_range_is_rejected(self, pd):
+        msg = self._violation(_make_window(pd, read_iops=np.array([1e19, 1.0, 2.0, 3.0])))
+        assert "read_iops" in msg and "int64" in msg
+
+    def test_negative_value_is_rejected_by_the_replay_validator(self, pd):
+        """The result goes through ``validate_replay_frame``, which names column and row."""
+        msg = self._violation(_make_window(pd, disk_usage_mb=np.array([5, -1, 7, 8])))
+        assert "disk_usage_mb" in msg and "negative" in msg.lower()
+
+    def test_whole_number_floats_are_accepted_and_returned_as_int64(self, pd):
+        window = _make_window(
+            pd, n=2, timestamp=np.array([0.0, 300.0]),
+            read_iops=np.array([300.0, 301.0]), disk_usage_mb=np.array([5.0, 6.0]),
+        )
+        frame = to_replay_frame(window)
+        assert frame["t_seconds"].tolist() == [0, 300]
+        assert frame["read_iops"].tolist() == [300, 301]
+        assert all(frame[c].dtype == np.dtype("int64") for c in REPLAY_COLUMNS)
+        assert validate_replay_frame(frame) is None
+
+
 class TestImportSurface:
     _PROBE = (
         "import sys; sys.path.insert(0, {root!r}); "
@@ -2040,5 +2347,6 @@ def test_module_exports_are_importable_by_name():
         "INFO_KEYS", "validate_info", "TerminationReason", "RewardConfig",
         "latency_degradation", "latency_violation", "degraded_cost", "compute_reward", "hazard_p_to_per_hour", "hazard_uncertainty_to_per_hour", "aggregate_group_hazard", "GROUP_SIZE", "kbps_to_mbps",
         "HazardModel", "REPLAY_COLUMNS", "DISK_INDEX_COLUMNS", "validate_replay_grid",
+        "validate_replay_frame", "validate_disk_index_frame", "to_replay_frame",
     ):
         assert hasattr(C, name), name

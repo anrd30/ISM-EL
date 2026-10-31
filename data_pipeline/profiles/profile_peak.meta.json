@@ -1,0 +1,11 @@
+{
+  "disclosure": "selected extremes, not a representative sample",
+  "label": "aggregate of 4 highest-mean-bandwidth volumes (selected extremes, not a representative sample)",
+  "n_disks": 4,
+  "profile": "peak",
+  "selection_rule": "highest mean total bandwidth",
+  "source": "Tencent Cloud Volume Workload Traces",
+  "synthetic": false,
+  "window_start_ts": 1596686400,
+  "window_start_utc": "2020-08-06T04:00:00Z"
+}

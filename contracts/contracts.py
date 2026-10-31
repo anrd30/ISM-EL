@@ -70,6 +70,8 @@ __all__ = [
     "kbps_to_mbps",
     "validate_replay_grid",
     "validate_replay_frame",
+    "validate_disk_index_frame",
+    "to_replay_frame",
 ]
 
 
@@ -81,7 +83,7 @@ class ContractViolation(Exception):
 # Frozen numeric constants (design decisions; rationale in INTERFACES.md)
 # --------------------------------------------------------------------------
 
-CONTRACT_VERSION: str = "1.3.0"
+CONTRACT_VERSION: str = "1.4.0"
 
 CONTROL_INTERVAL_S: int = 300  # equals the Tencent trace sampling interval
 HORIZON_DAYS: int = 30
@@ -984,6 +986,152 @@ def validate_replay_frame(df: Any) -> None:
             )
     validate_replay_grid(df["t_seconds"].to_numpy())
 
+
+def validate_disk_index_frame(df: Any) -> None:
+    """Check a whole disk-index table held as a pandas ``DataFrame``.
+
+    The disk index is the per-disk metadata file, joined to replay data on
+    ``disk_uid`` only where needed (``INTERFACES.md`` section 10, decision 2). One
+    call checks the schema, so it is the single check a producer runs before
+    writing the file and a consumer runs before reading it. Checks, in order:
+
+    1. ``df`` is a ``pandas.DataFrame``.
+    2. The columns equal ``DISK_INDEX_COLUMNS`` exactly, in that order (not
+       merely as a set).
+    3. No column contains a null (NaN, ``None`` or ``pandas.NA``). This is
+       checked before the dtype because a null forces an integer column to
+       float or object, and the null is the more useful thing to report.
+    4. ``disk_uid`` is a string column (NumPy ``object`` holding only ``str``,
+       or a pandas string dtype) and every other column has dtype ``int64``.
+    5. ``disk_uid`` has no duplicate value.
+    6. No value in the six numeric columns is negative.
+
+    A frame with the right columns and dtypes but no rows passes: the contract
+    does not set a minimum disk count.
+
+    Raises:
+        ContractViolation: naming the offending column; a dtype mismatch names
+            both the expected and the actual dtype, and a duplicate names the
+            first repeated ``disk_uid`` with its row.
+    """
+    # pandas is imported here, not at module top level, so that importing this
+    # module keeps a numpy-and-stdlib-only surface for lanes that do not use it.
+    import pandas as pd
+
+    if not isinstance(df, pd.DataFrame):
+        raise ContractViolation(f"disk index frame must be a pandas DataFrame, got {type(df).__name__}")
+    columns = list(df.columns)
+    expected_columns = list(DISK_INDEX_COLUMNS)
+    if columns != expected_columns:
+        missing = [c for c in expected_columns if c not in columns]
+        unexpected = [c for c in columns if c not in expected_columns]
+        if missing or unexpected:
+            detail = f"missing {missing}, unexpected {unexpected}"
+        elif len(columns) != len(set(columns)):
+            detail = "duplicate column names"
+        else:
+            detail = "same columns in the wrong order"
+        raise ContractViolation(
+            f"disk index columns must equal {expected_columns} in order, got {columns}: {detail}"
+        )
+    for name in DISK_INDEX_COLUMNS:
+        if df[name].isna().any():
+            raise ContractViolation(f"disk index column {name!r} contains null values")
+    uid = df["disk_uid"]
+    if uid.dtype == object:
+        uid_is_string = all(isinstance(value, str) for value in uid)
+    else:
+        uid_is_string = isinstance(uid.dtype, pd.StringDtype)
+    if not uid_is_string:
+        raise ContractViolation(
+            f"disk index column 'disk_uid' has dtype {uid.dtype}, expected string "
+            "(object holding str, or a pandas string dtype)"
+        )
+    numeric_columns = DISK_INDEX_COLUMNS[1:]
+    expected_int = np.dtype("int64")
+    for name in numeric_columns:
+        actual = df[name].dtype
+        if actual != expected_int:
+            raise ContractViolation(
+                f"disk index column {name!r} has dtype {actual}, expected {expected_int}"
+            )
+    repeated = uid.duplicated()
+    if repeated.any():
+        position = int(np.argmax(repeated.to_numpy()))
+        raise ContractViolation(
+            f"disk index column 'disk_uid' has a duplicate value at row {position}: "
+            f"{uid.iloc[position]!r}"
+        )
+    for name in numeric_columns:
+        negative = df[name] < 0
+        if negative.any():
+            position = int(np.argmax(negative.to_numpy()))
+            raise ContractViolation(
+                f"disk index column {name!r} has a negative value at row {position}: "
+                f"{df[name].iloc[position]!r}"
+            )
+
+
+def _require_integral_column(series: Any, name: str) -> None:
+    """Reject a window column that is not numeric, not finite, or not whole numbers.
+
+    Runs before any integer cast, so a NaN or a fractional value is reported
+    with its column instead of being truncated or surfacing as a pandas error.
+    """
+    try:
+        values = series.to_numpy(dtype="float64")
+    except (TypeError, ValueError) as err:
+        raise ContractViolation(f"window column {name!r} is not numeric or has missing values: {err}") from err
+    if not np.isfinite(values).all():
+        raise ContractViolation(f"window column {name!r} contains non-finite values (NaN or inf)")
+    if not (values == np.floor(values)).all():
+        raise ContractViolation(f"window column {name!r} contains non-integral values")
+    if not (np.abs(values) < 2.0**63).all():
+        raise ContractViolation(f"window column {name!r} contains values outside the int64 range")
+
+
+def to_replay_frame(window: Any) -> Any:
+    """Rebase a contiguous window of the cleaned Tencent load table to the replay schema.
+
+    ``window`` is a pandas ``DataFrame`` with a ``timestamp`` column (source Unix
+    epoch seconds, ``CONTROL_INTERVAL_S`` apart with no gap) and the five value
+    columns of ``REPLAY_COLUMNS`` after ``t_seconds``; other columns are ignored.
+    Timestamps and values must be finite whole numbers: a whole-number float such
+    as ``300.0`` is accepted and converted to ``int64``, a NaN, an infinity or a
+    fractional value is rejected before any cast. The result has the
+    ``REPLAY_COLUMNS`` columns in order, all ``int64``, with ``t_seconds`` starting
+    at 0 (``INTERFACES.md`` section 10, decision 4), and is checked with
+    ``validate_replay_frame`` before it is returned, so negative values, dtypes and
+    the time grid are enforced by the function consumers use. Values are not
+    converted: bandwidth stays in KB/s (decision 3).
+
+    Raises:
+        ContractViolation: if ``window`` is not a DataFrame, lacks a required
+            column, a required column is non-numeric, non-finite or non-integral
+            (the message names the column), the timestamps are not a gap-free
+            ``CONTROL_INTERVAL_S`` grid of at least one row, or the result breaks
+            the replay schema (for example a negative value).
+    """
+    import pandas as pd
+
+    if not isinstance(window, pd.DataFrame):
+        raise ContractViolation(f"window must be a pandas DataFrame, got {type(window).__name__}")
+    value_columns = list(REPLAY_COLUMNS[1:])
+    required = ["timestamp", *value_columns]
+    missing = [c for c in required if c not in window.columns]
+    if missing:
+        raise ContractViolation(f"window is missing columns {missing}")
+    for name in required:
+        _require_integral_column(window[name], name)
+    timestamps = window["timestamp"].to_numpy(dtype="int64")
+    on_grid = np.arange(len(timestamps), dtype="int64") * CONTROL_INTERVAL_S
+    if len(timestamps) == 0 or not np.array_equal(timestamps - timestamps[0], on_grid):
+        raise ContractViolation(f"window is not a contiguous {CONTROL_INTERVAL_S} s grid")
+    out = window[value_columns].astype("int64").reset_index(drop=True)
+    out.insert(0, "t_seconds", timestamps - timestamps[0])
+    out = out[list(REPLAY_COLUMNS)]
+    validate_replay_frame(out)
+    return out
 
 # --------------------------------------------------------------------------
 # Import-time self-consistency

@@ -14,7 +14,7 @@ Title (PPT): *"A Closed-Loop, Distribution-Aware Risk Scheduler for Self-Healing
 
 **Claim scope (slide 14):** the contribution is this formulation plus a measured advantage over a strong risk-aware rule-based baseline — *not* "RL for storage" (already published) and *not* a new rebuild mechanism. The team commits to a falsification test: if removing the hazard input and retraining performs the same, they report that honestly.
 
-**Status as of 2026-10-14: nothing is implemented.** The PPT is a Phase-1 proposal; the PDF is a Phase-2 work-assignment plan. No code, data extracts, or results exist yet in this repo. Never write code comments, docstrings, or commit messages that imply a result has been measured, a model has been trained, or a claim has been verified, unless it actually has in this repo.
+**Status as of 2026-10-31: lane B (the data pipeline, B1–B6) is implemented and verified by `data_pipeline/check_outputs.py`; the PPT is a Phase-1 proposal and the PDF a Phase-2 work-assignment plan.** Never write code comments, docstrings, or commit messages that imply a result has been measured, a model has been trained, or a claim has been verified, unless it actually has in this repo.
 
 ---
 
@@ -137,13 +137,15 @@ Rebuild start/end times, rebuild bandwidth allocated, application latency during
 
 Do not guess silently on these; surface them to Aryan to raise with the team. Build the parts of your lane that don't depend on the answer first (see §8 execution order).
 
-1. **Hazard unit contradiction:** "per hour" (field 5) vs. a probability `p` (hazard signature). Not your call, but your B2 output's column choices should stay agnostic to this.
-2. **Numeric constants undefined:** horizon `H`, risk budget `ε`, latency limit `L_max`, control-interval length, episode horizon. None have values yet. Slide 15: "must be fixed before implementation and not tuned after seeing results."
-3. **"Distribution-aware" has no home:** the title claims the controller uses the full remaining-recovery-time distribution, but no field in the 12-field observation vector carries it. Not yours to fix, but don't invent one either.
-4. **Tencent unit conversion:** `_kbps` → MB/s for `fg_bw`. **[PROPOSED]** your B3/B4 output should store raw KB/s values (do not pre-convert), and the MB/s conversion happens in the adapter that feeds the simulator — keeps your files a faithful, re-usable record of the source data. Confirm this with Aniruddh before his adapter test (T10) is written.
-5. **Load scaling:** the Tencent example disk peaks around 50 KB/s; the simulator's action set is 20–120 **MB/s**. A single real disk's trace, even unit-converted, will not meaningfully load a simulated storage group at that scale. **This is a real open design question, not just a units bug** — raise it explicitly; don't silently multiply by an invented factor.
-6. **A1 not yet decided:** which Backblaze quarter, which 1–2 drive models, which SMART columns. This blocks B1. Get it from Aakarsh in writing before starting B1.
-7. **Repo/CI specifics:** Python version, package manager, where large data files live (should NOT be committed to git — see `.gitignore`).
+**Status:** items 1, 2, 4 and 5 are resolved by the frozen contract (resolution noted on each item); item 6 is resolved provisionally and awaits ratification; item 7 is partly resolved; item 3 is not resolved. The original text of each item is kept below as history.
+
+1. **Hazard unit contradiction:** "per hour" (field 5) vs. a probability `p` (hazard signature). Not your call, but your B2 output's column choices should stay agnostic to this. **Resolved:** the model returns `p` over the horizon; field 5 is a per-hour rate converted with `hazard_p_to_per_hour` and aggregated over the surviving drives (`contracts/INTERFACES.md` section 10 #1, section 8).
+2. **Numeric constants undefined:** horizon `H`, risk budget `ε`, latency limit `L_max`, control-interval length, episode horizon. None have values yet. Slide 15: "must be fixed before implementation and not tuned after seeing results." **Resolved:** frozen in `contracts/INTERFACES.md` section 9 (horizon 30 days = 720 h, `RISK_BUDGET_EPS`, `LATENCY_LIMIT_FACTOR`, 300 s control interval, `MAX_EPISODE_STEPS`).
+3. **"Distribution-aware" has no home:** the title claims the controller uses the full remaining-recovery-time distribution, but no field in the 12-field observation vector carries it. Not yours to fix, but don't invent one either. **Not resolved:** the contract keeps the 12-field observation vector.
+4. **Tencent unit conversion:** `_kbps` → MB/s for `fg_bw`. **[PROPOSED]** your B3/B4 output should store raw KB/s values (do not pre-convert), and the MB/s conversion happens in the adapter that feeds the simulator — keeps your files a faithful, re-usable record of the source data. Confirm this with Aniruddh before his adapter test (T10) is written. **Resolved:** the pipeline stores raw KB/s and the single KB/s → MB/s conversion is `contracts.kbps_to_mbps` at the simulator boundary (`contracts/INTERFACES.md` section 10 #3); `t_seconds` is rebased to start at 0 by `contracts.to_replay_frame` (section 10 #4).
+5. **Load scaling:** the Tencent example disk peaks around 50 KB/s; the simulator's action set is 20–120 **MB/s**. A single real disk's trace, even unit-converted, will not meaningfully load a simulated storage group at that scale. **This is a real open design question, not just a units bug** — raise it explicitly; don't silently multiply by an invented factor. **Resolved:** the foreground load of one group is the aggregate of N real disk traces (`contracts/INTERFACES.md` section 10 #5); B5 builds it per profile and records N and the measured p95 in `data_pipeline/PREPROCESSING.md`. The aggregate is a modelling assumption and the profiles are selected extremes.
+6. **A1 not yet decided:** which Backblaze quarter, which 1–2 drive models, which SMART columns. This blocks B1. Get it from Aakarsh in writing before starting B1. **Resolved provisionally:** B1 uses `backblaze_2022Q1` and the models ST4000DM000, ST8000NM0055 and ST12000NM0008, marked provisional in the code and in `data_pipeline/PREPROCESSING.md`; written ratification is pending.
+7. **Repo/CI specifics:** Python version, package manager, where large data files live (should NOT be committed to git — see `.gitignore`). **Partly resolved:** Python 3.11 or newer (`data_pipeline/requirements.txt`); pip with that requirements file; large files live under `data_pipeline/data/`, which `.gitignore` excludes. No CI is configured.
 
 ---
 
@@ -157,6 +159,8 @@ Do not guess silently on these; surface them to Aryan to raise with the team. Bu
 ---
 
 ## 8. Execution order for THIS lane, right now
+
+**Status:** B0–B6 are complete: scripts, tests, outputs, `data_pipeline/PREPROCESSING.md` and the `check_outputs.py` acceptance script. The execution order below is the original plan, kept as history.
 
 You are on branch `data/B0-setup`, repo is otherwise empty. The interface contract is **not frozen yet** (open question #2/#6). Work in this order so you make progress without guessing at values nobody has confirmed:
 

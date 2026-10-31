@@ -33,13 +33,12 @@ DAY1 = "\n".join([
     "01-01-2022,A1,ST4000DM000,4000787030016,0,5,100,1000,",
 ]) + "\n"
 
-# 2022-01-02 is ISO, lacks smart_9_raw, has smart_187_raw, and holds one row
-# whose date differs from the filename.
+# 2022-01-02 is ISO, lacks smart_9_raw and has smart_187_raw.
 DAY2 = "\n".join([
     HEADER_B,
     "2022-01-02,A1,ST4000DM000,4000787030016,1,5,9,",
     "2022-01-02,A3,ST12000NM0008,12000138625024,0,8,0,",
-    "2022-01-03,A2,ST8000NM0055,8001563222016,0,6,1,",
+    "2022-01-02,A2,ST8000NM0055,8001563222016,0,6,1,",
 ]) + "\n"
 
 
@@ -110,7 +109,7 @@ def test_extract_counts_and_output(env):
     assert r["dup_dropped"] == 1
     assert r["rows_out"] == 5
     assert r["non_iso"] == 3
-    assert r["date_mismatch"] == 1
+    assert r["date_mismatch"] == 0
     assert r["null_capacity"] == 0
     assert r["smart_cols"] == ["smart_5_raw", "smart_9_raw", "smart_12_raw", "smart_187_raw"]
     assert r["all_null_cols"] == ["smart_12_raw"]
@@ -130,6 +129,30 @@ def test_extract_counts_and_output(env):
     assert out.loc[~from_day1, "smart_187_raw"].notna().all()
     assert r["output_sha256"] == extract.sha256_of(extract.OUTPUT)
     assert not extract.OUTPUT.with_suffix(".parquet.tmp").exists()
+
+
+def test_a_date_that_differs_from_the_file_name_aborts_the_run(env):
+    (env / "2022-01-02.csv").write_text(
+        HEADER_A + "\n2022-01-02,A1,ST4000DM000,4000787030016,0,5,100,1000,\n"
+        "2022-01-03,A2,ST8000NM0055,8001563222016,0,6,100,2000,\n")
+    with pytest.raises(SystemExit, match=r"2022-01-02\.csv: 1 rows with a date different from the file name"):
+        extract.extract(env)
+    assert not extract.OUTPUT.exists()
+
+
+def test_a_non_iso_date_that_differs_from_the_file_name_also_aborts(env):
+    (env / "2022-01-01.csv").write_text(
+        HEADER_A + "\n01-05-2022,A1,ST4000DM000,4000787030016,0,5,100,1000,\n"
+        "01-01-2022,A2,ST8000NM0055,8001563222016,0,6,100,2000,\n")
+    with pytest.raises(SystemExit, match=r"2022-01-01\.csv: 1 rows with a date different"):
+        extract.extract(env)
+
+
+def test_rows_in_other_models_are_not_checked_against_the_file_name(env):
+    (env / "2022-01-01.csv").write_text(
+        HEADER_A + "\n2022-01-01,A1,ST4000DM000,4000787030016,0,5,100,1000,\n"
+        "2030-09-09,X1,OTHER,1000204886016,0,7,100,3000,\n")
+    assert extract.extract(env)["rows_out"] == 1
 
 
 def test_extract_no_csv_files_raises(env):
@@ -172,7 +195,7 @@ def test_report_lines_contents(env):
     assert "rows_in=7" in lines
     assert "duplicate_serial_date_dropped=1" in lines
     assert "rows_date_not_iso=3" in lines
-    assert "rows_date_differs_from_filename=1" in lines
+    assert "rows_date_differs_from_filename=0" in lines
     assert "model=ST4000DM000 drive_days=2 drives=1 failures=1" in lines
     assert any(l.startswith("pooled drive_days=5 failures=1 afr=") for l in lines)
     assert lines[-1].startswith("output=data/processed/backblaze_filtered.parquet sha256=")

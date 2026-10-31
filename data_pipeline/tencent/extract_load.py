@@ -17,8 +17,8 @@ each disk, and cross-disk load and shared-window statistics are reported;
 see `conflict_lines` and `aggregation_lines`.
 
 Timestamps stay as source epoch seconds and bandwidth stays in source KB/s.
-`to_replay_frame` rebases a gap-free 300 s window to the six-column int64
-replay schema (`t_seconds` starting at 0) used downstream.
+A gap-free 300 s window of the clean table is rebased to the six-column int64
+replay schema (`t_seconds` starting at 0) by `contracts.contracts.to_replay_frame`.
 
 Usage:
     python -I extract_load.py [dataset_root]
@@ -68,7 +68,6 @@ SOURCE_COLUMNS = ["timestamp", "read_iops", "read_bw_kbps",
                   "write_iops", "write_bw_kbps", "disk_usage_mb"]
 VALUE_COLUMNS = ["read_iops", "write_iops", "read_bw_kbps", "write_bw_kbps", "disk_usage_mb"]
 CLEAN_COLUMNS = ["timestamp"] + VALUE_COLUMNS
-REPLAY_COLUMNS = ["t_seconds"] + VALUE_COLUMNS
 
 CLEAN_SCHEMA = pa.schema(
     [pa.field("disk_uid", pa.string())] + [pa.field(c, pa.int64()) for c in CLEAN_COLUMNS]
@@ -84,8 +83,29 @@ FLOAT_FIELDS = ("mean_total_bw_kbps", "median_total_bw_kbps", "p95_total_bw_kbps
                 "p99_total_bw_kbps", "zero_row_fraction")
 
 
+def read_headerless(source, columns: list[str], label: str) -> pd.DataFrame:
+    """Read a headerless CSV with exactly len(columns) fields in every row.
+
+    The columns are read without names so that a row with more fields than the
+    first, or a first row with extra fields, cannot be absorbed into an implicit
+    index or shift the columns. Raises SystemExit naming `label` when the field
+    count of the first row differs from len(columns), when any later row has
+    more fields than the first (parser error), or when any field is missing.
+    """
+    try:
+        df = pd.read_csv(source, header=None)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as err:
+        raise SystemExit(f"{label}: {err}") from err
+    if df.shape[1] != len(columns):
+        raise SystemExit(f"{label}: {df.shape[1]} columns, expected {len(columns)}")
+    df.columns = columns
+    if df.isna().any().any():
+        raise SystemExit(f"{label}: rows with missing fields")
+    return df
+
+
 def parse_trace(data: bytes, name: str) -> pd.DataFrame:
-    df = pd.read_csv(io.BytesIO(data), header=None, names=SOURCE_COLUMNS)
+    df = read_headerless(io.BytesIO(data), SOURCE_COLUMNS, name)
     bad = [c for c in SOURCE_COLUMNS if not pd.api.types.is_integer_dtype(df[c])]
     if bad:
         raise SystemExit(f"{name}: non-integer columns {bad}")
@@ -181,18 +201,8 @@ def trace_runs(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return ts[starts].astype("int64"), lengths.astype("int64")
 
 
-def to_replay_frame(window: pd.DataFrame) -> pd.DataFrame:
-    """Rebase a contiguous 300 s window of the clean table to the replay schema."""
-    ts = window["timestamp"].to_numpy(dtype="int64")
-    if len(ts) == 0 or not np.array_equal(ts - ts[0], np.arange(len(ts), dtype="int64") * STEP_S):
-        raise ValueError("window is not a contiguous 300 s grid")
-    out = window[VALUE_COLUMNS].astype("int64").reset_index(drop=True)
-    out.insert(0, "t_seconds", ts - ts[0])
-    return out[REPLAY_COLUMNS]
-
-
 def read_subscription(path: Path | io.BytesIO) -> pd.DataFrame:
-    return pd.read_csv(path, header=None, names=SUB_COLUMNS)
+    return read_headerless(path, SUB_COLUMNS, "subscription")
 
 
 def dedupe_subscription(sub: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -465,7 +475,7 @@ def update_preprocessing(lines: list[str]) -> None:
         "`disk_uid, timestamp, read_iops, write_iops, read_bw_kbps, write_bw_kbps, "
         "disk_usage_mb`, all int64, one row group per disk, rows sorted by timestamp\n"
         "- `timestamp` is source epoch seconds; the rebase to `t_seconds` starting at 0 "
-        "happens when a window is cut (`to_replay_frame`)\n"
+        "happens when a window is cut (`contracts.contracts.to_replay_frame`)\n"
         "- Units: bandwidth stored as **KB/s** (source unit, not pre-converted — see "
         "CLAUDE.md §6 Open Question 4)\n"
         "- Cleaning order: sort by timestamp; drop exact duplicate rows; drop every row of a "

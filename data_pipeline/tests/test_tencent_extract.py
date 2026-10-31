@@ -99,6 +99,54 @@ def test_parse_trace_rejects_non_integer_values():
         ex.parse_trace(b"1000,1,10.5,2,20,100\n", "diskX")
 
 
+GOOD_ROW = "1000,1,10,2,20,100"
+WRONG_FIELD_COUNTS = [
+    (GOOD_ROW + ",9\n1300,1,10,2,20,100\n", "7 columns, expected 6"),    # extra field on the first row
+    (GOOD_ROW + "\n1300,1,10,2,20,100,9\n", "Expected 6 fields"),        # extra field on a later row
+    (GOOD_ROW + "\n1300,1,10,2,20\n", "missing fields"),                 # too few fields on a later row
+    ("1000,1,10,2,20\n1300,1,10,2,20,100\n", "Expected 5 fields"),       # short first row, longer later row
+    ("1000,1,10,2,20\n", "5 columns, expected 6"),                       # every row too short
+    ("", "No columns to parse"),                                          # empty file
+]
+
+
+@pytest.mark.parametrize("text, message", WRONG_FIELD_COUNTS,
+                         ids=["extra_first_row", "extra_later_row", "too_few_later_row",
+                              "short_first_row", "all_rows_short", "empty"])
+def test_parse_trace_rejects_wrong_field_counts_naming_the_file(text, message):
+    with pytest.raises(SystemExit, match=message) as err:
+        ex.parse_trace(text.encode(), "diskX")
+    assert "diskX" in str(err.value)
+
+
+SUBSCRIPTION_ROW = "d1,50,1,1,0,2,4"
+WRONG_SUBSCRIPTION_FIELD_COUNTS = [
+    (SUBSCRIPTION_ROW + ",9\nd2,50,1,1,0,1,1\n", "8 columns, expected 7"),
+    (SUBSCRIPTION_ROW + "\nd2,50,1,1,0,1,1,9\n", "Expected 7 fields"),
+    (SUBSCRIPTION_ROW + "\nd2,50,1,1,0,1\n", "missing fields"),
+    ("d1,50,1,1,0,2\n", "6 columns, expected 7"),
+    ("", "No columns to parse"),
+]
+
+
+@pytest.mark.parametrize("text, message", WRONG_SUBSCRIPTION_FIELD_COUNTS,
+                         ids=["extra_first_row", "extra_later_row", "too_few_later_row",
+                              "all_rows_short", "empty"])
+def test_read_subscription_rejects_wrong_field_counts(tmp_path, text, message):
+    path = tmp_path / "sub"
+    path.write_text(text)
+    with pytest.raises(SystemExit, match=message) as err:
+        ex.read_subscription(path)
+    assert "subscription" in str(err.value)
+
+
+def test_read_subscription_accepts_exact_field_counts(tmp_path):
+    path = tmp_path / "sub"
+    path.write_text(SUBSCRIPTION_ROW + "\nd2,50,1,1,0,1,1\n")
+    sub = ex.read_subscription(path)
+    assert list(sub.columns) == ex.SUB_COLUMNS and len(sub) == 2
+
+
 def test_clean_trace_counts_and_order():
     clean, stats, _ = ex.clean_trace(parsed(D1))
     assert stats == {"rows_raw": 10, "out_of_order_rows": 1, "exact_duplicate_rows": 1,
@@ -138,22 +186,22 @@ def test_trace_summary_empty():
     assert s["rows_clean"] == 0 and s["first_ts"] is None and s["longest_run_rows"] == 0
 
 
-def test_to_replay_frame_matches_contract():
+def test_clean_window_converts_with_the_contract_to_replay_frame():
     clean, _, _ = ex.clean_trace(parsed(D2))
-    frame = ex.to_replay_frame(clean)
+    frame = contracts.to_replay_frame(clean)
     assert list(frame.columns) == list(contracts.REPLAY_COLUMNS)
     assert frame["t_seconds"].tolist() == [0, 300, 600, 900, 1200]
     contracts.validate_replay_frame(frame)
     assert ex.STEP_S == contracts.CONTROL_INTERVAL_S
 
 
-def test_to_replay_frame_rejects_gap_and_empty():
+def test_clean_window_with_a_gap_or_no_rows_is_rejected_by_the_contract():
     clean, _, _ = ex.clean_trace(parsed(D1))
-    with pytest.raises(ValueError, match="contiguous"):
-        ex.to_replay_frame(clean)
-    with pytest.raises(ValueError, match="contiguous"):
-        ex.to_replay_frame(clean.iloc[0:0])
-    contracts.validate_replay_frame(ex.to_replay_frame(clean.iloc[:4]))
+    with pytest.raises(contracts.ContractViolation, match="contiguous"):
+        contracts.to_replay_frame(clean)
+    with pytest.raises(contracts.ContractViolation, match="contiguous"):
+        contracts.to_replay_frame(clean.iloc[0:0])
+    contracts.validate_replay_frame(contracts.to_replay_frame(clean.iloc[:4]))
 
 
 def test_dedupe_subscription_keeps_first_and_lists_conflicts(tmp_path):

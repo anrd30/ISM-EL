@@ -1072,37 +1072,66 @@ def validate_disk_index_frame(df: Any) -> None:
             )
 
 
+def _require_integral_column(series: Any, name: str) -> None:
+    """Reject a window column that is not numeric, not finite, or not whole numbers.
+
+    Runs before any integer cast, so a NaN or a fractional value is reported
+    with its column instead of being truncated or surfacing as a pandas error.
+    """
+    try:
+        values = series.to_numpy(dtype="float64")
+    except (TypeError, ValueError) as err:
+        raise ContractViolation(f"window column {name!r} is not numeric or has missing values: {err}") from err
+    if not np.isfinite(values).all():
+        raise ContractViolation(f"window column {name!r} contains non-finite values (NaN or inf)")
+    if not (values == np.floor(values)).all():
+        raise ContractViolation(f"window column {name!r} contains non-integral values")
+    if not (np.abs(values) < 2.0**63).all():
+        raise ContractViolation(f"window column {name!r} contains values outside the int64 range")
+
+
 def to_replay_frame(window: Any) -> Any:
     """Rebase a contiguous window of the cleaned Tencent load table to the replay schema.
 
     ``window`` is a pandas ``DataFrame`` with a ``timestamp`` column (source Unix
     epoch seconds, ``CONTROL_INTERVAL_S`` apart with no gap) and the five value
     columns of ``REPLAY_COLUMNS`` after ``t_seconds``; other columns are ignored.
-    The result has the ``REPLAY_COLUMNS`` columns in order, all ``int64``, with
-    ``t_seconds`` starting at 0 (``INTERFACES.md`` section 10, decision 4). Values
-    are not converted: bandwidth stays in KB/s (decision 3).
+    Timestamps and values must be finite whole numbers: a whole-number float such
+    as ``300.0`` is accepted and converted to ``int64``, a NaN, an infinity or a
+    fractional value is rejected before any cast. The result has the
+    ``REPLAY_COLUMNS`` columns in order, all ``int64``, with ``t_seconds`` starting
+    at 0 (``INTERFACES.md`` section 10, decision 4), and is checked with
+    ``validate_replay_frame`` before it is returned, so negative values, dtypes and
+    the time grid are enforced by the function consumers use. Values are not
+    converted: bandwidth stays in KB/s (decision 3).
 
     Raises:
         ContractViolation: if ``window`` is not a DataFrame, lacks a required
-            column, or its timestamps are not a gap-free ``CONTROL_INTERVAL_S``
-            grid of at least one row.
+            column, a required column is non-numeric, non-finite or non-integral
+            (the message names the column), the timestamps are not a gap-free
+            ``CONTROL_INTERVAL_S`` grid of at least one row, or the result breaks
+            the replay schema (for example a negative value).
     """
     import pandas as pd
 
     if not isinstance(window, pd.DataFrame):
         raise ContractViolation(f"window must be a pandas DataFrame, got {type(window).__name__}")
     value_columns = list(REPLAY_COLUMNS[1:])
-    missing = [c for c in ["timestamp", *value_columns] if c not in window.columns]
+    required = ["timestamp", *value_columns]
+    missing = [c for c in required if c not in window.columns]
     if missing:
         raise ContractViolation(f"window is missing columns {missing}")
+    for name in required:
+        _require_integral_column(window[name], name)
     timestamps = window["timestamp"].to_numpy(dtype="int64")
     on_grid = np.arange(len(timestamps), dtype="int64") * CONTROL_INTERVAL_S
     if len(timestamps) == 0 or not np.array_equal(timestamps - timestamps[0], on_grid):
         raise ContractViolation(f"window is not a contiguous {CONTROL_INTERVAL_S} s grid")
     out = window[value_columns].astype("int64").reset_index(drop=True)
     out.insert(0, "t_seconds", timestamps - timestamps[0])
-    return out[list(REPLAY_COLUMNS)]
-
+    out = out[list(REPLAY_COLUMNS)]
+    validate_replay_frame(out)
+    return out
 
 # --------------------------------------------------------------------------
 # Import-time self-consistency

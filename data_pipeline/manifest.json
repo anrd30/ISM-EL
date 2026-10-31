@@ -38,32 +38,47 @@
     {
       "file": "data/processed/tencent_profile_idle.parquet",
       "rows": 288,
-      "sha256": "4c2d82aee4a29cb056d5f4178ea788bf97ef1887f499ca851e651f3296afef65"
+      "sha256": "7cdc40d214a19bbfdaf981186fc1e7c21e34141c0aaf60910b697fb70cc302d1"
     },
     {
       "file": "profiles/profile_idle.csv",
       "rows": 288,
-      "sha256": "a8977c722067997f248eac271ccc44211b7eb6801168a0eb1a5b55b60258d6fd"
+      "sha256": "d27f918486aedc10b3a3f057f48f55e993a0e1bc1aa87aa59bf2fe7b18bfb163"
+    },
+    {
+      "file": "profiles/profile_idle.meta.json",
+      "rows": null,
+      "sha256": "bcb4e06ae536d116302d442450dab88fe6c5f7d8b007c188e2c62110f292fd00"
     },
     {
       "file": "data/processed/tencent_profile_diurnal.parquet",
       "rows": 288,
-      "sha256": "7794fd7754e81dac2ab082a24cf0216f530fa9f7872d9e08eb144b3082c6b02d"
+      "sha256": "4aa85e419716e36278340c35c21ea41e5e0ba1319b6c2056c295dfe9f21eeb6b"
     },
     {
       "file": "profiles/profile_diurnal.csv",
       "rows": 288,
-      "sha256": "83643f1fb9717441966b3532548104787750e08d9e70079c2061dc96916c6ca9"
+      "sha256": "3948433f91b6d97ede2e5c163f9da99ab4d460c84f7412519b020d9e8953c3bc"
+    },
+    {
+      "file": "profiles/profile_diurnal.meta.json",
+      "rows": null,
+      "sha256": "bc5a6497b9972970a027f185b66582eb7ae3812ad9ad7d141b3bce2ade5d8e03"
     },
     {
       "file": "data/processed/tencent_profile_bursty.parquet",
       "rows": 288,
-      "sha256": "6e3b44e69d59ad7215701299b8b67f4918fb6b069d1962bb589c2f553c1acf48"
+      "sha256": "4f43c98f384cc0e03b0ca67eb6a8916b0f461718ea9de865430e6728216f1578"
     },
     {
       "file": "profiles/profile_bursty.csv",
       "rows": 288,
-      "sha256": "6432c2bac432380944a2a190bf13921579efe0e1330f323eade4ee8c988a7985"
+      "sha256": "fee15ef6ab400e35b0971ac4079c08f050cf2eeabea25048b950cd0fa89b3a0e"
+    },
+    {
+      "file": "profiles/profile_bursty.meta.json",
+      "rows": null,
+      "sha256": "9aa8d2027c1c7bdef2878908ea42e6f3cd6bd2d863a4f7790819720a928c423c"
     },
     {
       "file": "data/processed/tencent_profile_peak.parquet",
@@ -76,19 +91,24 @@
       "sha256": "b57927ff6fbb3e465d391c5ac63e22a8d255cbb6dab664f11938b71f34e50f4d"
     },
     {
+      "file": "profiles/profile_peak.meta.json",
+      "rows": null,
+      "sha256": "82796977f59a3398620d5394cb936f484e453300019023d899a9ea4dc2f20ce2"
+    },
+    {
       "file": "profiles/profile_comparison.png",
       "rows": null,
-      "sha256": "2b2e11be223e9f8e2311b3ec1498817204ffc44ce0c155a9af6567b22d35cf3d"
+      "sha256": "698913d665d6b472daf88d3d9f92d71dff4c73283d8aa4ea07ac9c78d1659d09"
     },
     {
       "file": "data/processed/tencent_profile_disks.parquet",
-      "rows": 814,
-      "sha256": "60c4a9946a40167da73e00c0f77c727b44a8c18521d1908555c1a492257c8e4c"
+      "rows": 689,
+      "sha256": "fe8a5e5b26a683cd4893e980498aa436d663e74df6f8b8d7393d1abb87b12565"
     },
     {
       "file": "data/processed/tencent_profile_candidates.parquet",
       "rows": 6817,
-      "sha256": "7064a68540bec367c26d6bc8b8dbd8098090187733df6c7665b5324709e3c696"
+      "sha256": "811c04efd4c475ddafffb106b5b72e52dd8b1a52815fe0c22b9ab748ac433e86"
     }
   ],
   "sources": {
@@ -192,40 +212,88 @@
   },
   "profiles": {
     "idle": {
-      "n_disks": 748,
-      "label": "aggregate of 748 lowest-mean-bandwidth volumes (selected extremes, not a representative sample)",
+      "n_disks": 612,
+      "label": "aggregate of 612 lowest-mean-bandwidth volumes (selected extremes, not a representative sample)",
       "disclosure": "selected extremes, not a representative sample",
       "selection_rule": "lowest mean total bandwidth",
       "n_selection_mode": "not_above",
       "window_start_ts": 1596686400,
       "tuned": true,
       "target_p95_mbps": 20.0,
-      "p95_mbps": 20.091249999999995,
-      "p99_over_median": 1.2242072756119675
+      "p95_mbps": 20.076,
+      "p99_over_median": 1.2231896719623827,
+      "violation_fraction_by_action_mbps": {
+        "20": 0.0,
+        "50": 0.0,
+        "80": 0.0,
+        "120": 0.0
+      },
+      "safe_actions": 4,
+      "iops_facts": {
+        "max_read_iops": 6027,
+        "fraction_rows_read_iops_above_obs_scale": 0.0,
+        "median_bytes_per_read_io": 24676.58534502999,
+        "max_write_iops": 23236,
+        "fraction_rows_write_iops_above_obs_scale": 0.003472222222222222,
+        "median_bytes_per_write_io": 7632.242705238901
+      },
+      "ranked_candidates": 6403
     },
     "diurnal": {
-      "n_disks": 39,
-      "label": "aggregate of 39 strongest-daily-cycle volumes (selected extremes, not a representative sample)",
+      "n_disks": 37,
+      "label": "aggregate of 37 strongest-daily-cycle volumes (selected extremes, not a representative sample)",
       "disclosure": "selected extremes, not a representative sample",
       "selection_rule": "highest daily_strength (variance share of the time-of-day mean profile)",
       "n_selection_mode": "not_above",
       "window_start_ts": 1596686400,
       "tuned": true,
       "target_p95_mbps": 100.0,
-      "p95_mbps": 96.82589999999999,
-      "p99_over_median": 1.3952528506550788
+      "p95_mbps": 96.7702,
+      "p99_over_median": 1.3956536240509059,
+      "violation_fraction_by_action_mbps": {
+        "20": 0.0,
+        "50": 0.0,
+        "80": 0.024305555555555556,
+        "120": 0.6979166666666666
+      },
+      "safe_actions": 3,
+      "iops_facts": {
+        "max_read_iops": 9778,
+        "fraction_rows_read_iops_above_obs_scale": 0.0,
+        "median_bytes_per_read_io": 2742.4561323379203,
+        "max_write_iops": 39768,
+        "fraction_rows_write_iops_above_obs_scale": 0.013888888888888888,
+        "median_bytes_per_write_io": 17291.939770128032
+      },
+      "ranked_candidates": 6377
     },
     "bursty": {
-      "n_disks": 23,
-      "label": "aggregate of 23 highest-window-p99/median volumes (selected extremes, not a representative sample)",
+      "n_disks": 36,
+      "label": "aggregate of 36 highest-window-p99/median volumes (selected extremes, not a representative sample)",
       "disclosure": "selected extremes, not a representative sample; volumes are ranked by window-local p99/median and the same statistic is then reported for the aggregate (selection on the outcome), so the reported value is high partly by construction",
       "selection_rule": "highest window-local p99/median of total bandwidth",
       "n_selection_mode": "not_above",
       "window_start_ts": 1596686400,
       "tuned": true,
       "target_p95_mbps": 120.0,
-      "p95_mbps": 115.96419999999999,
-      "p99_over_median": 5.90936544774091
+      "p95_mbps": 118.77884999999999,
+      "p99_over_median": 3.929454251448592,
+      "violation_fraction_by_action_mbps": {
+        "20": 0.0,
+        "50": 0.006944444444444444,
+        "80": 0.17708333333333334,
+        "120": 0.2951388888888889
+      },
+      "safe_actions": 2,
+      "iops_facts": {
+        "max_read_iops": 8405,
+        "fraction_rows_read_iops_above_obs_scale": 0.0,
+        "median_bytes_per_read_io": 10499.725764431647,
+        "max_write_iops": 11416,
+        "fraction_rows_write_iops_above_obs_scale": 0.0,
+        "median_bytes_per_write_io": 16315.224226290913
+      },
+      "ranked_candidates": 6190
     },
     "peak": {
       "n_disks": 4,
@@ -237,7 +305,28 @@
       "tuned": true,
       "target_p95_mbps": 160.0,
       "p95_mbps": 144.39515,
-      "p99_over_median": 1.0637449773663599
+      "p99_over_median": 1.0637449773663599,
+      "violation_fraction_by_action_mbps": {
+        "20": 0.0,
+        "50": 0.7291666666666666,
+        "80": 1.0,
+        "120": 1.0
+      },
+      "safe_actions": 1,
+      "iops_facts": {
+        "max_read_iops": 2348,
+        "fraction_rows_read_iops_above_obs_scale": 0.0,
+        "median_bytes_per_read_io": 128452.26404800873,
+        "max_write_iops": 3859,
+        "fraction_rows_write_iops_above_obs_scale": 0.0,
+        "median_bytes_per_write_io": 136926.58081207884
+      },
+      "ranked_candidates": 6403
     }
+  },
+  "profile_eligibility": {
+    "min_bytes_per_io": 512,
+    "candidates": 6817,
+    "excluded_implausible_io": 414
   }
 }

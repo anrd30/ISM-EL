@@ -12,6 +12,14 @@ lowest mean). It is not a sample of a typical storage group.
 Window: the start timestamp shared by the largest number of volumes that
 have a gap-free 24 h run; volumes without one are not candidates.
 
+Eligibility: a candidate is excluded from every profile when its median bytes
+per I/O is below MIN_BYTES_PER_IO (512, one disk sector) for reads or for writes.
+The median is bandwidth in KB/s x 1000 / IOPS over the direction's rows with
+IOPS > 0, across the volume's whole clean trace; a direction with no such row has
+no median and does not exclude. A median below one sector per I/O is physically
+implausible and indicates an unreliable IOPS counter. The rule is applied to all
+candidates before any ranking and does not depend on any profile target.
+
 Selection per profile (ties broken by `disk_uid`):
   peak     highest mean total bandwidth; N is the largest whose aggregate p95
            does not exceed PEAK_TARGET_MBPS
@@ -29,14 +37,22 @@ Tuning evaluates every N from 1 to the number of ranked candidates. Mode
 "not_above" (all four profiles) keeps the largest N whose aggregate p95 is at
 or below target x (1 + CEILING_TOLERANCE). The aggregate p95 is non-decreasing
 in N, and foreground load above the target uses up the headroom the simulator's
-latency limit leaves for rebuild traffic, while load below it only makes the
-profile lighter; a symmetric distance to the target would treat the two
-alike. Mode "closest" (nearest p95, smaller N on a tie) is implemented in
-`tune_n` and not used by PROFILE_SPECS. No disk is skipped or swapped to move
-p95 or p99/median toward a target. The bursty ranking statistic and the
+latency limit leaves for rebuild traffic, while load below it can add a safe
+action, so the ladder is checked separately by `latency_ladder`; a symmetric
+distance to the target would treat the two alike. `tune_n` raises ValueError
+when no N satisfies the ceiling. Mode "closest" (nearest p95, smaller N on a
+tie) is implemented in `tune_n` and not used by PROFILE_SPECS. No disk is
+skipped or swapped to move p95 or p99/median toward a target. The bursty ranking statistic and the
 p99/median reported for its aggregate are the same statistic, so that value is
 high partly by construction. Total bandwidth is read plus write in KB/s; MB/s
 divides by 1000.
+
+`latency_ladder` gives, per rebuild allocation in ACTIONS_MBPS, the share of the
+288 intervals that violate the latency limit under the simulator's own queue
+model, and `safe_actions`, the number of allocations whose share is at most
+LATENCY_VIOLATION_FRACTION_MAX. `iops_facts` records IOPS maxima, the share of
+rows above the observation scales and the median bytes per I/O of each profile;
+no selection depends on them.
 
 Usage:
     python -I build_profiles.py
@@ -44,6 +60,7 @@ Usage:
 Outputs:
     data/processed/tencent_profile_<name>.parquet
     profiles/profile_<name>.csv
+    profiles/profile_<name>.meta.json
     data/processed/tencent_profile_disks.parquet
     data/processed/tencent_profile_candidates.parquet
     profiles/profile_comparison.png
@@ -97,6 +114,9 @@ BURSTY_TARGET_MBPS = 120.0   # 0.6 x BW_TOTAL_MBPS
 IDLE_TARGET_MBPS = 20.0
 PEAK_START_N = 64
 CEILING_TOLERANCE = 0.005    # p95 may exceed a "not_above" target by this fraction
+MIN_BYTES_PER_IO = 512       # one disk sector
+SOURCE_NAME = "Tencent Cloud Volume Workload Traces"
+BYTES_PER_KB = 1000.0        # decimal, as the contract's kbps_to_mbps
 CEILING_EPS = 1e-9           # relative slack so a p95 exactly on the ceiling passes in float64
 DISCLOSURE = "selected extremes, not a representative sample"
 BURSTY_DISCLOSURE = (
@@ -185,8 +205,10 @@ def daily_stats(ts: np.ndarray, total_bw: np.ndarray) -> dict:
 
 def collect(pf: pq.ParquetFile, groups: dict[str, int], uids: list[str],
             window_start: int) -> tuple[np.ndarray, pd.DataFrame]:
-    """Window samples (n, 288, 5), daily-cycle stats and the window-local p99/median
-    of total bandwidth (NaN when the window median is 0) for each candidate disk."""
+    """Window samples (n, 288, 5), daily-cycle stats, the window-local p99/median of
+    total bandwidth (NaN when the window median is 0) and the median read and write
+    bytes per I/O of the whole clean trace (NaN when a direction has no IOPS > 0 row)
+    for each candidate disk."""
     grid = window_start + np.arange(DAY_ROWS, dtype="int64") * STEP_S
     windows = np.zeros((len(uids), DAY_ROWS, len(VALUE_COLUMNS)), dtype="int64")
     rows = []
@@ -200,18 +222,32 @@ def collect(pf: pq.ParquetFile, groups: dict[str, int], uids: list[str],
         windows[k] = seg[VALUE_COLUMNS].to_numpy()
         total = (d["read_bw_kbps"] + d["write_bw_kbps"]).to_numpy(dtype="float64")
         in_window = windows[k, :, READ_BW] + windows[k, :, WRITE_BW]
-        rows.append({"disk_uid": uid, **daily_stats(ts, total),
-                     "window_p99_over_median": total_bw_stats(in_window)["p99_over_median"]})
-    return windows, pd.DataFrame(rows, columns=["disk_uid", "days", "daily_strength",
-                                                "daily_amplitude_kbps", "window_p99_over_median"])
+        rows.append({
+            "disk_uid": uid, **daily_stats(ts, total),
+            "window_p99_over_median": total_bw_stats(in_window)["p99_over_median"],
+            "median_read_bytes_per_io": median_bytes_per_io(
+                d["read_bw_kbps"].to_numpy(dtype="float64"), d["read_iops"].to_numpy(dtype="float64")),
+            "median_write_bytes_per_io": median_bytes_per_io(
+                d["write_bw_kbps"].to_numpy(dtype="float64"), d["write_iops"].to_numpy(dtype="float64")),
+        })
+    return windows, pd.DataFrame(rows, columns=[
+        "disk_uid", "days", "daily_strength", "daily_amplitude_kbps", "window_p99_over_median",
+        "median_read_bytes_per_io", "median_write_bytes_per_io"])
 
 
 def candidate_frame(summary: pd.DataFrame, periodicity: pd.DataFrame) -> pd.DataFrame:
-    """Whole-trace summary columns, daily-cycle stats and window-local burstiness per candidate."""
+    """Whole-trace summary columns, daily-cycle stats, window-local burstiness and the
+    eligibility flag per candidate.
+
+    `implausible_io` is True when the median read or write bytes per I/O is below
+    MIN_BYTES_PER_IO; an undefined median (NaN) never sets it.
+    """
     cols = ["disk_uid", "mean_total_bw_kbps", "zero_row_fraction"]
     cand = periodicity.merge(summary[cols].astype({c: "float64" for c in cols[1:]}),
                              on="disk_uid", how="left")
     cand["burstiness"] = cand["window_p99_over_median"]
+    cand["implausible_io"] = (cand["median_read_bytes_per_io"].lt(MIN_BYTES_PER_IO)
+                              | cand["median_write_bytes_per_io"].lt(MIN_BYTES_PER_IO))
     cand.loc[cand["days"] < MIN_DAYS, "daily_strength"] = np.nan
     return cand
 
@@ -226,12 +262,16 @@ def tune_n(p95_mbps_by_n: np.ndarray, target_mbps: float, mode: str = "closest")
     """N (1-based) from the aggregate p95 curve.
 
     "closest": p95 nearest the target, smaller N on ties. "not_above": largest N with
-    p95 at or below target x (1 + CEILING_TOLERANCE) (N=1 when none qualifies).
+    p95 at or below target x (1 + CEILING_TOLERANCE); ValueError when no N qualifies.
     """
     if mode == "not_above":
         ceiling = target_mbps * (1.0 + CEILING_TOLERANCE) * (1.0 + CEILING_EPS)
         within = np.flatnonzero(p95_mbps_by_n <= ceiling)
-        return int(within[-1]) + 1 if len(within) else 1
+        if not len(within):
+            raise ValueError(
+                f"no N satisfies the ceiling: target {target_mbps:g} MB/s, ceiling "
+                f"{ceiling:g} MB/s, p95 at N=1 {float(p95_mbps_by_n[0]):g} MB/s")
+        return int(within[-1]) + 1
     return int(np.argmin(np.abs(p95_mbps_by_n - target_mbps))) + 1
 
 
@@ -248,7 +288,7 @@ def total_bw_stats(total_kbps: np.ndarray) -> dict:
 
 def build_profile(name: str, spec: dict, cand: pd.DataFrame, windows: np.ndarray,
                   position: dict[str, int], window_start: int) -> dict:
-    order = rank_uids(cand, spec["key"], spec["ascending"])
+    order = rank_uids(cand[~cand["implausible_io"]], spec["key"], spec["ascending"])
     if not order:
         raise ValueError(f"{name}: no ranked candidates")
     idx = [position[u] for u in order]
@@ -276,6 +316,85 @@ def build_profile(name: str, spec: dict, cand: pd.DataFrame, windows: np.ndarray
         "p95_at_start_n": float(curve[start_n - 1]) if start_n and start_n <= len(curve) else None,
         "candidates": len(order), **total_bw_stats(total),
     }
+
+
+def latency_ladder(frame: pd.DataFrame, name: str = "profile") -> dict:
+    """Share of intervals that violate latency under each rebuild allocation.
+
+    For each action of ACTIONS_MBPS and each interval: the foreground load is the
+    replay bandwidth in MB/s (`sim.scenario.trace_from_frame`); the allocation the
+    group can apply is min(action, max(0, rho_max x BW_TOTAL_MBPS - fg)); the
+    utilisation is min(rho_max, (fg + applied) / BW_TOTAL_MBPS); the interval
+    violates when the contract's `latency_violation` says the simulator's mean
+    latency exceeds its limit at the configured target. `safe_actions` counts the
+    allocations whose violating share is at most LATENCY_VIOLATION_FRACTION_MAX.
+    """
+    from sim import scenario
+    from sim.config import SimConfig, latency_mean_ms
+
+    fg = scenario.trace_from_frame(frame, name, False).fg_bw_mbps
+    cfg = SimConfig()
+    headroom = np.maximum(0.0, cfg.rho_max * contracts.BW_TOTAL_MBPS - fg)
+    fractions = {}
+    for action in contracts.ACTIONS_MBPS:
+        applied = np.minimum(float(action), headroom)
+        rho = np.minimum(cfg.rho_max, (fg + applied) / contracts.BW_TOTAL_MBPS)
+        violations = [contracts.latency_violation(latency_mean_ms(float(r), cfg), cfg.latency_target_ms)
+                      for r in rho]
+        fractions[int(action)] = float(np.mean(violations))
+    safe = sum(1 for f in fractions.values() if f <= contracts.LATENCY_VIOLATION_FRACTION_MAX)
+    return {"violation_fraction_by_action_mbps": fractions, "safe_actions": safe}
+
+
+def median_bytes_per_io(bw_kbps: np.ndarray, iops: np.ndarray) -> float:
+    """Median of bw_kbps x BYTES_PER_KB / iops over the rows with iops > 0 (NaN when none)."""
+    active = iops > 0
+    if not active.any():
+        return float("nan")
+    return float(np.median(bw_kbps[active] * BYTES_PER_KB / iops[active]))
+
+
+def iops_facts(frame: pd.DataFrame) -> dict:
+    """IOPS maxima, share of rows above the observation scale, and median bytes per I/O.
+
+    Bytes per I/O is bandwidth in KB/s x BYTES_PER_KB / IOPS over the rows with
+    IOPS > 0 (None when no row has IOPS > 0). Recorded only; no selection uses it.
+    """
+    facts = {}
+    for kind in ("read", "write"):
+        iops = frame[f"{kind}_iops"].to_numpy(dtype="float64")
+        bw_kbps = frame[f"{kind}_bw_kbps"].to_numpy(dtype="float64")
+        median = median_bytes_per_io(bw_kbps, iops)
+        facts[f"max_{kind}_iops"] = int(iops.max())
+        facts[f"fraction_rows_{kind}_iops_above_obs_scale"] = float(
+            (iops > contracts.OBS_SCALES[f"fg_{kind}_iops"]).mean())
+        facts[f"median_bytes_per_{kind}_io"] = None if median != median else median
+    return facts
+
+
+def profile_label(p: dict) -> str:
+    return f"aggregate of {p['n']} {PROFILE_SPECS[p['name']]['label']} volumes ({DISCLOSURE})"
+
+
+def profile_sidecar(p: dict, window_start: int) -> dict:
+    """Provenance record written next to a profile CSV (read by `sim.scenario.load_replay_csv`)."""
+    spec = PROFILE_SPECS[p["name"]]
+    start = pd.Timestamp(window_start, unit="s", tz="UTC")
+    return {
+        "profile": p["name"],
+        "synthetic": False,
+        "source": SOURCE_NAME,
+        "n_disks": p["n"],
+        "window_start_ts": window_start,
+        "window_start_utc": f"{start:%Y-%m-%dT%H:%M:%SZ}",
+        "label": profile_label(p),
+        "disclosure": spec["disclosure"],
+        "selection_rule": spec["rule"],
+    }
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def composition(index: pd.DataFrame, uids: list[str]) -> dict:
@@ -358,6 +477,10 @@ def write_outputs(profiles: list[dict], cand: pd.DataFrame, window_start: int) -
         p["frame"].to_csv(csv, index=False, lineterminator="\n")
         entries.append({"file": csv.relative_to(ROOT).as_posix(), "rows": len(p["frame"]),
                         "sha256": sha256_of(csv)})
+        sidecar = PROFILES_DIR / f"profile_{p['name']}.meta.json"
+        write_json(sidecar, profile_sidecar(p, window_start))
+        entries.append({"file": sidecar.relative_to(ROOT).as_posix(), "rows": None,
+                        "sha256": sha256_of(sidecar)})
     png = PROFILES_DIR / "profile_comparison.png"
     plot_profiles(profiles, window_start, png)
     entries.append({"file": png.relative_to(ROOT).as_posix(), "rows": None,
@@ -365,7 +488,8 @@ def write_outputs(profiles: list[dict], cand: pd.DataFrame, window_start: int) -
     put(OUT_DISKS, profile_table(profiles))
     put(OUT_CANDIDATES, pa.Table.from_pandas(
         cand[["disk_uid", "days", "daily_strength", "daily_amplitude_kbps",
-              "window_p99_over_median"]], preserve_index=False))
+              "window_p99_over_median", "median_read_bytes_per_io", "median_write_bytes_per_io",
+              "implausible_io"]], preserve_index=False))
     return entries
 
 
@@ -386,6 +510,8 @@ def report_lines(r: dict) -> list[str]:
         f"window_start_ts={r['window_start']} window_start_utc="
         f"{pd.Timestamp(r['window_start'], unit='s', tz='UTC'):%Y-%m-%d %H:%M}",
         f"candidate_disks={r['candidates']} diurnal_candidates={r['diurnal_candidates']}",
+        f"min_bytes_per_io={MIN_BYTES_PER_IO} candidates_excluded_by_rule={r['excluded']} "
+        f"candidates_after_rule={r['candidates'] - r['excluded']}",
     ]
     for p in r["profiles"]:
         spec = PROFILE_SPECS[p["name"]]
@@ -395,6 +521,7 @@ def report_lines(r: dict) -> list[str]:
             f"rule=\"{spec['rule']}\" tuned={p['tuned']} target_p95_mbps={target} "
             f"p95_mbps={fmt(p['p95_mbps'])} p99_over_median={fmt(p['p99_over_median'])} "
             f"mean_mbps={fmt(p['mean_mbps'])} max_mbps={fmt(p['max_mbps'])}")
+        lines.append(f"profile={p['name']} ranked_candidates={p['candidates']}")
         if p["start_n"] is not None:
             lines.append(f"profile={p['name']} start_n={p['start_n']} "
                          f"p95_mbps_at_start_n={fmt(p['p95_at_start_n'])}")
@@ -404,6 +531,16 @@ def report_lines(r: dict) -> list[str]:
         comp = p["composition"]
         lines.append(f"profile={p['name']} user_type_counts={comp['user_type']} "
                      f"disk_type_counts={comp['disk_type']}")
+        fractions = {a: round(f, 4) for a, f in p["ladder"]["violation_fraction_by_action_mbps"].items()}
+        lines.append(f"profile={p['name']} safe_actions={p['ladder']['safe_actions']} "
+                     f"violation_fraction_by_action_mbps={fractions}")
+        f = p["iops"]
+        lines.append(
+            f"profile={p['name']} max_read_iops={f['max_read_iops']} max_write_iops={f['max_write_iops']} "
+            f"fraction_rows_read_iops_above_obs_scale={fmt(f['fraction_rows_read_iops_above_obs_scale'])} "
+            f"fraction_rows_write_iops_above_obs_scale={fmt(f['fraction_rows_write_iops_above_obs_scale'])} "
+            f"median_bytes_per_read_io={fmt(f['median_bytes_per_read_io'])} "
+            f"median_bytes_per_write_io={fmt(f['median_bytes_per_write_io'])}")
     bursty = next(p for p in r["profiles"] if p["name"] == "bursty")
     lo, hi = SYNTHETIC_BURSTY_RANGE
     ratio = bursty["p99_over_median"]
@@ -429,6 +566,13 @@ def update_preprocessing(lines: list[str]) -> None:
         "- Bursty: " + BURSTY_DISCLOSURE + "\n"
         "- Window: the start timestamp shared by the most volumes with a gap-free 24 h run; "
         "only those volumes are candidates\n"
+        f"- Eligibility rule: a candidate is excluded from every profile when its median bytes per "
+        f"I/O is below {MIN_BYTES_PER_IO} (one disk sector) for reads or for writes. The median is "
+        "bandwidth in KB/s x 1000 / IOPS over the direction's rows with IOPS > 0, across the "
+        "volume's whole clean trace; a direction with no such row has no median and does not "
+        "exclude. A median below one 512-byte sector per I/O is physically implausible and "
+        "indicates an unreliable IOPS counter. The rule is applied to all candidates before any "
+        "ranking and does not depend on any profile target\n"
         "- Selection rules: peak = highest mean total bandwidth; diurnal = highest "
         "`daily_strength` (share of total-bandwidth variance explained by the 288-bin "
         f"time-of-day mean, at least {MIN_DAYS} days of clean rows); bursty = highest "
@@ -443,8 +587,24 @@ def update_preprocessing(lines: list[str]) -> None:
         "- \"Closest to target\" was dropped for all four profiles in favour of \"largest N at "
         "or below target x 1.005\": a symmetric distance is the wrong fit for a one-sided "
         "feasibility ceiling. Overshoot uses up the headroom the simulator's latency limit "
-        "(`sim/config.py`) leaves for rebuild traffic, while undershoot only makes the profile "
-        "lighter. No disk is skipped or swapped to move p95 or p99/median toward a target\n"
+        "(`sim/config.py`) leaves for rebuild traffic, while undershoot can add a safe action, "
+        "so the ladder is checked separately by `latency_ladder`. No disk is skipped or swapped "
+        "to move p95 or p99/median toward a target\n"
+        "- Latency ladder: for each action of `ACTIONS_MBPS` and each of the 288 intervals, the "
+        "foreground load is the replay bandwidth in MB/s (`sim.scenario.trace_from_frame`), the "
+        "applied allocation is min(action, max(0, `rho_max` x `BW_TOTAL_MBPS` - load)), the "
+        "utilisation is min(`rho_max`, (load + applied) / `BW_TOTAL_MBPS`), and the interval "
+        "violates when the contract's `latency_violation` flags the simulator's mean latency "
+        "(`sim.config.latency_mean_ms`, default `SimConfig`). `violation_fraction_by_action_mbps` "
+        "is the violating share per action; `safe_actions` counts the actions whose share is at "
+        "most `LATENCY_VIOLATION_FRACTION_MAX`\n"
+        "- IOPS facts (recorded only; no selection depends on them): per profile, the maximum "
+        "read and write IOPS, the share of rows above the observation scales `fg_read_iops` and "
+        "`fg_write_iops`, and the median bytes per I/O (bandwidth in KB/s x 1000 / IOPS over rows "
+        "with IOPS > 0)\n"
+        "- Sidecars: `profiles/profile_<name>.meta.json` (`profile`, `synthetic` = false, `source`, "
+        "`n_disks`, window start, `label`, `disclosure`, `selection_rule`), the provenance record "
+        "`sim.scenario.load_replay_csv` reads next to each CSV\n"
         "- p99/median of a profile is computed over its 288 window samples of total bandwidth "
         f"(read + write); the synthetic generator's bursty profile gives "
         f"{SYNTHETIC_BURSTY_RANGE[0]}-{SYNTHETIC_BURSTY_RANGE[1]} on the same definition\n"
@@ -472,8 +632,7 @@ def update_manifest(r: dict) -> None:
     data["profiles"] = {
         p["name"]: {
             "n_disks": p["n"],
-            "label": f"aggregate of {p['n']} {PROFILE_SPECS[p['name']]['label']} volumes "
-                     f"({DISCLOSURE})",
+            "label": profile_label(p),
             "disclosure": PROFILE_SPECS[p["name"]]["disclosure"],
             "selection_rule": PROFILE_SPECS[p["name"]]["rule"],
             "n_selection_mode": PROFILE_SPECS[p["name"]]["mode"],
@@ -483,8 +642,17 @@ def update_manifest(r: dict) -> None:
             "p95_mbps": p["p95_mbps"],
             "p99_over_median": None if p["p99_over_median"] != p["p99_over_median"]
             else p["p99_over_median"],
+            "violation_fraction_by_action_mbps": p["ladder"]["violation_fraction_by_action_mbps"],
+            "safe_actions": p["ladder"]["safe_actions"],
+            "iops_facts": p["iops"],
+            "ranked_candidates": p["candidates"],
         }
         for p in r["profiles"]
+    }
+    data["profile_eligibility"] = {
+        "min_bytes_per_io": MIN_BYTES_PER_IO,
+        "candidates": r["candidates"],
+        "excluded_implausible_io": r["excluded"],
     }
     MANIFEST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -506,12 +674,16 @@ def build() -> dict:
     for name in PROFILE_NAMES:
         p = build_profile(name, PROFILE_SPECS[name], cand, windows, position, window_start)
         p["composition"] = composition(index, p["uids"])
+        p["ladder"] = latency_ladder(p["frame"], name)
+        p["iops"] = iops_facts(p["frame"])
         zero = cand.set_index("disk_uid").loc[p["uids"], "zero_row_fraction"]
         p["zero_bw_disks"] = int((zero == 1.0).sum())
         profiles.append(p)
     entries = write_outputs(profiles, cand, window_start)
+    eligible = cand[~cand["implausible_io"]]
     return {"window_start": window_start, "candidates": len(uids),
-            "diurnal_candidates": int(cand["daily_strength"].notna().sum()),
+            "excluded": int(cand["implausible_io"].sum()),
+            "diurnal_candidates": int(eligible["daily_strength"].notna().sum()),
             "profiles": profiles, "entries": entries}
 
 

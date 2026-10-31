@@ -56,7 +56,22 @@ LISTED_MISMATCHES = 10
 
 
 def read_subscription(source) -> pd.DataFrame:
-    sub = pd.read_csv(source, header=None, names=list(DISK_INDEX_COLUMNS))
+    """Read the headerless subscription table with exactly one field per contract column.
+
+    Read without names so that a row with extra fields cannot shift the columns
+    or become an implicit index. Raises SystemExit when the first row's field
+    count differs from the column count, a later row has more fields (parser
+    error), any field is missing, or a numeric column is not integer.
+    """
+    try:
+        sub = pd.read_csv(source, header=None)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as err:
+        raise SystemExit(f"subscription: {err}") from err
+    if sub.shape[1] != len(DISK_INDEX_COLUMNS):
+        raise SystemExit(f"subscription: {sub.shape[1]} columns, expected {len(DISK_INDEX_COLUMNS)}")
+    sub.columns = list(DISK_INDEX_COLUMNS)
+    if sub.isna().any().any():
+        raise SystemExit("subscription: rows with missing fields")
     bad = [c for c in VALUE_COLUMNS if not pd.api.types.is_integer_dtype(sub[c])]
     if bad:
         raise SystemExit(f"subscription: non-integer columns {bad}")

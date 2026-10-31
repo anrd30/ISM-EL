@@ -1,0 +1,11 @@
+{
+  "disclosure": "selected extremes, not a representative sample; volumes are ranked by window-local p99/median and the same statistic is then reported for the aggregate (selection on the outcome), so the reported value is high partly by construction",
+  "label": "aggregate of 36 highest-window-p99/median volumes (selected extremes, not a representative sample)",
+  "n_disks": 36,
+  "profile": "bursty",
+  "selection_rule": "highest window-local p99/median of total bandwidth",
+  "source": "Tencent Cloud Volume Workload Traces",
+  "synthetic": false,
+  "window_start_ts": 1596686400,
+  "window_start_utc": "2020-08-06T04:00:00Z"
+}

@@ -10,6 +10,9 @@ Alignment: a column absent from a given day's file is filled with NaN for
 that day's rows. Columns are never dropped because they are missing in some
 files, and quarters are never concatenated here.
 
+A row whose date differs from its file name aborts the run (SystemExit naming the
+file and the row count), so `date_mismatch` is 0 on every completed run.
+
 Usage:
     python -I extract.py [quarter_dir]
 
@@ -146,7 +149,9 @@ def extract(quarter_dir: Path) -> dict:
 
             if day["failure"].isna().any():
                 raise SystemExit(f"{f.name}: null in failure column")
-            date_mismatch += int((day["date"].dt.strftime("%Y-%m-%d") != f.stem).sum())
+            mismatched = int((day["date"].dt.strftime("%Y-%m-%d") != f.stem).sum())
+            if mismatched:
+                raise SystemExit(f"{f.name}: {mismatched} rows with a date different from the file name")
             null_capacity += int(day["capacity_bytes"].isna().sum())
 
             for model, g in day.groupby("model"):

@@ -2157,6 +2157,59 @@ class TestToReplayFrame:
     def test_empty_window_is_rejected(self, pd):
         assert "contiguous" in self._violation(_make_window(pd, n=0))
 
+    # -- integrality, finiteness and the final replay validation ---------------
+
+    def test_fractional_timestamps_are_rejected_naming_the_column(self, pd):
+        """Truncating 0.5 and 300.5 would silently move every sample; the column is named."""
+        msg = self._violation(_make_window(pd, n=2, timestamp=np.array([0.5, 300.5])))
+        assert "timestamp" in msg and "non-integral" in msg
+
+    def test_fractional_value_is_rejected_naming_the_column(self, pd):
+        """10.9 would be truncated to 10 by an integer cast."""
+        msg = self._violation(_make_window(pd, read_iops=np.array([10.9, 11.0, 12.0, 13.0])))
+        assert "read_iops" in msg and "non-integral" in msg
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf], ids=["nan", "inf", "-inf"])
+    def test_non_finite_value_is_a_contract_violation_not_a_pandas_error(self, pd, bad):
+        """A NaN cannot be cast to int64; the failure must be the contract's, with the column."""
+        msg = self._violation(_make_window(pd, write_bw_kbps=np.array([1.0, bad, 3.0, 4.0])))
+        assert "write_bw_kbps" in msg and "non-finite" in msg
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf], ids=["nan", "inf"])
+    def test_non_finite_timestamp_is_rejected_naming_the_column(self, pd, bad):
+        msg = self._violation(_make_window(pd, timestamp=np.array([0.0, bad, 600.0, 900.0])))
+        assert "timestamp" in msg and "non-finite" in msg
+
+    def test_missing_value_in_a_nullable_integer_column_is_a_contract_violation(self, pd):
+        window = _make_window(pd)
+        window["write_iops"] = window["write_iops"].astype("Int64")
+        window.loc[1, "write_iops"] = pd.NA
+        assert "write_iops" in self._violation(window)
+
+    def test_non_numeric_column_is_rejected_naming_the_column(self, pd):
+        msg = self._violation(_make_window(pd, read_iops=["a", "b", "c", "d"]))
+        assert "read_iops" in msg and "numeric" in msg
+
+    def test_value_outside_the_int64_range_is_rejected(self, pd):
+        msg = self._violation(_make_window(pd, read_iops=np.array([1e19, 1.0, 2.0, 3.0])))
+        assert "read_iops" in msg and "int64" in msg
+
+    def test_negative_value_is_rejected_by_the_replay_validator(self, pd):
+        """The result goes through ``validate_replay_frame``, which names column and row."""
+        msg = self._violation(_make_window(pd, disk_usage_mb=np.array([5, -1, 7, 8])))
+        assert "disk_usage_mb" in msg and "negative" in msg.lower()
+
+    def test_whole_number_floats_are_accepted_and_returned_as_int64(self, pd):
+        window = _make_window(
+            pd, n=2, timestamp=np.array([0.0, 300.0]),
+            read_iops=np.array([300.0, 301.0]), disk_usage_mb=np.array([5.0, 6.0]),
+        )
+        frame = to_replay_frame(window)
+        assert frame["t_seconds"].tolist() == [0, 300]
+        assert frame["read_iops"].tolist() == [300, 301]
+        assert all(frame[c].dtype == np.dtype("int64") for c in REPLAY_COLUMNS)
+        assert validate_replay_frame(frame) is None
+
 
 class TestImportSurface:
     _PROBE = (

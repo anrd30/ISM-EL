@@ -1,3 +1,4 @@
+# Python >= 3.11 is required (hashlib.file_digest).
 pandas>=2.2
 pyarrow>=16.0
 numpy>=1.26

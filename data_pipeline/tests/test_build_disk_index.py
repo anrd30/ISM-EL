@@ -86,10 +86,31 @@ def test_read_subscription_assigns_source_order():
     assert all(str(sub[c].dtype) == "int64" for c in bd.VALUE_COLUMNS)
 
 
-@pytest.mark.parametrize("line", ["d1,50,1,1,0,2.5,4", "d1,50,1,1,0,,4"])
-def test_read_subscription_rejects_non_integer_values(line):
+def test_read_subscription_rejects_non_integer_values():
     with pytest.raises(SystemExit, match="non-integer columns"):
-        sub_frame(line + "\n")
+        sub_frame("d1,50,1,1,0,2.5,4\n")
+
+
+def test_read_subscription_rejects_an_empty_field_as_missing():
+    with pytest.raises(SystemExit, match="missing fields"):
+        sub_frame("d1,50,1,1,0,,4\n")
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("d1,50,1,1,0,2,4,9\nd2,50,1,1,0,1,1\n", "8 columns, expected 7"),   # 8-field first row
+        ("d1,50,1,1,0,2,4\nd2,50,1,1,0,1,1,9\n", "Expected 7 fields"),       # 8-field later row
+        ("d1,50,1,1,0,2,4\nd2,50,1,1,0,1\n", "missing fields"),               # too few fields
+        ("d1,50,1,1,0,2\n", "6 columns, expected 7"),
+        ("", "No columns to parse"),
+    ],
+    ids=["extra_first_row", "extra_later_row", "too_few_later_row", "all_rows_short", "empty"],
+)
+def test_read_subscription_rejects_wrong_field_counts(text, message):
+    with pytest.raises(SystemExit, match=message) as err:
+        sub_frame(text)
+    assert "subscription" in str(err.value)
 
 
 def test_dedupe_keeps_first_row_and_reports_conflicts():

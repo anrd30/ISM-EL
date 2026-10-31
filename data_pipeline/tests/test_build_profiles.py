@@ -189,8 +189,20 @@ def test_tune_n_not_above_takes_largest_n_within_target():
     assert bp.tune_n(curve, 160.0, "closest") == 5
     assert bp.tune_n(curve, 160.0, "not_above") == 4
     assert bp.tune_n(curve, 144.4, "not_above") == 4
-    assert bp.tune_n(curve, 10.0, "not_above") == 1           # none qualifies: smallest N
+    with pytest.raises(ValueError, match="no N satisfies the ceiling"):
+        bp.tune_n(curve, 10.0, "not_above")                   # none qualifies
     assert bp.tune_n(np.array([1.0, 2.0]), 100.0, "not_above") == 2
+
+
+def test_tune_n_raises_when_nothing_qualifies_stating_target_ceiling_and_p95_at_n1():
+    with pytest.raises(ValueError) as err:
+        bp.tune_n(np.array([50.0, 60.0, 70.0]), 40.0, "not_above")
+    msg = str(err.value)
+    assert "target 40 MB/s" in msg and "ceiling 40.2 MB/s" in msg and "p95 at N=1 50 MB/s" in msg
+
+
+def test_tune_n_closest_never_raises():
+    assert bp.tune_n(np.array([50.0, 60.0]), 10.0, "closest") == 1
 
 
 def test_tune_n_not_above_allows_half_percent_tolerance():
@@ -226,7 +238,8 @@ def test_collect_windows_and_error_on_incomplete_window(world, tmp_path):
     assert np.array_equal(windows[0], expected) and windows.shape == (2, 288, 5)
     assert per["disk_uid"].tolist() == ["hi0", "short"] and per["days"].tolist() == [16.0, 3.0]
     assert list(per.columns) == ["disk_uid", "days", "daily_strength", "daily_amplitude_kbps",
-                                 "window_p99_over_median"]
+                                 "window_p99_over_median", "median_read_bytes_per_io",
+                                 "median_write_bytes_per_io"]
     assert per["window_p99_over_median"].tolist() == pytest.approx(
         [window_ratio(world, "hi0"), window_ratio(world, "short")])
     with pytest.raises(ValueError, match="no complete window"):
@@ -288,6 +301,7 @@ def test_tuned_n_matches_brute_force_for_idle_and_diurnal(world):
     uids = bp.eligible_disks(pd.read_parquet(bp.IN_RUNS), T0)
     _, per = bp.collect(pf, groups, uids, T0)
     cand = bp.candidate_frame(pd.read_parquet(bp.IN_SUMMARY), per)
+    cand = cand[~cand["implausible_io"]]
     for name, key, asc, target, mode in (
             ("idle", "mean_total_bw_kbps", True, 20.0, "not_above"),
             ("diurnal", "daily_strength", False, 100.0, "not_above"),
@@ -325,7 +339,7 @@ def test_fixed_n_overrides_tuning(world, monkeypatch):
 
 
 def test_build_profile_without_candidates_raises(world):
-    cand = pd.DataFrame({"disk_uid": ["a"], "burstiness": [np.nan]})
+    cand = pd.DataFrame({"disk_uid": ["a"], "burstiness": [np.nan], "implausible_io": [False]})
     with pytest.raises(ValueError, match="no ranked candidates"):
         bp.build_profile("bursty", bp.PROFILE_SPECS["bursty"], cand,
                          np.zeros((1, 288, 5), dtype="int64"), {"a": 0}, T0)
@@ -370,7 +384,9 @@ def test_main_writes_validated_files(world, capsys):
     candidates = pq.read_table(bp.OUT_CANDIDATES)
     assert candidates.num_rows == 16
     assert candidates.column_names == ["disk_uid", "days", "daily_strength",
-                                       "daily_amplitude_kbps", "window_p99_over_median"]
+                                       "daily_amplitude_kbps", "window_p99_over_median",
+                                       "median_read_bytes_per_io", "median_write_bytes_per_io",
+                                       "implausible_io"]
 
 
 def test_profiles_are_distinguishable(world):
@@ -406,7 +422,7 @@ def test_report_lines(world):
                and l.endswith("ranking_statistic=window_p99_over_median selected_on_reported_statistic=True")
                for l in lines)
     assert any(l.startswith("overlap_idle_peak=") for l in lines)
-    assert sum(l.startswith("output=") for l in lines) == 4 + 4 + 2 + 1
+    assert sum(l.startswith("output=") for l in lines) == 4 + 4 + 4 + 2 + 1
     png_line = next(l for l in lines if l.startswith("output=profiles/profile_comparison.png"))
     assert " rows=" not in png_line and " sha256=" in png_line
 
@@ -494,8 +510,9 @@ def test_cli_entry_point_in_subprocess(tmp_path, world):
     repo = tmp_path / "repo"
     pipe = repo / "data_pipeline"
     (pipe / "tencent").mkdir(parents=True)
-    shutil.copytree(Path(contracts.__file__).parent, repo / "contracts",
-                    ignore=shutil.ignore_patterns("__pycache__", "test_*"))
+    for package in ("contracts", "sim", "hazard", "workload"):
+        shutil.copytree(Path(contracts.__file__).parents[1] / package, repo / package,
+                        ignore=shutil.ignore_patterns("__pycache__", "test_*"))
     for name in ("__init__.py", "extract_load.py"):
         shutil.copy(Path(bp.__file__).parent / name, pipe / "tencent" / name)
     shutil.copy(Path(bp.__file__).parent / "build_profiles.py", pipe / "tencent" / "build_profiles.py")
@@ -507,3 +524,298 @@ def test_cli_entry_point_in_subprocess(tmp_path, world):
     assert res.returncode == 0, res.stderr
     assert "profile=bursty n_disks=" in res.stdout
     assert len(pd.read_csv(pipe / "profiles" / "profile_peak.csv")) == 288
+    assert (pipe / "profiles" / "profile_peak.meta.json").exists()
+
+
+# -- provenance sidecars, latency ladder, IOPS facts --------------------------------------
+
+
+def profile_frame(read_kbps, write_kbps, read_iops=None, write_iops=None):
+    """A 288-row replay frame from per-row bandwidth arrays (KB/s)."""
+    n = len(read_kbps)
+    return pd.DataFrame({
+        "t_seconds": np.arange(n, dtype="int64") * 300,
+        "read_iops": np.asarray(read_iops if read_iops is not None else np.full(n, 10), dtype="int64"),
+        "write_iops": np.asarray(write_iops if write_iops is not None else np.full(n, 20), dtype="int64"),
+        "read_bw_kbps": np.asarray(read_kbps, dtype="int64"),
+        "write_bw_kbps": np.asarray(write_kbps, dtype="int64"),
+        "disk_usage_mb": np.full(n, 1000, dtype="int64"),
+    })
+
+
+def brute_force_ladder(frame):
+    """Per-action violating share, with plain float arithmetic and the configured constants."""
+    from sim.config import SimConfig
+
+    cfg = SimConfig()
+    limit_ms = contracts.LATENCY_LIMIT_FACTOR * cfg.latency_target_ms
+    fg = ((frame["read_bw_kbps"] + frame["write_bw_kbps"]) / 1000.0).tolist()
+    fractions = {}
+    for action in contracts.ACTIONS_MBPS:
+        violating = 0
+        for load in fg:
+            headroom = max(0.0, cfg.rho_max * contracts.BW_TOTAL_MBPS - load)
+            applied = min(float(action), headroom)
+            rho = min(cfg.rho_max, (load + applied) / contracts.BW_TOTAL_MBPS)
+            violating += (cfg.latency_unloaded_ms / (1.0 - rho)) > limit_ms
+        fractions[int(action)] = violating / len(fg)
+    return fractions
+
+
+def test_latency_ladder_matches_a_brute_force_count_on_a_hand_built_frame():
+    """100 MB/s for half the day, 10 MB/s for the rest: only the 120 MB/s action violates
+    (at 100 MB/s its applied share is capped at 96 MB/s and rho reaches 0.98)."""
+    read = np.r_[np.full(144, 60000), np.full(144, 6000)]
+    write = np.r_[np.full(144, 40000), np.full(144, 4000)]
+    frame = profile_frame(read, write)
+    ladder = bp.latency_ladder(frame, "hand")
+    assert ladder["violation_fraction_by_action_mbps"] == pytest.approx(brute_force_ladder(frame))
+    assert ladder["violation_fraction_by_action_mbps"] == pytest.approx({20: 0.0, 50: 0.0, 80: 0.0, 120: 0.5})
+    assert ladder["safe_actions"] == 3
+    assert list(ladder["violation_fraction_by_action_mbps"]) == list(contracts.ACTIONS_MBPS)
+
+
+def test_latency_ladder_when_the_load_alone_exceeds_the_utilisation_ceiling():
+    """At 198 MB/s the headroom is 0, every action is capped to 0 and rho is clamped to 0.98."""
+    frame = profile_frame(np.full(288, 120000), np.full(288, 78000))
+    ladder = bp.latency_ladder(frame)
+    assert ladder["violation_fraction_by_action_mbps"] == pytest.approx(brute_force_ladder(frame))
+    assert set(ladder["violation_fraction_by_action_mbps"].values()) == {1.0}
+    assert ladder["safe_actions"] == 0
+
+
+def test_latency_ladder_counts_a_partial_share_against_the_safe_limit():
+    """At 190 MB/s every action violates (applied allocation capped at 6 MB/s, rho 0.98), so the
+    violating share is the same for all four: 3 rows of 288 (1.04%) is within
+    LATENCY_VIOLATION_FRACTION_MAX, 20 rows (6.9%) is not."""
+    for violating_rows, safe in ((3, 4), (20, 0)):
+        total = np.full(288, 10000)
+        total[:violating_rows] = 190000
+        frame = profile_frame(total // 2, total - total // 2)
+        ladder = bp.latency_ladder(frame)
+        assert ladder["violation_fraction_by_action_mbps"] == pytest.approx(brute_force_ladder(frame))
+        assert ladder["safe_actions"] == safe
+
+
+def test_latency_ladder_rejects_a_frame_that_breaks_the_replay_schema():
+    frame = profile_frame(np.full(288, 1000), np.full(288, 1000))
+    frame.loc[5, "read_bw_kbps"] = -1
+    with pytest.raises(contracts.ContractViolation):
+        bp.latency_ladder(frame)
+
+
+def test_iops_facts_on_a_hand_built_frame():
+    read_iops = np.r_[np.full(10, 25000), np.zeros(10, dtype=int), np.full(268, 100)]
+    write_iops = np.full(288, 50)
+    read_kbps = np.r_[np.full(10, 1000), np.zeros(10, dtype=int), np.full(268, 400)]
+    frame = profile_frame(read_kbps, np.full(288, 100), read_iops, write_iops)
+    facts = bp.iops_facts(frame)
+    assert facts["max_read_iops"] == 25000 and facts["max_write_iops"] == 50
+    assert facts["fraction_rows_read_iops_above_obs_scale"] == pytest.approx(10 / 288)
+    assert facts["fraction_rows_write_iops_above_obs_scale"] == 0.0
+    # bytes per I/O = KB/s x 1000 / IOPS, over the rows with IOPS > 0 (the 10 zero-IOPS rows are excluded)
+    assert facts["median_bytes_per_read_io"] == pytest.approx(400 * 1000 / 100)
+    assert facts["median_bytes_per_write_io"] == pytest.approx(100 * 1000 / 50)
+    assert contracts.OBS_SCALES["fg_read_iops"] == 20000.0
+
+
+def test_iops_facts_without_any_active_row_has_no_median():
+    frame = profile_frame(np.zeros(288, dtype=int), np.zeros(288, dtype=int),
+                          np.zeros(288, dtype=int), np.zeros(288, dtype=int))
+    facts = bp.iops_facts(frame)
+    assert facts["median_bytes_per_read_io"] is None and facts["median_bytes_per_write_io"] is None
+    assert facts["max_read_iops"] == 0
+
+
+def test_sidecars_are_written_deterministically_and_read_by_the_simulator(world):
+    from sim import scenario
+
+    r = bp.build()
+    for p in r["profiles"]:
+        sidecar = bp.PROFILES_DIR / f"profile_{p['name']}.meta.json"
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        assert set(payload) == {"profile", "synthetic", "source", "n_disks", "window_start_ts",
+                                "window_start_utc", "label", "disclosure", "selection_rule"}
+        assert payload["profile"] == p["name"] and payload["synthetic"] is False
+        assert payload["source"] == "Tencent Cloud Volume Workload Traces"
+        assert payload["n_disks"] == p["n"] and payload["window_start_ts"] == T0
+        assert payload["window_start_utc"] == "2020-08-06T00:00:00Z"
+        assert payload["label"] == bp.profile_label(p)
+        assert payload["selection_rule"] == bp.PROFILE_SPECS[p["name"]]["rule"]
+        assert payload["disclosure"] == bp.PROFILE_SPECS[p["name"]]["disclosure"]
+        raw = sidecar.read_bytes()
+        assert raw == (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        assert b"\r" not in raw and raw.endswith(b"}\n")
+
+        trace = scenario.load_replay_csv(bp.PROFILES_DIR / f"profile_{p['name']}.csv")
+        assert trace.synthetic is False and trace.profile == p["name"]
+
+
+def test_sidecars_are_listed_in_the_manifest_without_a_row_count(world):
+    assert bp.main(["build_profiles.py"]) == 0
+    manifest = json.loads(bp.MANIFEST.read_text(encoding="utf-8"))
+    entries = {e["file"]: e for e in manifest["files"]}
+    for name in bp.PROFILE_NAMES:
+        entry = entries[f"profiles/profile_{name}.meta.json"]
+        assert entry["rows"] is None
+        assert entry["sha256"] == bp.sha256_of(bp.PROFILES_DIR / f"profile_{name}.meta.json")
+
+
+def test_sidecars_are_identical_on_a_rerun(world):
+    bp.build()
+    first = {n: (bp.PROFILES_DIR / f"profile_{n}.meta.json").read_bytes() for n in bp.PROFILE_NAMES}
+    bp.build()
+    assert first == {n: (bp.PROFILES_DIR / f"profile_{n}.meta.json").read_bytes() for n in bp.PROFILE_NAMES}
+
+
+def test_manifest_and_report_record_the_ladder_and_iops_facts(world):
+    assert bp.main(["build_profiles.py"]) == 0
+    block = json.loads(bp.MANIFEST.read_text(encoding="utf-8"))["profiles"]
+    text = bp.PREPROCESSING.read_text(encoding="utf-8")
+    for name in bp.PROFILE_NAMES:
+        entry = block[name]
+        assert list(entry["violation_fraction_by_action_mbps"]) == [str(a) for a in contracts.ACTIONS_MBPS]
+        assert 0 <= entry["safe_actions"] <= len(contracts.ACTIONS_MBPS)
+        assert set(entry["iops_facts"]) == {
+            "max_read_iops", "max_write_iops", "fraction_rows_read_iops_above_obs_scale",
+            "fraction_rows_write_iops_above_obs_scale", "median_bytes_per_read_io",
+            "median_bytes_per_write_io"}
+        assert f"profile={name} safe_actions={entry['safe_actions']} violation_fraction_by_action_mbps=" in text
+        assert f"profile={name} max_read_iops={entry['iops_facts']['max_read_iops']} " in text
+    assert "Latency ladder" in text and "IOPS facts" in text and "Sidecars" in text
+
+
+def test_undershoot_wording_names_the_ladder_check(world):
+    assert bp.main(["build_profiles.py"]) == 0
+    text = bp.PREPROCESSING.read_text(encoding="utf-8")
+    assert "undershoot can add a safe action" in text and "latency_ladder" in text
+    assert "only makes the profile lighter" not in text
+    doc = " ".join(bp.__doc__.split())
+    assert "only makes the profile" not in doc and "can add a safe action" in doc
+
+
+# -- physical-plausibility eligibility rule ------------------------------------------------
+
+
+def tiny_io_volume():
+    """70 MB/s (above every other synthetic volume) at about 47 bytes per read I/O."""
+    frame = trace(np.full(ROWS, 70000))
+    frame["read_iops"] = 1_000_000
+    frame["write_iops"] = 1_000_000
+    return frame
+
+
+def world_with_tiny_io_volume():
+    traces = make_traces()
+    traces["tiny"] = tiny_io_volume()
+    write_world(bp.ROOT, traces)
+    return traces
+
+
+def test_median_bytes_per_io_uses_only_rows_with_iops_above_zero():
+    bw = np.array([1000.0, 5000.0, 3000.0, 0.0, 9999.0])
+    iops = np.array([10.0, 50.0, 0.0, 0.0, 100.0])
+    # rows with iops > 0: 1000*1000/10, 5000*1000/50, 9999*1000/100 -> 100000, 100000, 99990
+    assert bp.median_bytes_per_io(bw, iops) == pytest.approx(100000.0)
+    assert np.isnan(bp.median_bytes_per_io(np.array([5.0, 6.0]), np.zeros(2)))
+    assert bp.MIN_BYTES_PER_IO == 512
+
+
+def test_candidate_frame_flags_implausible_io_below_512_in_either_direction():
+    """Strictly below 512 excludes; exactly 512 and an undefined (NaN) median do not."""
+    uids = ["read_low", "at_threshold", "write_low", "both_undefined", "read_undefined_write_ok"]
+    periodicity = pd.DataFrame({
+        "disk_uid": uids, "days": 16.0, "daily_strength": 0.5, "daily_amplitude_kbps": 1.0,
+        "window_p99_over_median": 2.0,
+        "median_read_bytes_per_io": [511.99, 512.0, 4000.0, np.nan, np.nan],
+        "median_write_bytes_per_io": [4000.0, 512.0, 100.0, np.nan, 600.0],
+    })
+    summary = pd.DataFrame({"disk_uid": uids, "mean_total_bw_kbps": 1.0, "zero_row_fraction": 0.0})
+    cand = bp.candidate_frame(summary, periodicity).set_index("disk_uid")
+    assert cand["implausible_io"].to_dict() == {
+        "read_low": True, "at_threshold": False, "write_low": True,
+        "both_undefined": False, "read_undefined_write_ok": False}
+    assert cand["implausible_io"].dtype == bool
+
+
+def test_collect_computes_the_median_bytes_per_io_of_the_whole_trace(world):
+    pf, groups = bp.row_group_map(bp.IN_CLEAN)
+    _, per = bp.collect(pf, groups, ["hi0", "id0"], T0)
+    per = per.set_index("disk_uid")
+    trace_hi0 = world["hi0"]
+    expected = np.median(trace_hi0["read_bw_kbps"].to_numpy(float) * 1000.0 / trace_hi0["read_iops"].to_numpy(float))
+    assert per.loc["hi0", "median_read_bytes_per_io"] == pytest.approx(expected)
+    assert np.isnan(per.loc["id0", "median_read_bytes_per_io"])      # zero IOPS everywhere
+    assert np.isnan(per.loc["id0", "median_write_bytes_per_io"])
+
+
+def test_a_volume_with_tiny_bytes_per_io_is_excluded_from_every_profile(world, monkeypatch):
+    world_with_tiny_io_volume()
+    r = bp.build()
+    assert r["candidates"] == 17 and r["excluded"] == 1
+    for p in r["profiles"]:
+        assert "tiny" not in p["uids"], p["name"]
+        assert p["candidates"] <= 16
+    candidates = pd.read_parquet(bp.OUT_CANDIDATES).set_index("disk_uid")
+    assert bool(candidates.loc["tiny", "implausible_io"]) is True
+    assert candidates.loc["tiny", "median_read_bytes_per_io"] < bp.MIN_BYTES_PER_IO
+    assert int(candidates["implausible_io"].sum()) == 1
+
+    # control: without the rule the same volume is the highest-mean candidate and enters the peak profile
+    monkeypatch.setattr(bp, "MIN_BYTES_PER_IO", 0)
+    control = bp.build()
+    assert control["excluded"] == 0
+    assert "tiny" in next(p for p in control["profiles"] if p["name"] == "peak")["uids"]
+
+
+def test_the_rule_does_not_depend_on_any_profile_target(world, monkeypatch):
+    world_with_tiny_io_volume()
+    excluded = bp.build()["excluded"]
+    specs = {k: dict(v) for k, v in bp.PROFILE_SPECS.items()}
+    for spec in specs.values():
+        spec["target_mbps"] = spec["target_mbps"] * 0.5
+    monkeypatch.setattr(bp, "PROFILE_SPECS", specs)
+    assert bp.build()["excluded"] == excluded == 1
+
+
+def test_a_volume_with_zero_iops_everywhere_is_not_excluded(world):
+    r = bp.build()
+    assert r["excluded"] == 0
+    candidates = pd.read_parquet(bp.OUT_CANDIDATES).set_index("disk_uid")
+    for uid in ("id0", "id1", "id2"):                       # zero bandwidth and zero IOPS in every row
+        assert np.isnan(candidates.loc[uid, "median_read_bytes_per_io"])
+        assert np.isnan(candidates.loc[uid, "median_write_bytes_per_io"])
+        assert bool(candidates.loc[uid, "implausible_io"]) is False
+    idle = next(p for p in r["profiles"] if p["name"] == "idle")
+    assert {"id0", "id1", "id2"} <= set(idle["uids"])
+
+
+def test_the_candidates_table_has_the_three_new_columns(world):
+    bp.build()
+    table = pq.read_table(bp.OUT_CANDIDATES)
+    assert table.column_names == ["disk_uid", "days", "daily_strength", "daily_amplitude_kbps",
+                                  "window_p99_over_median", "median_read_bytes_per_io",
+                                  "median_write_bytes_per_io", "implausible_io"]
+    assert str(table.schema.field("implausible_io").type) == "bool"
+    assert table.num_rows == 16
+
+
+def test_report_manifest_and_text_record_the_eligibility_rule(world):
+    world_with_tiny_io_volume()
+    assert bp.main(["build_profiles.py"]) == 0
+    text = bp.PREPROCESSING.read_text(encoding="utf-8")
+    assert "- `min_bytes_per_io=512 candidates_excluded_by_rule=1 candidates_after_rule=16`" in text
+    for name in bp.PROFILE_NAMES:
+        assert f"- `profile={name} ranked_candidates=" in text
+    assert "Eligibility rule" in text and "one disk sector" in text
+    assert "unreliable IOPS counter" in text and "does not depend on any profile target" in text
+    assert "before any ranking" in text and "IOPS facts" in text
+    manifest = json.loads(bp.MANIFEST.read_text(encoding="utf-8"))
+    assert manifest["profile_eligibility"] == {
+        "min_bytes_per_io": 512, "candidates": 17, "excluded_implausible_io": 1}
+    assert all(0 < entry["ranked_candidates"] <= 16 for entry in manifest["profiles"].values())
+    # the sidecars carry the new n_disks and label
+    for name in bp.PROFILE_NAMES:
+        sidecar = json.loads((bp.PROFILES_DIR / f"profile_{name}.meta.json").read_text(encoding="utf-8"))
+        assert sidecar["n_disks"] == manifest["profiles"][name]["n_disks"]
+

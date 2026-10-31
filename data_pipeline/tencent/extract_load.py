@@ -83,8 +83,29 @@ FLOAT_FIELDS = ("mean_total_bw_kbps", "median_total_bw_kbps", "p95_total_bw_kbps
                 "p99_total_bw_kbps", "zero_row_fraction")
 
 
+def read_headerless(source, columns: list[str], label: str) -> pd.DataFrame:
+    """Read a headerless CSV with exactly len(columns) fields in every row.
+
+    The columns are read without names so that a row with more fields than the
+    first, or a first row with extra fields, cannot be absorbed into an implicit
+    index or shift the columns. Raises SystemExit naming `label` when the field
+    count of the first row differs from len(columns), when any later row has
+    more fields than the first (parser error), or when any field is missing.
+    """
+    try:
+        df = pd.read_csv(source, header=None)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as err:
+        raise SystemExit(f"{label}: {err}") from err
+    if df.shape[1] != len(columns):
+        raise SystemExit(f"{label}: {df.shape[1]} columns, expected {len(columns)}")
+    df.columns = columns
+    if df.isna().any().any():
+        raise SystemExit(f"{label}: rows with missing fields")
+    return df
+
+
 def parse_trace(data: bytes, name: str) -> pd.DataFrame:
-    df = pd.read_csv(io.BytesIO(data), header=None, names=SOURCE_COLUMNS)
+    df = read_headerless(io.BytesIO(data), SOURCE_COLUMNS, name)
     bad = [c for c in SOURCE_COLUMNS if not pd.api.types.is_integer_dtype(df[c])]
     if bad:
         raise SystemExit(f"{name}: non-integer columns {bad}")
@@ -181,7 +202,7 @@ def trace_runs(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
 
 def read_subscription(path: Path | io.BytesIO) -> pd.DataFrame:
-    return pd.read_csv(path, header=None, names=SUB_COLUMNS)
+    return read_headerless(path, SUB_COLUMNS, "subscription")
 
 
 def dedupe_subscription(sub: pd.DataFrame) -> tuple[pd.DataFrame, dict]:

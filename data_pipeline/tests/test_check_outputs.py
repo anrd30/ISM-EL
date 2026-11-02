@@ -21,6 +21,7 @@ import pytest
 from contracts import contracts
 from data_pipeline import check_outputs as co
 from data_pipeline.backblaze import extract as bb_extract
+from data_pipeline.backblaze import labels as bb_labels
 from data_pipeline.backblaze import timelines as bb_timelines
 
 REAL_PROFILES = Path(co.__file__).resolve().parent / "profiles"
@@ -37,10 +38,12 @@ def backblaze_world():
     """A small consistent Backblaze dataset: extract, timelines, drive index and label lines.
 
     S1 (Seagate, 45 days, no failure), S2 (Seagate, fails on day 40), T1 (Toshiba, 20 days,
-    smart_187_raw and smart_188_raw never reported)."""
+    smart_187_raw and smart_188_raw never reported). Eight 3-day drives per model fail on day 3, so
+    every split of the A2 drive split holds a failed drive of each model."""
     rows = []
-    for serial, model, last_day, fail_day in (("S1", SEAGATE, 45, None), ("S2", SEAGATE, 40, 40),
-                                              ("T1", TOSHIBA, 20, None)):
+    drives = [("S1", SEAGATE, 45, None), ("S2", SEAGATE, 40, 40), ("T1", TOSHIBA, 20, None)]
+    drives += [(f"{model}F{k}", model, 3, 3) for model in (SEAGATE, TOSHIBA) for k in range(8)]
+    for serial, model, last_day, fail_day in drives:
         for d in range(1, last_day + 1):
             row = {"serial_number": serial, "model": model,
                    "date": FIRST_DAY + datetime.timedelta(days=d - 1),
@@ -57,13 +60,18 @@ def backblaze_world():
     totals = {m: bb_timelines.label_counts(labels[(timeline["model"] == m).to_numpy()])
               for m in (SEAGATE, TOSHIBA)}
     lines = bb_timelines.label_lines(totals, index, bb_timelines.drive_label_flags(timeline, labels))
+    expected = {m: (int(filtered.loc[filtered["model"] == m, "failure"].sum()),
+                    int((filtered["model"] == m).sum())) for m in (SEAGATE, TOSHIBA)}
+    split = bb_labels.assign_splits(index)
+    label_frame = pd.DataFrame({
+        "serial_number": timeline["serial_number"].astype(object), "date": timeline["date"],
+        "model": timeline["model"].astype(object), "label": labels.astype("int8")})
+    label_frame["date"] = label_frame["date"].dt.date
     for frame in (timeline, index):
         for column in frame.columns:
             if pd.api.types.is_datetime64_any_dtype(frame[column]):
                 frame[column] = frame[column].dt.date
-    expected = {m: (int(filtered.loc[filtered["model"] == m, "failure"].sum()),
-                    int((filtered["model"] == m).sum())) for m in (SEAGATE, TOSHIBA)}
-    return filtered, timeline, index, lines, expected
+    return filtered, timeline, index, lines, expected, label_frame, split
 
 
 def disk_index_frame(uids=("d1", "d2")):
@@ -83,6 +91,7 @@ class Tree:
         self.root = root
         self.entries: dict[str, dict] = {}
         self.label_lines: list[str] = []
+        self.a2_lines: list[str] = []
         self.sources: dict[str, str] = {}
 
     def path(self, rel: str) -> Path:
@@ -114,7 +123,8 @@ class Tree:
             "# P\n\n## B1 — Backblaze extract\n\n"
             f"- `rows_out={filtered['rows']}`\n\n## B2 — Per-drive timelines\n\n"
             + "\n".join(f"- `{line}`" for line in self.label_lines) + "\n"
-            + "\n".join(lines) + "\n\n## B6 — Acceptance\n"
+            + "\n".join(lines) + "\n\n## A2 — Horizon labels and drive split\n\n"
+            + "\n".join(f"- `{line}`" for line in self.a2_lines) + "\n\n## B6 — Acceptance\n"
         )
         self.path("PREPROCESSING.md").write_text(text, encoding="utf-8", newline="\n")
 
@@ -130,7 +140,7 @@ def tree(tmp_path, monkeypatch):
     root = tmp_path / "pipe"
     (root / "tests").mkdir(parents=True)
     (root / co.LEAKAGE_TEST).write_text("# leakage test\n", encoding="utf-8")
-    filtered, timeline, index, label_lines, expected = backblaze_world()
+    filtered, timeline, index, label_lines, expected, label_frame, split_frame = backblaze_world()
     monkeypatch.setattr(bb_extract, "MODELS", (SEAGATE, TOSHIBA))
     monkeypatch.setattr(bb_extract, "SEAGATE_MODELS", (SEAGATE,))
     monkeypatch.setattr(bb_extract, "EXPECTED_PER_MODEL", expected)
@@ -153,6 +163,8 @@ def tree(tmp_path, monkeypatch):
         co.BACKBLAZE_FILTERED: filtered,
         co.BACKBLAZE_TIMELINES: timeline,
         co.BACKBLAZE_DRIVE_INDEX: index,
+        co.BACKBLAZE_LABELS: label_frame,
+        co.BACKBLAZE_SPLIT: split_frame,
         co.TENCENT_CLEAN: pd.DataFrame({"disk_uid": ["d1", "d1", "d2"], "timestamp": [1, 2, 3]}),
         co.TENCENT_SUMMARY: pd.DataFrame({"disk_uid": ["d1", "d2"], "rows_clean": [2, 1]}),
         co.TENCENT_RUNS: pd.DataFrame({"disk_uid": ["d1", "d2"], "run_start_ts": [1, 3], "run_rows": [2, 1]}),
@@ -170,6 +182,10 @@ def tree(tmp_path, monkeypatch):
 
     built = Tree(root)
     built.label_lines = label_lines
+    label_counts = bb_timelines.label_counts(label_frame["label"].to_numpy())
+    built.a2_lines = bb_labels.report_lines(
+        {"rows": len(label_frame), "totals": label_counts},
+        bb_labels.split_statistics(root / co.BACKBLAZE_LABELS, split_frame))
     built.sources = {(FIRST_DAY + datetime.timedelta(days=i)).isoformat() + ".csv": "0" * 64
                      for i in range(BB_DAYS)}
     for rel in co.ALL_OUTPUTS:
@@ -664,3 +680,284 @@ def test_an_extract_with_no_rows_fails_the_date_range_without_raising(tree, caps
     code, out = run(capsys)
     assert code == 1
     assert "[FAIL] backblaze date range" in out and "first=none last=none distinct_dates=0" in out
+
+
+# -- A2: labels and drive split --
+
+def rewrite_parquet(tree, rel, change):
+    frame = pd.read_parquet(tree.path(rel))
+    frame = change(frame)
+    frame.to_parquet(tree.path(rel), index=False)
+    tree.record(rel)
+    tree.save()
+
+
+def test_the_valid_tree_passes_the_label_and_split_checks(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    for label in (f"backblaze labels rows and key order {co.BACKBLAZE_LABELS}",
+                  f"backblaze labels values {co.BACKBLAZE_LABELS}",
+                  f"backblaze labels totals {co.BACKBLAZE_LABELS}",
+                  f"unique key (serial_number, date) {co.BACKBLAZE_LABELS}",
+                  f"backblaze split one row per drive {co.BACKBLAZE_SPLIT}",
+                  f"backblaze split values {co.BACKBLAZE_SPLIT}",
+                  f"backblaze split drives unique {co.BACKBLAZE_SPLIT}",
+                  f"backblaze split failed drives per model {co.BACKBLAZE_SPLIT}",
+                  f"backblaze split stratum sizes {co.BACKBLAZE_SPLIT}",
+                  f"backblaze split counts vs PREPROCESSING.md {co.BACKBLAZE_SPLIT}",
+                  f"sha256 {co.BACKBLAZE_LABELS}", f"sha256 {co.BACKBLAZE_SPLIT}",
+                  f"rows vs PREPROCESSING.md {co.BACKBLAZE_LABELS}", f"rows vs PREPROCESSING.md {co.BACKBLAZE_SPLIT}"):
+        assert any(line.startswith(f"[PASS] {label}") for line in out.splitlines()), label
+
+
+def test_a_label_table_with_a_missing_row_fails_the_row_and_key_check(tree, capsys):
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, lambda f: f.iloc[1:])
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze labels rows and key order {co.BACKBLAZE_LABELS}: labels=" in out
+
+
+def test_a_label_table_in_another_row_order_fails_the_key_order_check(tree, capsys):
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, lambda f: f.iloc[::-1])
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze labels rows and key order {co.BACKBLAZE_LABELS}" in out
+
+
+def test_a_label_value_outside_the_three_classes_fails(tree, capsys):
+    def change(frame):
+        frame.loc[frame.index[0], "label"] = 2
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, change)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze labels values {co.BACKBLAZE_LABELS}: values=" in out
+
+
+def test_a_label_changed_to_another_valid_class_fails_the_totals(tree, capsys):
+    def change(frame):
+        row = frame.index[frame["label"] == 1][0]
+        frame.loc[row, "label"] = 0
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, change)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze labels totals {co.BACKBLAZE_LABELS}: " in out and "; all: recorded=" in out
+    assert f"[PASS] backblaze labels values {co.BACKBLAZE_LABELS}" in out
+
+
+def test_a_duplicated_label_key_fails_the_unique_key_check(tree, capsys):
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, lambda f: pd.concat([f, f.iloc[:1]], ignore_index=True))
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] unique key (serial_number, date) {co.BACKBLAZE_LABELS}: duplicate_rows=1" in out
+
+
+def test_a_missing_label_file_is_missing(tree, capsys):
+    tree.path(co.BACKBLAZE_LABELS).unlink()
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[MISSING] backblaze labels totals {co.BACKBLAZE_LABELS}" in out
+    assert f"[MISSING] backblaze split counts vs PREPROCESSING.md {co.BACKBLAZE_SPLIT}" in out
+    assert "[FAIL]" not in out and out.rstrip().endswith("RESULT: INCOMPLETE")
+
+
+def test_a_drive_missing_from_the_split_fails_the_one_row_per_drive_check(tree, capsys):
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, lambda f: f.iloc[1:])
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze split one row per drive {co.BACKBLAZE_SPLIT}: split_rows=" in out
+    assert "missing=1" in out
+
+
+def test_a_drive_in_two_splits_fails_the_uniqueness_check(tree, capsys):
+    def change(frame):
+        copy = frame.iloc[:1].copy()
+        copy["split"] = "test" if frame.iloc[0]["split"] != "test" else "val"
+        return pd.concat([frame, copy], ignore_index=True)
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze split drives unique {co.BACKBLAZE_SPLIT}: duplicate_drives=1" in out
+
+
+def test_an_unknown_split_name_fails(tree, capsys):
+    def change(frame):
+        frame.loc[frame.index[0], "split"] = "holdout"
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze split values {co.BACKBLAZE_SPLIT}: unknown_values=['holdout']" in out
+
+
+def test_a_split_without_a_failed_drive_of_some_model_fails(tree, capsys):
+    def change(frame):
+        frame.loc[(frame["model"] == TOSHIBA) & frame["ever_failed"], "split"] = "train"
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze split failed drives per model"))
+    assert f"{TOSHIBA}/val" in line and f"{TOSHIBA}/test" in line
+    assert f"[FAIL] backblaze split stratum sizes {co.BACKBLAZE_SPLIT}" in out
+
+
+def test_a_stratum_more_than_one_drive_off_target_fails_the_size_check(tree, capsys):
+    def change(frame):
+        frame.loc[(frame["model"] == SEAGATE) & frame["ever_failed"], "split"] = "train"
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze split stratum sizes"))
+    assert f"{SEAGATE} failed=True val: 0 vs 1.35" in line and f"{SEAGATE} failed=True train: 9 vs 6.30" in line
+
+
+def test_split_counts_that_differ_from_preprocessing_fail(tree, capsys):
+    def change(frame):
+        failed = frame[(frame["model"] == SEAGATE) & frame["ever_failed"]]
+        a = failed[failed["split"] == "train"].index[0]
+        b = failed[failed["split"] == "val"].index[0]
+        frame.loc[[a, b], "split"] = ["val", "train"]
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze split counts vs PREPROCESSING.md {co.BACKBLAZE_SPLIT}: " in out
+    assert f"[PASS] backblaze split stratum sizes {co.BACKBLAZE_SPLIT}" in out
+
+
+def test_missing_a2_lines_fail_the_split_count_check(tree, capsys):
+    tree.a2_lines = []
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze split counts vs PREPROCESSING.md {co.BACKBLAZE_SPLIT}" in out
+
+
+def test_committed_only_skips_the_label_and_split_checks(tree, capsys):
+    shutil.rmtree(tree.root / "data")
+    code, out = run(capsys, "--committed-only")
+    assert code == 0, out
+    for label in (f"backblaze labels rows and key order {co.BACKBLAZE_LABELS}",
+                  f"backblaze labels totals {co.BACKBLAZE_LABELS}",
+                  f"unique key (serial_number, date) {co.BACKBLAZE_LABELS}",
+                  f"backblaze split one row per drive {co.BACKBLAZE_SPLIT}",
+                  f"backblaze split counts vs PREPROCESSING.md {co.BACKBLAZE_SPLIT}"):
+        assert f"[SKIP] {label}: not tracked in git" in out
+    assert f"[SKIP] sha256 {co.BACKBLAZE_LABELS}: not tracked in git" in out
+
+
+def test_parse_split_lines_reads_only_the_a2_section():
+    text = ("## B2 — x\n- `a2_split split=train model=ZZ drives=9 failed_drives=9 positive=9 negative=9 censored=9`\n"
+            "## A2 — Horizon labels and drive split\n"
+            "- `a2_split split=train model=TOSHIBA MG07ACA14TA drives=5 failed_drives=1 positive=2 negative=3 censored=4`\n"
+            "- `a2_split split=val model=all drives=1 failed_drives=0 positive=0 negative=0 censored=1`\n"
+            "## B6 — y\n")
+    assert co.parse_split_lines(text) == {("train", "TOSHIBA MG07ACA14TA"): (5, 1, 2, 3, 4),
+                                          ("val", "all"): (1, 0, 0, 0, 1)}
+    assert co.parse_split_lines("no section") == {}
+
+
+# -- review findings: model column of the labels, required split columns, split metadata --
+
+def test_swapped_models_between_two_label_rows_with_the_same_label_fail_the_key_check(tree, capsys):
+    def change(frame):
+        for value in (1, 0, -1):
+            part = frame[frame["label"] == value]
+            first = part[part["model"] == SEAGATE].index
+            second = part[part["model"] == TOSHIBA].index
+            if len(first) and len(second):
+                frame.loc[[first[0], second[0]], "model"] = [TOSHIBA, SEAGATE]
+                return frame
+        raise AssertionError("no label value occurs for both models")
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, change)
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze labels rows and key order"))
+    assert "keys_equal=True" in line and "models_equal=False" in line
+    assert f"[PASS] backblaze labels totals {co.BACKBLAZE_LABELS}" in out
+    assert f"[PASS] backblaze labels values {co.BACKBLAZE_LABELS}" in out
+
+
+def test_the_valid_tree_reports_equal_keys_and_models(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    assert (f"[PASS] backblaze labels rows and key order {co.BACKBLAZE_LABELS}: labels=") in out
+    assert "keys_equal=True models_equal=True" in out
+
+
+def test_model_columns_equal_compares_elementwise_in_slices(tmp_path, monkeypatch):
+    monkeypatch.setattr(co, "MODEL_COMPARE_ROWS", 2)
+    first, second, third = (tmp_path / n for n in ("a.parquet", "b.parquet", "c.parquet"))
+    pd.DataFrame({"model": ["x", "y", "x", "y", "x"]}).to_parquet(first, index=False)
+    pd.DataFrame({"model": ["x", "y", "x", "y", "x"]}).to_parquet(second, index=False)
+    pd.DataFrame({"model": ["x", "y", "x", "y", "y"]}).to_parquet(third, index=False)
+    assert co.model_columns_equal(first, second) is True
+    assert co.model_columns_equal(first, third) is False
+    pd.DataFrame({"model": ["x", "y"]}).to_parquet(third, index=False)
+    assert co.model_columns_equal(first, third) is False
+
+
+@pytest.mark.parametrize("column", ["split", "model"])
+def test_a_split_file_without_a_required_column_fails_every_split_check(tree, capsys, column):
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, lambda f: f.drop(columns=[column]))
+    code, out = run(capsys)
+    assert code == 1 and out.rstrip().endswith("RESULT: FAIL")
+    for label in co.SPLIT_CHECKS:
+        assert f"[FAIL] {label} {co.BACKBLAZE_SPLIT}: missing columns=['{column}']" in out
+
+
+def failed_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if line.startswith("[FAIL]")]
+
+
+def test_models_swapped_between_two_drives_fail_only_the_metadata_check(tree, capsys):
+    def change(frame):
+        def pick(model):
+            return frame[(frame["model"] == model) & frame["ever_failed"] & (frame["split"] == "train")].index[0]
+        first, second = pick(SEAGATE), pick(TOSHIBA)
+        frame.loc[[first, second], "model"] = [TOSHIBA, SEAGATE]
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    lines = failed_lines(out)
+    assert len(lines) == 1, lines
+    assert lines[0] == (f"[FAIL] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: "
+                        "mismatching_drives=2")
+
+
+def test_ever_failed_swapped_between_a_failed_and_a_healthy_drive_fails_only_the_metadata_check(tree, capsys):
+    def change(frame):
+        in_train = frame[(frame["model"] == SEAGATE) & (frame["split"] == "train")]
+        failed = in_train[in_train["ever_failed"]].index[0]
+        healthy = in_train[~in_train["ever_failed"]].index[0]
+        frame.loc[failed, "ever_failed"] = False
+        frame.loc[healthy, "ever_failed"] = True
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    lines = failed_lines(out)
+    assert len(lines) == 1, lines
+    assert lines[0].startswith(f"[FAIL] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: ")
+    assert lines[0].endswith("mismatching_drives=2")
+
+
+def test_the_valid_tree_passes_the_metadata_check(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    assert (f"[PASS] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: "
+            "mismatching_drives=0") in out
+
+
+def test_committed_only_skips_the_metadata_check_and_a_missing_index_reports_it_missing(tree, capsys):
+    tree.path(co.BACKBLAZE_DRIVE_INDEX).unlink()
+    code, out = run(capsys)
+    assert f"[MISSING] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}" in out
+    shutil.rmtree(tree.root / "data")
+    code, out = run(capsys, "--committed-only")
+    assert code == 0, out
+    assert f"[SKIP] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: not tracked in git" in out

@@ -15,6 +15,13 @@ Checks, each reported as one PASS / FAIL / MISSING / SKIP line:
     the values recorded in backblaze/extract.py; the source file count in the manifest;
   - the 30-day label counts and the eligible-drive split recomputed from the timelines and
     the drive index against the lines in PREPROCESSING.md;
+  - the label table (A2): one row per timelines row in the timelines order, key
+    (serial_number, date) unique, label values in {-1, 0, 1}, totals overall and per model
+    equal to the B2 lines of PREPROCESSING.md;
+  - the drive split (A2): one row per drive of the drive index, split values train / val /
+    test, no drive in two splits, a failed drive of every model in every split, stratum
+    sizes within one drive of the target shares, per-split counts equal to the A2 lines of
+    PREPROCESSING.md;
   - the leakage test file is present, and a cut-and-recompute of the stored timelines on a
     sample of drives is identical for rows up to the cut date;
   - the disk index against the contract's `validate_disk_index_frame`;
@@ -53,12 +60,14 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))  # repo root: `contracts`, `sim` and `data_pipeline` packages
 
 import pandas as pd  # noqa: E402
+import pyarrow as pa  # noqa: E402
 import pyarrow.compute as pc  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 
 from contracts import contracts  # noqa: E402
 from contracts.contracts import CONTROL_INTERVAL_S, REPLAY_COLUMNS  # noqa: E402
 from data_pipeline.backblaze import extract as backblaze_extract  # noqa: E402
+from data_pipeline.backblaze import labels as backblaze_labels  # noqa: E402
 from data_pipeline.backblaze import timelines as backblaze_timelines  # noqa: E402
 from data_pipeline.tencent import build_profiles  # noqa: E402
 
@@ -78,6 +87,8 @@ EXPECTED_SAFE_ACTIONS = {"idle": 4, "diurnal": 3, "bursty": 2, "peak": 1}
 BACKBLAZE_FILTERED = f"{PROCESSED}/backblaze_filtered.parquet"
 BACKBLAZE_TIMELINES = f"{PROCESSED}/backblaze_timelines.parquet"
 BACKBLAZE_DRIVE_INDEX = f"{PROCESSED}/backblaze_drive_index.parquet"
+BACKBLAZE_LABELS = f"{PROCESSED}/backblaze_labels.parquet"
+BACKBLAZE_SPLIT = f"{PROCESSED}/backblaze_drive_split.parquet"
 TENCENT_CLEAN = f"{PROCESSED}/tencent_load_clean.parquet"
 TENCENT_SUMMARY = f"{PROCESSED}/tencent_disk_summary.parquet"
 TENCENT_RUNS = f"{PROCESSED}/tencent_disk_runs.parquet"
@@ -89,7 +100,8 @@ PROFILE_PLOT = "profiles/profile_comparison.png"
 PROFILE_DISKS = f"{PROCESSED}/tencent_profile_disks.parquet"
 PROFILE_CANDIDATES = f"{PROCESSED}/tencent_profile_candidates.parquet"
 
-BACKBLAZE_FILES = [BACKBLAZE_FILTERED, BACKBLAZE_TIMELINES, BACKBLAZE_DRIVE_INDEX]
+BACKBLAZE_FILES = [BACKBLAZE_FILTERED, BACKBLAZE_TIMELINES, BACKBLAZE_DRIVE_INDEX,
+                   BACKBLAZE_LABELS, BACKBLAZE_SPLIT]
 TENCENT_LOAD_FILES = [TENCENT_CLEAN, TENCENT_SUMMARY, TENCENT_RUNS]
 PROFILE_TABLE_FILES = (
     list(PROFILE_PARQUET.values()) + list(PROFILE_CSV.values())
@@ -401,6 +413,180 @@ def check_backblaze_labels(preprocessing: str) -> None:
            f"negative={all_row[1]} censored={all_row[2]} models={len(measured['labels']) - 1}")
 
 
+def parse_split_lines(preprocessing: str) -> dict[tuple[str, str], tuple[int, ...]]:
+    """The A2 per-split, per-model count lines of PREPROCESSING.md."""
+    match = re.search(r"## A2 — Horizon labels and drive split\n.*?(?=\n## |\Z)", preprocessing, flags=re.S)
+    section = match.group(0) if match else ""
+    return {(m.group(1), m.group(2)): tuple(int(g) for g in m.groups()[2:]) for m in re.finditer(
+        r"a2_split split=(\w+) model=(.+?) drives=(\d+) failed_drives=(\d+) positive=(\d+) "
+        r"negative=(\d+) censored=(\d+)", section)}
+
+
+MODEL_COMPARE_ROWS = 1_000_000
+
+
+def model_columns_equal(first: Path, second: Path) -> bool:
+    """Elementwise equality of the model column of two Parquet files, read dictionary-encoded and
+    decoded MODEL_COMPARE_ROWS rows at a time."""
+    a = pq.read_table(first, columns=["model"], read_dictionary=["model"]).column("model").combine_chunks()
+    b = pq.read_table(second, columns=["model"], read_dictionary=["model"]).column("model").combine_chunks()
+    if len(a) != len(b):
+        return False
+    for start in range(0, len(a), MODEL_COMPARE_ROWS):
+        left = a.slice(start, MODEL_COMPARE_ROWS).dictionary_decode().cast(pa.string())
+        right = b.slice(start, MODEL_COMPARE_ROWS).dictionary_decode().cast(pa.string())
+        if not left.equals(right):
+            return False
+    return True
+
+
+LABEL_CHECKS = ("backblaze labels rows and key order", "backblaze labels values",
+                "backblaze labels totals")
+
+
+def check_labels_file(preprocessing: str) -> None:
+    rel = BACKBLAZE_LABELS
+    if not tracked(rel):
+        for label in LABEL_CHECKS:
+            skip(f"{label} {rel}")
+        return
+    labels_path, timelines_path = ROOT / rel, ROOT / BACKBLAZE_TIMELINES
+    if not (labels_path.exists() and timelines_path.exists()):
+        for label in LABEL_CHECKS:
+            report("MISSING", f"{label} {rel}")
+        return
+    try:
+        table = pq.read_table(labels_path, columns=["serial_number", "date", "model", "label"])
+        keys = pq.read_table(timelines_path, columns=["serial_number", "date"])
+    except Exception as err:
+        for label in LABEL_CHECKS:
+            report("FAIL", f"{label} {rel}", f"file unreadable: {err}")
+        return
+    same = (table.num_rows == keys.num_rows
+            and table.column("serial_number").cast(pa.string()).equals(
+                keys.column("serial_number").cast(pa.string()))
+            and table.column("date").equals(keys.column("date")))
+    try:
+        models_equal = same and model_columns_equal(labels_path, timelines_path)
+    except Exception as err:
+        report("FAIL", f"backblaze labels rows and key order {rel}", f"model column not compared: {err}")
+        models_equal = None
+    if models_equal is not None:
+        report(verdict(models_equal), f"backblaze labels rows and key order {rel}",
+               f"labels={table.num_rows} timelines={keys.num_rows} keys_equal={same} "
+               f"models_equal={models_equal}")
+
+    present = {v for v in pc.unique(table.column("label")).to_pylist()}
+    allowed = set(backblaze_labels.LABEL_VALUES)
+    report(verdict(present <= allowed), f"backblaze labels values {rel}",
+           f"values={sorted(v for v in present if v is not None)} "
+           f"nulls={'yes' if None in present else 'no'}")
+
+    grouped = table.group_by(["model", "label"]).aggregate([("serial_number", "count")]).to_pandas()
+    measured: dict[str, tuple[int, int, int]] = {}
+    for model, part in grouped.groupby("model"):
+        by_label = dict(zip(part["label"], part["serial_number_count"]))
+        measured[str(model)] = (int(by_label.get(1, 0)), int(by_label.get(0, 0)), int(by_label.get(-1, 0)))
+    measured["all"] = tuple(sum(v[k] for v in measured.values()) for k in range(3))
+    recorded = parse_label_lines(preprocessing)["labels"]
+    problems = [f"{model}: recorded={recorded.get(model)} file={measured.get(model)}"
+                for model in sorted(set(recorded) | set(measured))
+                if recorded.get(model) != measured.get(model)]
+    report(verdict(not problems and bool(recorded)), f"backblaze labels totals {rel}",
+           "; ".join(problems) if problems else
+           f"positive={measured['all'][0]} negative={measured['all'][1]} censored={measured['all'][2]}")
+
+
+SPLIT_CHECKS = ("backblaze split one row per drive", "backblaze split model and failure metadata",
+                "backblaze split values", "backblaze split drives unique",
+                "backblaze split failed drives per model", "backblaze split stratum sizes",
+                "backblaze split counts vs PREPROCESSING.md")
+
+
+def check_drive_split(preprocessing: str) -> None:
+    rel = BACKBLAZE_SPLIT
+    if not tracked(rel):
+        for label in SPLIT_CHECKS:
+            skip(f"{label} {rel}")
+        return
+    split_path, index_path, labels_path = ROOT / rel, ROOT / BACKBLAZE_DRIVE_INDEX, ROOT / BACKBLAZE_LABELS
+    if not (split_path.exists() and index_path.exists()):
+        for label in SPLIT_CHECKS:
+            report("MISSING", f"{label} {rel}")
+        return
+    try:
+        split = pd.read_parquet(split_path)
+        index = pd.read_parquet(index_path, columns=["serial_number", "model", "failed_in_window"])
+        absent_columns = [c for c in backblaze_labels.SPLIT_COLUMNS if c not in split.columns]
+        if absent_columns:
+            for label in SPLIT_CHECKS:
+                report("FAIL", f"{label} {rel}", f"missing columns={absent_columns}")
+            return
+        split_names = list(backblaze_labels.SPLITS)
+        split["serial_number"] = split["serial_number"].astype(object)
+        index["serial_number"] = index["serial_number"].astype(object)
+    except Exception as err:
+        for label in SPLIT_CHECKS:
+            report("FAIL", f"{label} {rel}", f"file unreadable: {err}")
+        return
+
+    missing = set(index["serial_number"]) - set(split["serial_number"])
+    extra = set(split["serial_number"]) - set(index["serial_number"])
+    report(verdict(len(split) == len(index) and not missing and not extra and
+                   list(split.columns) == backblaze_labels.SPLIT_COLUMNS),
+           f"backblaze split one row per drive {rel}",
+           f"split_rows={len(split)} index_rows={len(index)} missing={len(missing)} extra={len(extra)}")
+    meta = index.merge(split[["serial_number", "model", "ever_failed"]].drop_duplicates("serial_number"),
+                       on="serial_number", how="left", suffixes=("", "_split"))
+    differing = (meta["model_split"].astype(object).ne(meta["model"].astype(object))
+                 | meta["ever_failed"].astype(object).ne(meta["failed_in_window"].astype(bool)))
+    report(verdict(not differing.any()), f"backblaze split model and failure metadata {rel}",
+           f"mismatching_drives={int(differing.sum())}")
+    unknown = sorted(set(split["split"].astype(object)) - set(split_names))
+    report(verdict(not unknown), f"backblaze split values {rel}", f"unknown_values={unknown}")
+    duplicates = int(split["serial_number"].duplicated().sum())
+    report(verdict(duplicates == 0), f"backblaze split drives unique {rel}", f"duplicate_drives={duplicates}")
+
+    joined = index.merge(split[["serial_number", "split"]].drop_duplicates("serial_number"),
+                         on="serial_number", how="left")
+    joined["split"] = joined["split"].astype(object)
+    failed = joined[joined["failed_in_window"].astype(bool)]
+    lacking = [f"{model}/{name}" for model in sorted(set(index["model"].astype(object)))
+               for name in split_names
+               if not ((failed["model"].astype(object) == model) & (failed["split"] == name)).any()]
+    report(verdict(not lacking), f"backblaze split failed drives per model {rel}",
+           f"splits_without_a_failed_drive={lacking}" if lacking else "every model has a failed drive in every split")
+
+    problems = []
+    for (model, ever), group in joined.groupby([joined["model"].astype(object),
+                                                joined["failed_in_window"].astype(bool)]):
+        for name, fraction in zip(split_names, backblaze_labels.FRACTIONS):
+            target = len(group) * fraction
+            actual = int((group["split"] == name).sum())
+            if not abs(actual - target) < 1:
+                problems.append(f"{model} failed={ever} {name}: {actual} vs {target:.2f}")
+    report(verdict(not problems), f"backblaze split stratum sizes {rel}",
+           "; ".join(problems) if problems else "every stratum within one drive of the target shares")
+
+    label = f"backblaze split counts vs PREPROCESSING.md {rel}"
+    if not labels_path.exists():
+        report("MISSING", label)
+        return
+    recorded = parse_split_lines(preprocessing)
+    try:
+        stats = backblaze_labels.split_statistics(labels_path, split.assign(
+            ever_failed=split["ever_failed"].astype(bool)))
+    except Exception as err:
+        report("FAIL", label, f"recomputation failed: {err}")
+        return
+    measured = {key: (c["drives"], c["failed_drives"], c["positive"], c["negative"], c["censored"])
+                for key, c in stats["counts"].items()}
+    differing = [f"{key[0]}/{key[1]}: recorded={recorded.get(key)} recomputed={measured.get(key)}"
+                 for key in sorted(set(recorded) | set(measured)) if recorded.get(key) != measured.get(key)]
+    report(verdict(not differing and bool(recorded)), label,
+           "; ".join(differing[:3]) if differing else f"groups={len(measured)}")
+
+
 def same_frames(a: pd.DataFrame, b: pd.DataFrame) -> bool:
     try:
         pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True),
@@ -611,6 +797,9 @@ def main(argv: list[str] | None = None) -> int:
     check_backblaze_sources(manifest)
     check_backblaze_labels(preprocessing)
     check_backblaze_leakage()
+    check_unique_key(BACKBLAZE_LABELS, backblaze_labels.LABEL_KEY)
+    check_labels_file(preprocessing)
+    check_drive_split(preprocessing)
     check_row_counts(TENCENT_LOAD_FILES, recorded)
     check_unique_key(TENCENT_SUMMARY, ["disk_uid"])
     check_disk_index()

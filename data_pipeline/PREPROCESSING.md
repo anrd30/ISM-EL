@@ -279,6 +279,11 @@ shared 24 h window.
     source files in `manifest.json`;
   - the 30-day label counts and the eligible-drive counts recomputed from the
     timelines and the drive index against the lines in B2 above;
+  - the A2 label table (one row per timelines row in the timelines order, unique
+    `(serial_number, date)`, label values in {-1, 0, 1}, totals equal to the B2 lines) and the
+    A2 drive split (one row per drive of the drive index, split values, no drive in two splits,
+    a failed drive of every model in every split, stratum sizes within one drive of the
+    target shares, per-split counts equal to the A2 lines);
   - `tests/test_no_leakage.py` exists, and a cut-and-recompute of the stored
     timelines on a sample of drives at the midpoint of the date range is identical to
     the stored rows and to the truncated recomputation;
@@ -304,3 +309,35 @@ shared 24 h window.
 - `check_outputs.py` does not re-run the pipeline scripts and does not judge
   the plot; whether the four profiles are visibly different is read from
   `profiles/profile_comparison.png`.
+
+## A2 — Horizon labels and drive split
+
+- Inputs: `data/processed/backblaze_timelines.parquet`, `data/processed/backblaze_drive_index.parquet`; decision record: `data_pipeline/A2_DECISION.md`
+- Label rule: the 30-day rule of section B2 (`timelines.row_labels`), imported unchanged. `backblaze_labels.parquet` holds `serial_number`, `date`, `model` and `label` (1 positive, 0 negative, -1 censored) for every timelines row, in the timelines row order
+- Split rule: unit = drive; 70/15/15 train/val/test; drives sorted by `serial_number` and shuffled with a seeded generator (seed 20220101) inside each stratum (`model`, `ever_failed`); largest-remainder rounding per stratum. `backblaze_drive_split.parquet` has one row per drive of the drive index, including the fully censored drives
+- The split is not time-forward: drives span the whole window, so the three splits overlap in dates (`a2_split_dates` lines give the date range and the positive rows by month of each split)
+- Censored rows (label -1) are unknown outcomes and are excluded from training and scoring
+- Counts from the last run of `backblaze/labels.py`:
+
+- `a2_labels rows=33052284 positive=52387 negative=30370344 censored=2629553`
+- `a2_params seed=20220101 fractions=train:0.7,val:0.15,test:0.15 strata=model,ever_failed`
+- `a2_split split=train model=ST12000NM0008 drives=14165 failed_drives=283 positive=8522 negative=4679379 censored=402427`
+- `a2_split split=val model=ST12000NM0008 drives=3036 failed_drives=61 positive=1725 negative=1001902 censored=86245`
+- `a2_split split=test model=ST12000NM0008 drives=3035 failed_drives=60 positive=1758 negative=1003854 censored=86262`
+- `a2_split split=train model=ST4000DM000 drives=13258 failed_drives=443 positive=13232 negative=4289970 censored=370514`
+- `a2_split split=val model=ST4000DM000 drives=2841 failed_drives=95 positive=2806 negative=923164 censored=79479`
+- `a2_split split=test model=ST4000DM000 drives=2841 failed_drives=95 positive=2835 negative=919546 censored=79523`
+- `a2_split split=train model=ST8000NM0055 drives=10340 failed_drives=244 positive=7148 negative=3351946 censored=292354`
+- `a2_split split=val model=ST8000NM0055 drives=2215 failed_drives=52 positive=1477 negative=718482 censored=62608`
+- `a2_split split=test model=ST8000NM0055 drives=2215 failed_drives=52 positive=1452 negative=717292 censored=62933`
+- `a2_split split=train model=TOSHIBA MG07ACA14TA drives=27005 failed_drives=269 positive=7969 negative=8933167 censored=775008`
+- `a2_split split=val model=TOSHIBA MG07ACA14TA drives=5787 failed_drives=58 positive=1754 negative=1915756 censored=166103`
+- `a2_split split=test model=TOSHIBA MG07ACA14TA drives=5787 failed_drives=58 positive=1709 negative=1915886 censored=166097`
+- `a2_split split=train model=all drives=64768 failed_drives=1239 positive=36871 negative=21254462 censored=1840303`
+- `a2_split split=val model=all drives=13879 failed_drives=266 positive=7762 negative=4559304 censored=394435`
+- `a2_split split=test model=all drives=13878 failed_drives=265 positive=7754 negative=4556578 censored=394815`
+- `a2_split_dates split=train date_min=2022-01-01 date_max=2022-12-31 positive_by_month=2022-01:2215,2022-02:2906,2022-03:3182,2022-04:3367,2022-05:3370,2022-06:3231,2022-07:3703,2022-08:3951,2022-09:3672,2022-10:3478,2022-11:2740,2022-12:1056`
+- `a2_split_dates split=val date_min=2022-01-01 date_max=2022-12-31 positive_by_month=2022-01:630,2022-02:487,2022-03:530,2022-04:581,2022-05:575,2022-06:828,2022-07:779,2022-08:923,2022-09:909,2022-10:779,2022-11:518,2022-12:223`
+- `a2_split_dates split=test date_min=2022-01-01 date_max=2022-12-31 positive_by_month=2022-01:516,2022-02:485,2022-03:510,2022-04:696,2022-05:860,2022-06:857,2022-07:1019,2022-08:825,2022-09:588,2022-10:677,2022-11:530,2022-12:191`
+- `output=data/processed/backblaze_labels.parquet rows=33052284 sha256=57067c5c8c3f3666cf94b21507d8af43162b70c6a0fd05e0b36b5ea8c1482263`
+- `output=data/processed/backblaze_drive_split.parquet rows=92525 sha256=537b52c54ebf8744532f3af1311efbc13b02f70d83196d850246d2354afd36a1`

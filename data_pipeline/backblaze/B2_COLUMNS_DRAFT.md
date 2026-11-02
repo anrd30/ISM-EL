@@ -2,8 +2,9 @@
 
 **Draft for review.** `backblaze/timelines.py` implements this list. Window
 sizes and the SMART subset are judgment calls (CLAUDE.md §4) and need
-confirmation. Input is `data/processed/backblaze_filtered.parquet` (B1,
-provisional three-model Seagate subset, Q1 2022 only).
+confirmation. Input is `data/processed/backblaze_filtered.parquet` (B1; window,
+models and columns in `A1_DECISION.md`: 2022, three Seagate models and
+TOSHIBA MG07ACA14TA).
 
 ## Two tables, split at the leakage boundary
 
@@ -25,7 +26,7 @@ date, recomputes, and requires all earlier rows to be identical.
 | `gap_days_before` | Calendar days since the drive's previous observed row; null on its first row |
 | `days_since_first_seen` | `date - first_seen`. **Position in the observation window, not drive age** |
 | `first_seen` | Date of the drive's first row in the extract (equals the minimum over rows up to the current one) |
-| `<smart>` | Current raw SMART value (all nine columns except `smart_188_raw`) |
+| `<smart>` | Current raw SMART value (all ten columns except `smart_188_raw`) |
 | `<smart>_diff7d`, `<smart>_diff30d` | Trailing calendar-window difference (rule below). `smart_188_raw` has `_diff7d` only |
 | `<feature>_missing` | Boolean, one per feature column above; `True` where the feature is NaN |
 
@@ -58,7 +59,9 @@ is new or six years old. It must not be read as age.
 
 `smart_5_raw`, `smart_9_raw`, `smart_12_raw`, `smart_187_raw`,
 `smart_188_raw`, `smart_193_raw`, `smart_194_raw`, `smart_197_raw`,
-`smart_198_raw`. All nine are populated for the three kept models in Q1 2022.
+`smart_198_raw`, `smart_199_raw`. All are populated (more than 99% of rows) for
+the four kept models, except `smart_187_raw` and `smart_188_raw`, which the
+Toshiba model does not report (NaN, `_missing` true).
 
 - **`smart_188_raw` (command timeout): no level column.** Seagate packs
   several counters into this raw value, so its level is not comparable across
@@ -95,24 +98,26 @@ the value on the earliest observed row with `date >= today - N`.
 - The window is `[today - N, today]` (closed on the left) so that a full
   7-day window spans 7 days.
 
-## Label events in Q1 2022 (measured from the drive index)
+## Label events (2022, 364 daily files)
 
-- 276 drives have `failed_in_window = True`, with failure dates from
-  2022-01-01 to 2022-03-28.
-- With a 30-day outcome horizon, the last date with a complete horizon inside
-  the quarter is 2022-03-01. 168 of the 276 failures fall on or before that
-  date and 108 fall after it.
-- The figure of about 184 usable labeled events was not reproduced from this
-  data. The split depends on the labeling rule: a failure after 2022-03-01 is
-  still a known positive for the rows up to 30 days before it, and what is
-  censored in the final month is the negative label for non-failing rows.
-  The label construction decides which count applies.
-- A second quarter (the estimate of about 460 events for the full set) has not
-  been downloaded or measured. It is not needed for this version.
+Counts per model and overall are written to `PREPROCESSING.md` (B2) by
+`timelines.py`: drive-days labelled positive, negative and censored for a
+30-day horizon, and the drives that have at least one positive or negative
+row. They are not stored as a column; the label construction belongs to the
+risk-model stage.
+
+- Positive: the drive's recorded failure date `F` satisfies `d <= F <= d + 30`.
+- Negative: no failure within 30 days and the drive has a row on or after
+  `d + 30`.
+- Censored: every other row. This covers rows whose horizon passes the last
+  date of the input and rows of drives that left the data without a recorded
+  failure.
+- The first and last date are taken from the input; nothing is tied to one
+  quarter.
 
 ## Open points for review
 
 1. Window sizes (7 d / 30 d) and the 2-observation minimum.
-2. Whether one quarter is enough events for the risk model.
+2. Whether the recorded failures are enough events per model for the risk model.
 3. `smart_194_raw` and `smart_12_raw` differences are less standard than the
    error counters; keep or drop after a first fit.

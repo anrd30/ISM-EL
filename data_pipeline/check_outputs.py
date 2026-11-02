@@ -8,6 +8,14 @@ Checks, each reported as one PASS / FAIL / MISSING / SKIP line:
   - row counts of the Backblaze and Tencent tables against PREPROCESSING.md;
   - key uniqueness: (serial_number, date) in the extract and the timelines,
     serial_number in the drive index, disk_uid in the disk summary;
+  - the Backblaze extract: the model set, per-model and pooled failures and drive-days,
+    the date range and distinct-date count (EXCLUDED_FILES dates are the only gaps), and the NaN pattern of smart_187_raw and
+    smart_188_raw (all NaN for non-Seagate models, populated for Seagate models), against
+    the values recorded in backblaze/extract.py; the source file count in the manifest;
+  - the 30-day label counts and the eligible-drive split recomputed from the timelines and
+    the drive index against the lines in PREPROCESSING.md;
+  - the leakage test file is present, and a cut-and-recompute of the stored timelines on a
+    sample of drives is identical for rows up to the cut date;
   - the disk index against the contract's `validate_disk_index_frame`;
   - the four profiles, as CSV and as Parquet, against the contract's
     `validate_replay_frame` and `validate_replay_grid`, the 288-row length, and
@@ -33,6 +41,7 @@ Usage:
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import re
@@ -43,6 +52,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))  # repo root: `contracts`, `sim` and `data_pipeline` packages
 
 import pandas as pd  # noqa: E402
+import pyarrow.compute as pc  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 
 from contracts import contracts  # noqa: E402
@@ -57,6 +67,10 @@ PREPROCESSING = ROOT / "PREPROCESSING.md"
 PROCESSED = "data/processed"
 PROFILE_NAMES = ("idle", "diurnal", "bursty", "peak")
 PROFILE_ROWS = 86400 // CONTROL_INTERVAL_S  # 24 h of samples
+LEAKAGE_TEST = "tests/test_no_leakage.py"
+LEAKAGE_SAMPLE_PER_MODEL = 100
+NAN_PATTERN_COLUMNS = ("smart_187_raw", "smart_188_raw")
+POPULATED_SHARE_MIN = 0.99
 EXPECTED_SAFE_ACTIONS = {"idle": 4, "diurnal": 3, "bursty": 2, "peak": 1}
 
 BACKBLAZE_FILTERED = f"{PROCESSED}/backblaze_filtered.parquet"
@@ -217,6 +231,214 @@ def check_unique_key(rel: str, columns: list[str]) -> bool:
     return report(verdict(duplicates == 0), label, f"duplicate_rows={duplicates}")
 
 
+def read_backblaze_extract_summary(path: Path) -> pd.DataFrame:
+    """Per model: rows, failures, rows with a value in each NAN_PATTERN_COLUMNS column."""
+    columns = ["model", "failure", *NAN_PATTERN_COLUMNS]
+    table = pq.read_table(path, columns=columns)
+    aggregates = [("failure", "sum"), ("failure", "count")]
+    aggregates += [(c, "count") for c in NAN_PATTERN_COLUMNS]
+    grouped = table.group_by("model").aggregate(aggregates).to_pandas().set_index("model")
+    return grouped.rename(columns={"failure_sum": "failures", "failure_count": "rows",
+                                   **{f"{c}_count": c for c in NAN_PATTERN_COLUMNS}})
+
+
+def check_backblaze_extract() -> None:
+    rel = BACKBLAZE_FILTERED
+    path = ROOT / rel
+    labels = ("backblaze model set", "backblaze counts", "backblaze date range",
+              "backblaze NaN pattern")
+    if not tracked(rel):
+        for label in labels:
+            skip(f"{label} {rel}")
+        return
+    if not path.exists():
+        for label in labels:
+            report("MISSING", f"{label} {rel}")
+        return
+    try:
+        summary = read_backblaze_extract_summary(path)
+        dates = pq.read_table(path, columns=["date"]).column("date")
+        bounds = pc.min_max(dates).as_py()
+        distinct = len(pc.unique(dates))
+    except Exception as err:
+        for label in labels:
+            report("FAIL", f"{label} {rel}", f"file unreadable: {err}")
+        return
+
+    expected_models = list(backblaze_extract.MODELS)
+    measured_models = sorted(summary.index)
+    report(verdict(measured_models == sorted(expected_models)), f"backblaze model set {rel}",
+           f"models={measured_models} expected={sorted(expected_models)}")
+
+    pooled_failures = pooled_days = 0
+    for model, (failures, drive_days) in backblaze_extract.EXPECTED_PER_MODEL.items():
+        label = f"backblaze counts {model}"
+        if model not in summary.index:
+            report("FAIL", label, "model absent from the extract")
+            continue
+        row = summary.loc[model]
+        pooled_failures += int(row["failures"])
+        pooled_days += int(row["rows"])
+        report(verdict(int(row["failures"]) == failures and int(row["rows"]) == drive_days), label,
+               f"failures={int(row['failures'])} expected={failures} "
+               f"drive_days={int(row['rows'])} expected={drive_days}")
+    exp_failures, exp_days = backblaze_extract.EXPECTED_POOLED
+    report(verdict(pooled_failures == exp_failures and pooled_days == exp_days), "backblaze counts pooled",
+           f"failures={pooled_failures} expected={exp_failures} "
+           f"drive_days={pooled_days} expected={exp_days}")
+
+    first, last = bounds["min"].isoformat(), bounds["max"].isoformat()
+    exp_first, exp_last = backblaze_extract.EXPECTED_DATE_RANGE
+    ok = (first, last) == (exp_first, exp_last) and distinct == backblaze_extract.EXPECTED_FILES
+    report(verdict(ok), f"backblaze date range {rel}",
+           f"first={first} last={last} distinct_dates={distinct} expected={exp_first}..{exp_last} "
+           f"in {backblaze_extract.EXPECTED_FILES} dates")
+
+    problems = []
+    for model in summary.index:
+        seagate = model in backblaze_extract.SEAGATE_MODELS
+        for column in NAN_PATTERN_COLUMNS:
+            share = int(summary.loc[model, column]) / int(summary.loc[model, "rows"])
+            if seagate and share < POPULATED_SHARE_MIN:
+                problems.append(f"{model} {column} populated share {share:.4f}")
+            if not seagate and share != 0:
+                problems.append(f"{model} {column} populated share {share:.4f}, expected 0")
+    report(verdict(not problems), f"backblaze NaN pattern {rel}",
+           "; ".join(problems) if problems else
+           f"{', '.join(NAN_PATTERN_COLUMNS)} populated for {', '.join(backblaze_extract.SEAGATE_MODELS)}, "
+           "all NaN for the other models")
+
+
+def check_backblaze_sources(manifest: dict) -> None:
+    label = "backblaze source files in manifest"
+    names = sorted(manifest.get("sources", {}).get("backblaze", {}))
+    first = datetime.date.fromisoformat(backblaze_extract.EXPECTED_DATE_RANGE[0])
+    last = datetime.date.fromisoformat(backblaze_extract.EXPECTED_DATE_RANGE[1])
+    excluded = {key.split("/")[-1] for key in backblaze_extract.EXCLUDED_FILES}
+    expected = {(first + datetime.timedelta(days=i)).isoformat() + ".csv"
+                for i in range((last - first).days + 1)} - excluded
+    problems = []
+    if len(names) != backblaze_extract.EXPECTED_FILES:
+        problems.append(f"files={len(names)} expected={backblaze_extract.EXPECTED_FILES}")
+    if set(names) != expected:
+        problems.append(f"missing={len(expected - set(names))} unexpected={len(set(names) - expected)}")
+    report(verdict(not problems), label, "; ".join(problems) if problems else f"files={len(names)}")
+
+
+def parse_label_lines(preprocessing: str) -> dict[str, dict[str, tuple[int, ...]]]:
+    """The B2 label-count and drive-split lines of PREPROCESSING.md, keyed by line kind and model."""
+    match = re.search(r"## B2 — Per-drive timelines\n.*?(?=\n## |\Z)", preprocessing, flags=re.S)
+    section = match.group(0) if match else ""
+    labels = {m.group(1): tuple(int(g) for g in m.groups()[1:]) for m in re.finditer(
+        r"labels_h\d+ model=(.+?) positive=(\d+) negative=(\d+) censored=(\d+)", section)}
+    drives = {m.group(1): tuple(int(g) for g in m.groups()[1:]) for m in re.finditer(
+        r"label_drives model=(.+?) drives=(\d+) eligible=(\d+) with_positive=(\d+) "
+        r"negative_only=(\d+) all_censored=(\d+)", section)}
+    return {"labels": labels, "drives": drives}
+
+
+def recompute_label_lines(timelines_path: Path, index_path: Path) -> list[str]:
+    index = pd.read_parquet(index_path)
+    pf = pq.ParquetFile(timelines_path)
+    totals: dict[str, dict[str, int]] = {}
+    flag_parts = []
+    for i in range(pf.num_row_groups):
+        frame = pf.read_row_group(i, columns=["serial_number", "model", "date"]).to_pandas()
+        labels = backblaze_timelines.row_labels(frame, index)
+        for model, g in frame.groupby(frame["model"].astype(object)):
+            counts = backblaze_timelines.label_counts(labels[g.index.to_numpy()])
+            bucket = totals.setdefault(str(model), dict.fromkeys(counts, 0))
+            for key, value in counts.items():
+                bucket[key] += value
+        flag_parts.append(backblaze_timelines.drive_label_flags(frame, labels))
+    if flag_parts:
+        flags = pd.concat(flag_parts).groupby(level=0).any()
+    else:
+        flags = pd.DataFrame({"has_positive": [], "has_negative": []})
+    return backblaze_timelines.label_lines(totals, index, flags)
+
+
+def check_backblaze_labels(preprocessing: str) -> None:
+    label = "backblaze label counts vs PREPROCESSING.md"
+    if not tracked(BACKBLAZE_TIMELINES):
+        skip(label)
+        return
+    timelines_path, index_path = ROOT / BACKBLAZE_TIMELINES, ROOT / BACKBLAZE_DRIVE_INDEX
+    if not (timelines_path.exists() and index_path.exists()):
+        report("MISSING", label)
+        return
+    recorded = parse_label_lines(preprocessing)
+    if not recorded["labels"] or not recorded["drives"]:
+        report("FAIL", label, "no label lines recorded in PREPROCESSING.md")
+        return
+    try:
+        measured = parse_label_lines(
+            "## B2 — Per-drive timelines\n" + "\n".join(recompute_label_lines(timelines_path, index_path)))
+    except Exception as err:
+        report("FAIL", label, f"recomputation failed: {err}")
+        return
+    problems = [f"{kind} {model}: recorded={recorded[kind].get(model)} recomputed={measured[kind].get(model)}"
+                for kind in ("labels", "drives")
+                for model in sorted(set(recorded[kind]) | set(measured[kind]))
+                if recorded[kind].get(model) != measured[kind].get(model)]
+    all_row = measured["labels"].get("all", (0, 0, 0))
+    report(verdict(not problems), label,
+           "; ".join(problems) if problems else
+           f"horizon_days={backblaze_timelines.HORIZON_DAYS} positive={all_row[0]} "
+           f"negative={all_row[1]} censored={all_row[2]} models={len(measured['labels']) - 1}")
+
+
+def same_frames(a: pd.DataFrame, b: pd.DataFrame) -> bool:
+    try:
+        pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True),
+                                      check_exact=True, check_dtype=False)
+    except AssertionError:
+        return False
+    return True
+
+
+def check_backblaze_leakage() -> None:
+    report(verdict((ROOT / LEAKAGE_TEST).exists()), f"leakage test present {LEAKAGE_TEST}")
+    label = "leakage cut-and-recompute backblaze_timelines"
+    if not tracked(BACKBLAZE_TIMELINES):
+        skip(label)
+        return
+    paths = [ROOT / p for p in (BACKBLAZE_FILTERED, BACKBLAZE_TIMELINES, BACKBLAZE_DRIVE_INDEX)]
+    if not all(p.exists() for p in paths):
+        report("MISSING", label)
+        return
+    filtered_path, timelines_path, index_path = paths
+    try:
+        index = pd.read_parquet(index_path).sort_values("serial_number")
+        first, last = pd.Timestamp(index["first_seen"].min()), pd.Timestamp(index["last_seen"].max())
+        cut = (first + (last - first) // 2).normalize()
+        chosen = pd.concat([
+            index.groupby("model").head(LEAKAGE_SAMPLE_PER_MODEL),
+            index[index["failed_in_window"]].groupby("model").head(LEAKAGE_SAMPLE_PER_MODEL),
+        ])
+        serials = sorted(set(chosen["serial_number"].astype(str)))
+        filters = [("serial_number", "in", serials)]
+        columns = backblaze_timelines.CORE_IN + list(backblaze_timelines.SMART_COLUMNS)
+        sample = pq.read_table(filtered_path, columns=columns, filters=filters).to_pandas()
+        stored = pq.read_table(timelines_path, filters=filters).to_pandas()
+        stored = stored.assign(date=pd.to_datetime(stored["date"]),
+                               first_seen=pd.to_datetime(stored["first_seen"]))
+        stored = stored.sort_values(backblaze_timelines.KEY, kind="stable")
+        full = backblaze_timelines.build_timelines(sample)
+        kept = sample[pd.to_datetime(sample["date"]) <= cut]
+        truncated = backblaze_timelines.build_timelines(kept)
+    except Exception as err:
+        report("FAIL", label, f"not computed: {err}")
+        return
+    problems = []
+    if not same_frames(full, stored):
+        problems.append("stored timelines differ from a recomputation")
+    if not same_frames(truncated, full[full["date"] <= cut]):
+        problems.append("rows up to the cut differ when the input is truncated at the cut")
+    report(verdict(not problems), label, "; ".join(problems) if problems else
+           f"cut={cut.date().isoformat()} drives={len(serials)} rows={len(full)}")
+
+
 def check_disk_index() -> bool:
     path = ROOT / TENCENT_DISK_INDEX
     label = f"validate_disk_index_frame {TENCENT_DISK_INDEX}"
@@ -372,6 +594,10 @@ def main(argv: list[str] | None = None) -> int:
     check_unique_key(BACKBLAZE_FILTERED, backblaze_extract.KEY)
     check_unique_key(BACKBLAZE_TIMELINES, backblaze_timelines.KEY)
     check_unique_key(BACKBLAZE_DRIVE_INDEX, ["serial_number"])
+    check_backblaze_extract()
+    check_backblaze_sources(manifest)
+    check_backblaze_labels(preprocessing)
+    check_backblaze_leakage()
     check_row_counts(TENCENT_LOAD_FILES, recorded)
     check_unique_key(TENCENT_SUMMARY, ["disk_uid"])
     check_disk_index()

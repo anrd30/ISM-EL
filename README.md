@@ -4,13 +4,13 @@ Working title: **Predict, Quantify, Control**.
 
 A storage group that has lost a drive must rebuild the missing data. The rebuild
 competes with user traffic for the same bandwidth, and until it finishes the
-group has no spare redundancy. This project builds a controller that sets the
-rebuild bandwidth every five minutes using the measured failure hazard of the
-surviving drives, under an explicit latency constraint and an explicit
-additional-drive-failure exposure budget. Conditioning on the full distribution
-of remaining recovery time, not only its mean, is a planned extension: the
-current interface exposes only scalar `work_remaining`/`progress`, not a
-recovery-time distribution.
+group is down to a single tolerated failure. This project builds a controller
+that sets the rebuild bandwidth every five minutes using the measured failure
+hazard of the surviving drives, under an explicit latency constraint and an
+explicit additional-drive-failure exposure budget. Conditioning on the full
+distribution of remaining recovery time, not only its mean, is a planned
+extension: the current interface exposes only scalar
+`work_remaining`/`progress`, not a recovery-time distribution.
 
 RVCE, VII semester, Information Storage Management experiential-learning
 project. Lane ownership is recorded in `CLAUDE.md` section 2.
@@ -23,10 +23,11 @@ When a drive in a RAID or erasure-coded group fails, the system enters a
 degraded state and starts reconstructing the lost data onto a spare. Two things
 are true at the same time:
 
-- **The group is exposed.** An 8+2 group tolerates two drive failures. After one
-  failure it tolerates one more, leaving no further redundancy; a third failure
-  during the rebuild causes data loss. The longer the rebuild takes, the longer
-  the window in which additional failures can exhaust the group's tolerance.
+- **The group is exposed.** An 8+2 group tolerates two drive failures. After the
+  failure that starts the rebuild it tolerates one more, which leaves no further
+  redundancy; a third failure, the second during the rebuild, is data loss. The
+  longer the rebuild takes, the longer the window in which additional failures can
+  exhaust the group's tolerance.
 - **The rebuild hurts users.** Reconstruction reads from every surviving drive
   and writes to the spare. That bandwidth is taken from foreground traffic, so
   tail latency rises while the rebuild runs.
@@ -59,8 +60,8 @@ One closed loop with three parts.
                 v                                   v
    +------------------------+            +------------------------------+
    |  PREDICT               |            |  QUANTIFY                    |
-   |  hazard(features, H)   |----------->|  simulator: recovery-time    |
-   |  -> p(fail in 30 d),   |  per-drive |  distribution + latency model|
+   |  hazard(features, H)   |----------->|  simulator: recovery time    |
+   |  -> p(fail in 30 d),   |  per-drive |  + latency model             |
    |     uncertainty        |  hazard    |                              |
    +------------------------+            +--------------+---------------+
                                                         | state (12 fields)
@@ -79,12 +80,18 @@ One closed loop with three parts.
 - **Predict.** A hazard model turns a drive's SMART history into the probability
   that it fails within the next 30 days, with an uncertainty estimate.
 - **Quantify.** The simulator advances the rebuild under a replayed foreground
-  load and reports the distribution of completion time, not only its mean,
-  together with the latency the users would have seen.
+  load and records, per episode, the completion time and the latency the users
+  would have seen. The evaluation harness saves one row per episode, so the
+  recovery-time sample is kept; today's summary reports its mean, and the
+  distribution with its tail is expected output 2 below, not yet produced.
 - **Control.** A policy picks one of four rebuild rates every control interval.
   A risk safety filter clips requests that would exceed the exposure budget;
   latency violations are measured and reported rather than rejected by the
   environment.
+
+Built so far: the simulator, the safety filter and the non-learned controllers.
+The hazard model is still the unfitted `hazard/v0.py` placeholder and the
+learned controller has no training script. Section 8 has the per-task status.
 
 ## 4. Expected output
 
@@ -142,8 +149,9 @@ collapses to "always rebuild at maximum". `sim/config.py` and
 ### 5.3 The safe-action ladder
 
 How many of the four actions stay inside the latency budget depends on the load
-profile. Measured with the simulator's own functions over one 24-hour,
-288-interval replay:
+profile. Measured by `build_profiles.latency_ladder` with the simulator's own
+functions, over the four committed Tencent profile CSVs (one 24-hour,
+288-interval replay each):
 
 | Profile | Safe actions | Violation fraction at 20 / 50 / 80 / 120 MB/s |
 | --- | --- | --- |
@@ -155,7 +163,10 @@ profile. Measured with the simulator's own functions over one 24-hour,
 A monotone 4/3/2/1 ladder is deliberate: every profile keeps at least one legal
 action, and the profiles differ enough that a controller must condition on load.
 The ladder rests on a single 24-hour window per profile; the closest pass is
-diurnal at 80 MB/s, violating 2.4% against the 5% allowed.
+diurnal at 80 MB/s, violating 2.4% against the 5% allowed. `sim/LIMITATIONS.md`
+section 9 reports the same ladder for the *synthetic* generator instead, averaged
+over 20 seeds; the safe-action counts agree, the violation fractions do not, and
+the two tables must not be quoted interchangeably.
 
 ### 5.4 Risk filter
 
@@ -164,8 +175,11 @@ filter computes the remaining completion time from `work_remaining` at that
 allocation (not a fixed horizon) and bounds `P = 1 - exp(-hazard * T_remaining)`,
 the probability of at least one additional drive failure before that work
 finishes — an exposure probability, not a data-loss probability. An action is
-feasible only while `P < 0.005`. Foreground contention can push the delivered
-rate below the requested allocation, which the simulator reports separately (see
+feasible only while `P < 0.005`. Because `P` falls as the allocation rises, the
+filter only ever moves an action up; when no action satisfies the budget it
+applies the largest allocation, the minimum-risk choice, and records the breach in
+`info["violated_risk_budget"]`. Foreground contention can push the delivered rate
+below the requested allocation, which the simulator reports separately (see
 `sim/LIMITATIONS.md`). Nothing in the latency rule substitutes for this check, or
 the reverse.
 
@@ -175,8 +189,8 @@ Neither dataset is stored in this repository.
 
 | Dataset | Used for | Shape |
 | --- | --- | --- |
-| [Backblaze Drive Stats](https://www.backblaze.com/cloud-storage/resources/hard-drive-test-data), 2022 Q1-Q4 | the hazard model | 365 daily CSVs (364 used), 179 columns, one row per drive per day; about 22 GB extracted |
-| Tencent Cloud Volume workload traces | the foreground load profiles | 16,296 headerless per-disk files, 300-second samples, 60 days, 6.9 GB |
+| [Backblaze Drive Stats](https://www.backblaze.com/cloud-storage/resources/hard-drive-test-data), 2022 Q1-Q4 | the hazard model | 365 daily CSVs (364 used), 179 columns, one row per drive per day; about 28 GB of CSVs on disk |
+| Tencent Cloud Volume workload traces | the foreground load profiles | 16,296 headerless per-disk files, 300-second samples, 60 days, about 7.3 GB on disk |
 
 What was selected from each, and why, is in `data_pipeline/A1_DECISION.md`
 (Backblaze) and `data_pipeline/PREPROCESSING.md` (both).
@@ -211,13 +225,15 @@ hazard/             The risk interface (PREDICT). v0.py is a placeholder:
                     SMART multiplier. It is not fitted to data and is the
                     baseline the real model must beat.
 
-baselines/          Non-learned controllers to compare against: fixed rates,
-                    latency-ceiling and cost-scoring throttles, plus an
-                    evaluation harness (evaluate.py).
+baselines/          Non-learned controllers to compare against: the four fixed
+                    rates, a risk-blind workload throttle, a risk-aware rule, and
+                    an oracle look-ahead that is an upper reference rather than a
+                    comparator. evaluate.py is the paired evaluation harness.
 
 workload/           Synthetic load-profile generator producing the same four
-                    profile shapes; used for stress tests and where the real
-                    traces are not present.
+                    profile shapes. It is the simulator's default foreground
+                    source; a real profile is used only when SimConfig is given
+                    a workload_csv.
 
 data_pipeline/      Everything that turns raw public datasets into the tables
                     the other lanes consume.
@@ -228,14 +244,16 @@ data_pipeline/      Everything that turns raw public datasets into the tables
     labels.py           A2. 30-day labels + train/val/test split by drive.
   tencent/
     inspect_schema.py   Read-only.
-    extract_load.py     B3. 16,296 headerless files -> one clean table.
+    extract_load.py     B3. 16,296 headerless files -> one clean load table
+                        plus the per-disk summary and run tables.
     build_disk_index.py B4. Per-disk subscription metadata index joined by disk_uid.
     build_profiles.py   B5. The four 24-hour load profiles + plot + sidecars.
   profiles/             The four profile CSVs, their sidecars, the comparison
                         plot. These ARE committed and are hash-pinned.
   check_outputs.py      B6. The acceptance checker (see section 10).
-  manifest.json         sha256 + row counts of every generated output, and the
-                        digests of all 364 Backblaze source files.
+  manifest.json         sha256 of every generated output, row counts for the
+                        tabular ones (the sidecars and the plot have none), and
+                        the digests of all 364 Backblaze source files.
   PREPROCESSING.md      What each stage did, with the counts from its last run.
   A1_DECISION.md        Data window, drive models, SMART columns, evidence.
   A2_DECISION.md        Label rule, split rule, seed, per-split counts.
@@ -253,7 +271,9 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-02, on `main`: 396 tests pass under `data_pipeline/tests`. The
+As of 2026-11-02, on `main`: 396 tests pass under `data_pipeline/tests`, which is
+the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
+`hazard/` carry their own tests and run from the repo root. The
 acceptance checker reports `RESULT: PASS` in `--committed-only` mode on a clean
 clone, and in full mode once the Backblaze/Tencent outputs have been regenerated
 locally (they are gitignored, so a clean clone's full-mode run reports
@@ -313,9 +333,16 @@ date, because consecutive rows of one drive are near-copies.
   extract's pooled rate is 1.95%. Its baseline was also set from data that
   includes the test drives, so A4 must either re-derive it from training drives
   or disclose the head start.
-- About 13% of Tencent disks report fewer than 512 bytes per I/O, which is not
-  physically plausible. The cause is unresolved; those volumes are excluded from
-  profile selection.
+- 414 of the 6,817 Tencent candidate volumes (6.1%) report a median below 512
+  bytes per I/O, which is not physically plausible. The cause is unresolved; those
+  volumes are excluded from profile selection. The share is of the candidates that
+  share the gap-free 24-hour window, not of all 16,296 volumes.
+- `ACTIONS_MBPS` is a prototype action set, illustrative rather than measured
+  device limits, so every result quoted against it has to say so
+  (`contracts/INTERFACES.md` section 4).
+- `RISK_BUDGET_EPS` bounds exposure, never data loss. An episode starts with one
+  tolerated failure left, so exposure is one further failure and loss needs two.
+  A data-loss figure has to be computed separately and labelled as such.
 - `A1_DECISION.md` and `A2_DECISION.md` both still read "Status: proposed".
 
 ## 10. Getting started
@@ -351,9 +378,11 @@ python -I tencent/build_disk_index.py   # B4
 python -I tencent/build_profiles.py     # B5
 ```
 
-Each stage verifies its own counts against the recorded values and aborts on any
-difference, rewrites its section of `PREPROCESSING.md`, and updates
-`manifest.json`. Then run the full checker:
+Every stage rewrites its own section of `PREPROCESSING.md` and updates
+`manifest.json`. B1 and A2 additionally compare their measured counts with the
+values recorded in their own source and abort on any difference; B2 to B5 abort
+only on a structural problem, and it is the checker below that verifies their
+outputs against `manifest.json` and `PREPROCESSING.md`:
 
 ```
 python -I data_pipeline/check_outputs.py

@@ -115,7 +115,7 @@ requires agreement across lanes, because all four lanes compile against it.
 | `REBUILD_WORK_GB` | 12,000 | One 12 TB drive's worth of reconstruction |
 | `HORIZON_DAYS` / `HORIZON_HOURS` | 30 / 720 | The hazard model's prediction horizon |
 | `RISK_BUDGET_EPS` | 0.005 | Maximum tolerated additional-drive-failure exposure probability |
-| `LATENCY_VIOLATION_FRACTION_MAX` | 0.05 | An action is unsafe if it violates latency on more than 5% of intervals |
+| `LATENCY_VIOLATION_FRACTION_MAX` | 0.05 | Evaluation limit: an action's latency-violation share must stay at or below 5% to be scored as meeting the latency budget |
 | `LATENCY_LIMIT_FACTOR` | 1.5 | Latency limit = 1.5 x the service target |
 | `OBS_DIM` | 12 | Observation fields handed to the policy |
 
@@ -159,10 +159,15 @@ diurnal at 80 MB/s, violating 2.4% against the 5% allowed.
 
 ### 5.4 Risk filter
 
-The latency rule and the risk rule are separate. For a per-hour hazard and a
-horizon `T`, the group's failure probability is `P = 1 - exp(-hazard * T)`, and
-an action is feasible only while `P < 0.005`. Nothing in the latency rule
-substitutes for this check, or the reverse.
+The latency rule and the risk rule are separate. For a candidate allocation, the
+filter computes the remaining completion time from `work_remaining` at that
+allocation (not a fixed horizon) and bounds `P = 1 - exp(-hazard * T_remaining)`,
+the probability of at least one additional drive failure before that work
+finishes — an exposure probability, not a data-loss probability. An action is
+feasible only while `P < 0.005`. Foreground contention can push the delivered
+rate below the requested allocation, which the simulator reports separately (see
+`sim/LIMITATIONS.md`). Nothing in the latency rule substitutes for this check, or
+the reverse.
 
 ## 6. Datasets
 
@@ -248,8 +253,11 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-02, on `main`: 396 tests pass under `data_pipeline/tests`, and the
-acceptance checker reports `RESULT: PASS` in both of its modes.
+As of 2026-11-02, on `main`: 396 tests pass under `data_pipeline/tests`. The
+acceptance checker reports `RESULT: PASS` in `--committed-only` mode on a clean
+clone, and in full mode once the Backblaze/Tencent outputs have been regenerated
+locally (they are gitignored, so a clean clone's full-mode run reports
+`INCOMPLETE` until then, not `PASS`).
 
 | Area | Task | Status |
 | --- | --- | --- |

@@ -14,16 +14,56 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from contracts import contracts
 from data_pipeline import check_outputs as co
+from data_pipeline.backblaze import extract as bb_extract
+from data_pipeline.backblaze import timelines as bb_timelines
 
 REAL_PROFILES = Path(co.__file__).resolve().parent / "profiles"
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 DAY1, DAY2 = datetime.date(2022, 1, 1), datetime.date(2022, 1, 2)
 KEYLESS_SUFFIXES = (".png", ".json")
+SEAGATE, TOSHIBA = "SEA", "TOS"
+FIRST_DAY = datetime.date(2022, 1, 1)
+BB_DAYS = 45
+
+
+def backblaze_world():
+    """A small consistent Backblaze dataset: extract, timelines, drive index and label lines.
+
+    S1 (Seagate, 45 days, no failure), S2 (Seagate, fails on day 40), T1 (Toshiba, 20 days,
+    smart_187_raw and smart_188_raw never reported)."""
+    rows = []
+    for serial, model, last_day, fail_day in (("S1", SEAGATE, 45, None), ("S2", SEAGATE, 40, 40),
+                                              ("T1", TOSHIBA, 20, None)):
+        for d in range(1, last_day + 1):
+            row = {"serial_number": serial, "model": model,
+                   "date": FIRST_DAY + datetime.timedelta(days=d - 1),
+                   "capacity_bytes": 4_000_000_000_000, "failure": int(d == fail_day)}
+            for k, column in enumerate(bb_timelines.SMART_COLUMNS):
+                row[column] = float(d + k)
+            if model == TOSHIBA:
+                row["smart_187_raw"] = row["smart_188_raw"] = np.nan
+            rows.append(row)
+    filtered = pd.DataFrame(rows)
+    timeline = bb_timelines.build_timelines(filtered)
+    index = bb_timelines.build_drive_index(filtered[bb_timelines.CORE_IN])
+    labels = bb_timelines.row_labels(timeline, index)
+    totals = {m: bb_timelines.label_counts(labels[(timeline["model"] == m).to_numpy()])
+              for m in (SEAGATE, TOSHIBA)}
+    lines = bb_timelines.label_lines(totals, index, bb_timelines.drive_label_flags(timeline, labels))
+    for frame in (timeline, index):
+        for column in frame.columns:
+            if pd.api.types.is_datetime64_any_dtype(frame[column]):
+                frame[column] = frame[column].dt.date
+    expected = {m: (int(filtered.loc[filtered["model"] == m, "failure"].sum()),
+                    int((filtered["model"] == m).sum())) for m in (SEAGATE, TOSHIBA)}
+    return filtered, timeline, index, lines, expected
 
 
 def disk_index_frame(uids=("d1", "d2")):
@@ -42,6 +82,8 @@ class Tree:
     def __init__(self, root: Path):
         self.root = root
         self.entries: dict[str, dict] = {}
+        self.label_lines: list[str] = []
+        self.sources: dict[str, str] = {}
 
     def path(self, rel: str) -> Path:
         return self.root / rel
@@ -57,7 +99,7 @@ class Tree:
             for n in co.PROFILE_NAMES
         }
         files = [self.entries[r] for r in co.ALL_OUTPUTS if r in self.entries]
-        manifest = {"files": files, "sources": {}, "profiles": profiles}
+        manifest = {"files": files, "sources": {"backblaze": self.sources}, "profiles": profiles}
         self.path("manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         filtered = self.entries[co.BACKBLAZE_FILTERED]
         lines = []
@@ -71,6 +113,7 @@ class Tree:
         text = (
             "# P\n\n## B1 — Backblaze extract\n\n"
             f"- `rows_out={filtered['rows']}`\n\n## B2 — Per-drive timelines\n\n"
+            + "\n".join(f"- `{line}`" for line in self.label_lines) + "\n"
             + "\n".join(lines) + "\n\n## B6 — Acceptance\n"
         )
         self.path("PREPROCESSING.md").write_text(text, encoding="utf-8", newline="\n")
@@ -85,6 +128,18 @@ class Tree:
 @pytest.fixture
 def tree(tmp_path, monkeypatch):
     root = tmp_path / "pipe"
+    (root / "tests").mkdir(parents=True)
+    (root / co.LEAKAGE_TEST).write_text("# leakage test\n", encoding="utf-8")
+    filtered, timeline, index, label_lines, expected = backblaze_world()
+    monkeypatch.setattr(bb_extract, "MODELS", (SEAGATE, TOSHIBA))
+    monkeypatch.setattr(bb_extract, "SEAGATE_MODELS", (SEAGATE,))
+    monkeypatch.setattr(bb_extract, "EXPECTED_PER_MODEL", expected)
+    monkeypatch.setattr(bb_extract, "EXPECTED_POOLED",
+                        (sum(f for f, _ in expected.values()), sum(d for _, d in expected.values())))
+    monkeypatch.setattr(bb_extract, "EXPECTED_FILES", BB_DAYS)
+    monkeypatch.setattr(bb_extract, "EXPECTED_DATE_RANGE", (
+        FIRST_DAY.isoformat(), (FIRST_DAY + datetime.timedelta(days=BB_DAYS - 1)).isoformat()))
+    monkeypatch.setattr(bb_extract, "EXCLUDED_FILES", {})
     (root / "profiles").mkdir(parents=True)
     processed = root / "data" / "processed"
     processed.mkdir(parents=True)
@@ -95,11 +150,9 @@ def tree(tmp_path, monkeypatch):
     (root / co.PROFILE_PLOT).write_bytes(PNG_BYTES)
 
     tables = {
-        co.BACKBLAZE_FILTERED: pd.DataFrame({"serial_number": ["a", "a", "b"], "date": [DAY1, DAY2, DAY1],
-                                             "failure": [0, 0, 1]}),
-        co.BACKBLAZE_TIMELINES: pd.DataFrame({"serial_number": ["a", "a", "b"], "date": [DAY1, DAY2, DAY1],
-                                              "gap_days_before": [None, 1, None]}),
-        co.BACKBLAZE_DRIVE_INDEX: pd.DataFrame({"serial_number": ["a", "b"], "days_observed": [2, 1]}),
+        co.BACKBLAZE_FILTERED: filtered,
+        co.BACKBLAZE_TIMELINES: timeline,
+        co.BACKBLAZE_DRIVE_INDEX: index,
         co.TENCENT_CLEAN: pd.DataFrame({"disk_uid": ["d1", "d1", "d2"], "timestamp": [1, 2, 3]}),
         co.TENCENT_SUMMARY: pd.DataFrame({"disk_uid": ["d1", "d2"], "rows_clean": [2, 1]}),
         co.TENCENT_RUNS: pd.DataFrame({"disk_uid": ["d1", "d2"], "run_start_ts": [1, 3], "run_rows": [2, 1]}),
@@ -116,6 +169,9 @@ def tree(tmp_path, monkeypatch):
     pd.DataFrame(disks).to_parquet(root / co.PROFILE_DISKS, index=False)
 
     built = Tree(root)
+    built.label_lines = label_lines
+    built.sources = {(FIRST_DAY + datetime.timedelta(days=i)).isoformat() + ".csv": "0" * 64
+                     for i in range(BB_DAYS)}
     for rel in co.ALL_OUTPUTS:
         built.record(rel)
     built.save()
@@ -366,8 +422,8 @@ def test_a_table_with_null_key_values_passes_the_key_check(tree, capsys):
     tree.record(co.BACKBLAZE_FILTERED)
     tree.save()
     code, out = run(capsys)
-    assert code == 0, out
     assert f"[PASS] unique key (serial_number, date) {co.BACKBLAZE_FILTERED}: duplicate_rows=0" in out
+    assert f"[FAIL] backblaze model set {co.BACKBLAZE_FILTERED}" in out
 
 
 def test_a_genuine_duplicate_key_is_a_failure(tree, capsys):
@@ -378,6 +434,7 @@ def test_a_genuine_duplicate_key_is_a_failure(tree, capsys):
     code, out = run(capsys)
     assert code == 1
     assert f"[FAIL] unique key (serial_number, date) {co.BACKBLAZE_TIMELINES}: duplicate_rows=1" in out
+    assert "[FAIL] backblaze label counts vs PREPROCESSING.md" in out
 
 
 def test_an_unknown_argument_is_a_usage_error(capsys):
@@ -415,3 +472,195 @@ def test_actual_rows_and_safe_rows(tmp_path):
 def test_the_replay_columns_come_from_the_contract():
     assert co.REPLAY_COLUMNS is contracts.REPLAY_COLUMNS
     assert co.PROFILE_ROWS == 288
+
+
+# -- Backblaze checks --
+
+def test_the_valid_tree_passes_every_backblaze_check(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    for label in (f"backblaze model set {co.BACKBLAZE_FILTERED}", f"backblaze counts {SEAGATE}",
+                  f"backblaze counts {TOSHIBA}", "backblaze counts pooled",
+                  f"backblaze date range {co.BACKBLAZE_FILTERED}",
+                  f"backblaze NaN pattern {co.BACKBLAZE_FILTERED}",
+                  f"backblaze shared column coverage {co.BACKBLAZE_FILTERED}",
+                  "backblaze source files in manifest",
+                  "backblaze label counts vs PREPROCESSING.md", f"leakage test present {co.LEAKAGE_TEST}",
+                  "leakage cut-and-recompute backblaze_timelines"):
+        assert any(line.startswith(f"[PASS] {label}") for line in out.splitlines()), label
+
+
+def test_a_wrong_model_set_fails(tree, capsys, monkeypatch):
+    monkeypatch.setattr(bb_extract, "MODELS", (SEAGATE, TOSHIBA, "EXTRA"))
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze model set {co.BACKBLAZE_FILTERED}: models=['{SEAGATE}', '{TOSHIBA}']" in out
+
+
+def test_a_wrong_failure_count_fails(tree, capsys, monkeypatch):
+    expected = dict(bb_extract.EXPECTED_PER_MODEL)
+    failures, days = expected[SEAGATE]
+    expected[SEAGATE] = (failures + 1, days)
+    monkeypatch.setattr(bb_extract, "EXPECTED_PER_MODEL", expected)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze counts {SEAGATE}: failures={failures} expected={failures + 1}" in out
+    assert f"[PASS] backblaze counts {TOSHIBA}" in out
+
+
+def test_a_wrong_drive_day_count_or_pooled_total_fails(tree, capsys, monkeypatch):
+    expected = dict(bb_extract.EXPECTED_PER_MODEL)
+    failures, days = expected[TOSHIBA]
+    expected[TOSHIBA] = (failures, days + 1)
+    pooled_failures, pooled_days = bb_extract.EXPECTED_POOLED
+    monkeypatch.setattr(bb_extract, "EXPECTED_PER_MODEL", expected)
+    monkeypatch.setattr(bb_extract, "EXPECTED_POOLED", (pooled_failures, pooled_days + 1))
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze counts {TOSHIBA}" in out and "[FAIL] backblaze counts pooled" in out
+
+
+def test_a_missing_extract_is_missing_not_a_crash(tree, capsys):
+    tree.path(co.BACKBLAZE_FILTERED).unlink()
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[MISSING] backblaze model set {co.BACKBLAZE_FILTERED}" in out
+    assert "[MISSING] leakage cut-and-recompute backblaze_timelines" in out
+    assert f"[MISSING] backblaze shared column coverage {co.BACKBLAZE_FILTERED}" in out
+    assert "[FAIL]" not in out and out.rstrip().endswith("RESULT: INCOMPLETE")
+
+
+def test_the_date_range_and_file_count_are_checked(tree, capsys, monkeypatch):
+    monkeypatch.setattr(bb_extract, "EXPECTED_FILES", BB_DAYS + 1)
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] backblaze date range {co.BACKBLAZE_FILTERED}: first=2022-01-01 last=2022-02-14 distinct_dates=45" in out
+    assert "[FAIL] backblaze source files in manifest: files=45 expected=46" in out
+
+
+def test_the_source_files_must_match_the_calendar_minus_the_excluded_files(tree, capsys, monkeypatch):
+    monkeypatch.setattr(bb_extract, "EXCLUDED_FILES", {"q/2022-01-05.csv": "test reason"})
+    monkeypatch.setattr(bb_extract, "EXPECTED_FILES", BB_DAYS - 1)
+    manifest = json.loads(tree.path("manifest.json").read_text(encoding="utf-8"))
+    manifest["sources"]["backblaze"].pop("2022-01-05.csv")
+    co.check_backblaze_sources(manifest)
+    assert "[PASS] backblaze source files in manifest: files=44" in capsys.readouterr().out
+    co.check_backblaze_sources(json.loads(tree.path("manifest.json").read_text(encoding="utf-8")))
+    assert "[FAIL] backblaze source files in manifest: files=45 expected=44" in capsys.readouterr().out
+
+
+def test_the_nan_pattern_is_checked_for_both_vendors(tree, capsys):
+    filtered = pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED))
+    filtered.loc[filtered["model"] == TOSHIBA, "smart_187_raw"] = 1.0
+    filtered.loc[filtered["model"] == SEAGATE, "smart_188_raw"] = np.nan
+    filtered.to_parquet(tree.path(co.BACKBLAZE_FILTERED), index=False)
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze NaN pattern"))
+    assert f"{TOSHIBA} smart_187_raw populated share 1.0000, expected 0" in line
+    assert f"{SEAGATE} smart_188_raw populated share 0.0000" in line
+
+
+def test_a_label_count_that_differs_from_preprocessing_fails(tree, capsys):
+    old = tree.label_lines[0]
+    assert old.startswith("labels_h30 model=all positive=")
+    tree.rewrite_preprocessing(old, old.replace("positive=", "positive=1"))
+    code, out = run(capsys)
+    assert code == 1
+    assert "[FAIL] backblaze label counts vs PREPROCESSING.md: labels all: recorded=" in out
+
+
+def test_missing_label_lines_fail(tree, capsys):
+    tree.label_lines = []
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert "[FAIL] backblaze label counts vs PREPROCESSING.md: no label lines recorded" in out
+
+
+def test_the_label_counts_include_all_three_classes(tree, capsys):
+    code, out = run(capsys)
+    line = next(l for l in out.splitlines() if l.startswith("[PASS] backblaze label counts"))
+    assert "horizon_days=30" in line and "models=2" in line
+    assert "positive=" in line and "negative=" in line and "censored=" in line
+    positive = int(line.split("positive=")[1].split()[0])
+    negative = int(line.split("negative=")[1].split()[0])
+    censored = int(line.split("censored=")[1].split()[0])
+    assert positive > 0 and negative > 0 and censored > 0
+
+
+def test_a_timelines_file_that_differs_from_a_recomputation_fails_the_leakage_check(tree, capsys):
+    timeline = pd.read_parquet(tree.path(co.BACKBLAZE_TIMELINES))
+    timeline.loc[timeline.index[5], "smart_9_raw_diff7d"] = 12345.0
+    timeline.to_parquet(tree.path(co.BACKBLAZE_TIMELINES), index=False)
+    tree.record(co.BACKBLAZE_TIMELINES)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert "[FAIL] leakage cut-and-recompute backblaze_timelines: stored timelines differ" in out
+
+
+def test_a_missing_leakage_test_file_fails(tree, capsys):
+    tree.path(co.LEAKAGE_TEST).unlink()
+    code, out = run(capsys)
+    assert code == 1
+    assert f"[FAIL] leakage test present {co.LEAKAGE_TEST}" in out
+
+
+def test_committed_only_skips_the_backblaze_data_checks_but_checks_sources_and_the_test_file(tree, capsys):
+    shutil.rmtree(tree.root / "data")
+    code, out = run(capsys, "--committed-only")
+    assert code == 0, out
+    assert f"[SKIP] backblaze model set {co.BACKBLAZE_FILTERED}: not tracked in git" in out
+    assert "[SKIP] backblaze label counts vs PREPROCESSING.md: not tracked in git" in out
+    assert f"[SKIP] backblaze shared column coverage {co.BACKBLAZE_FILTERED}: not tracked in git" in out
+    assert "[SKIP] leakage cut-and-recompute backblaze_timelines: not tracked in git" in out
+    assert "[PASS] backblaze source files in manifest" in out
+    assert f"[PASS] leakage test present {co.LEAKAGE_TEST}" in out
+
+
+def test_a_model_with_no_smart_12_values_fails_the_shared_column_coverage(tree, capsys):
+    filtered = pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED))
+    filtered.loc[filtered["model"] == TOSHIBA, "smart_12_raw"] = np.nan
+    filtered.to_parquet(tree.path(co.BACKBLAZE_FILTERED), index=False)
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert (f"[FAIL] backblaze shared column coverage {co.BACKBLAZE_FILTERED}: "
+            f"{TOSHIBA} smart_12_raw populated share 0.0000") in out
+    assert f"[PASS] backblaze NaN pattern {co.BACKBLAZE_FILTERED}" in out
+
+
+def test_the_valid_fixture_passes_the_shared_column_coverage(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    assert (f"[PASS] backblaze shared column coverage {co.BACKBLAZE_FILTERED}: "
+            f"smart_12_raw populated share >= 0.99 for every model") in out
+
+
+def test_a_date_column_with_no_values_fails_the_date_range_without_raising(tree, capsys):
+    table = pa.Table.from_pandas(pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED)), preserve_index=False)
+    position = table.schema.get_field_index("date")
+    table = table.set_column(position, "date", pa.nulls(len(table), pa.date32()))
+    pq.write_table(table, tree.path(co.BACKBLAZE_FILTERED))
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze date range"))
+    assert "first=none last=none" in line
+
+
+def test_an_extract_with_no_rows_fails_the_date_range_without_raising(tree, capsys):
+    table = pa.Table.from_pandas(pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED)), preserve_index=False)
+    position = table.schema.get_field_index("date")
+    table = table.set_column(position, "date", pa.nulls(len(table), pa.date32())).slice(0, 0)
+    pq.write_table(table, tree.path(co.BACKBLAZE_FILTERED))
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert "[FAIL] backblaze date range" in out and "first=none last=none distinct_dates=0" in out

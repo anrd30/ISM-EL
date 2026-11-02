@@ -11,83 +11,117 @@ re-verifies those outputs against `manifest.json`, this file and the contract
 validators. `check_outputs.py --committed-only` runs only the checks whose inputs
 are tracked in git (manifest, this file, `profiles/`) and reports every check on
 a `data/processed` file as SKIP, for a checkout without the generated data. B1
-and B2 use one provisional quarter and a provisional three-model subset; B5
-profiles are aggregates of selected extreme volumes over one shared 24 h window.
+and B2 use the 2022 window, four models and the SMART columns in `A1_DECISION.md`
+(status: proposed); B5 profiles are aggregates of selected extreme volumes over one
+shared 24 h window.
 
 ---
 
 ## B1 — Backblaze extract
 
-- Quarter: `backblaze_2022Q1` (provisional)
-- Models kept: `ST4000DM000, ST8000NM0055, ST12000NM0008` (provisional)
-- SMART columns kept: every `smart_*_raw` column present in any daily file (provisional)
+- Window, models and SMART columns: `data_pipeline/A1_DECISION.md`
+- Quarter directories: `backblaze_2022Q1`, `backblaze_2022Q2`, `backblaze_2022Q3`, `backblaze_2022Q4`, read in date order; the file count must equal the number of calendar days from the first to the last date, no date may appear in two files, and every kept row's date must equal its file name
+- Excluded files: `backblaze_2022Q4/2022-12-10.csv` (all rows dated 2022-12-11; copy of the 2022-12-11 file); 90706 rows of the kept models are not in the output and the date is a permitted gap in the calendar-span check
+- Models kept: `ST4000DM000, ST8000NM0055, ST12000NM0008, TOSHIBA MG07ACA14TA`
+- SMART columns kept: `smart_5_raw`, `smart_9_raw`, `smart_12_raw`, `smart_187_raw`, `smart_188_raw`, `smart_193_raw`, `smart_194_raw`, `smart_197_raw`, `smart_198_raw`, `smart_199_raw`
+- A column that a model does not report (`smart_187_raw`, `smart_188_raw` for the Toshiba model) is NaN for that model; it is not dropped and not filled
 - Source file digests: `manifest.json` key `sources`
+- A run over the four default directories compares the per-model failures and drive-days, the pooled totals, the file count, the date range and the per-quarter Seagate failures with the values in `A1_DECISION.md` and aborts on any difference
 - Counts from the last run of `backblaze/extract.py`:
 
-- `quarter_dir=backblaze_2022Q1 daily_files=90`
-- `models=ST4000DM000,ST8000NM0055,ST12000NM0008`
-- `columns_out=92 smart_columns=87`
-- `smart_columns_all_null=60`
+- `quarter_dirs=backblaze_2022Q1,backblaze_2022Q2,backblaze_2022Q3,backblaze_2022Q4`
+- `daily_files=364 date_first=2022-01-01 date_last=2022-12-31`
+- `quarter=backblaze_2022Q1 files=90 failures=364 seagate_failures=276`
+- `quarter=backblaze_2022Q2 files=91 failures=440 seagate_failures=343`
+- `quarter=backblaze_2022Q3 files=92 failures=550 seagate_failures=433`
+- `quarter=backblaze_2022Q4 files=91 failures=416 seagate_failures=333`
+- `excluded_files=backblaze_2022Q4/2022-12-10.csv rows_excluded=90706`
+- `models=ST4000DM000,ST8000NM0055,ST12000NM0008,TOSHIBA MG07ACA14TA`
+- `columns_out=15 smart_columns=10`
+- `smart_columns_all_null=0`
 - `files_missing_some_smart_column=0`
-- `rows_in=18845260`
-- `rows_after_model_subset=4775365 dropped_other_models=14069895`
+- `rows_in=80122139`
+- `rows_after_model_subset=33052284 dropped_other_models=47069855`
 - `duplicate_serial_date_dropped=0`
-- `rows_out=4775365`
-- `rows_date_not_iso=53144`
+- `rows_out=33052284`
+- `rows_date_not_iso=91355`
 - `rows_date_differs_from_filename=0`
 - `rows_null_capacity_bytes=0`
-- `model=ST4000DM000 drive_days=1670395 drives=18614 failures=117`
-- `model=ST8000NM0055 drive_days=1289659 drives=14409 failures=86`
-- `model=ST12000NM0008 drive_days=1815311 drives=20212 failures=73`
-- `pooled drive_days=4775365 failures=276 afr=2.1096%`
-- `output=data/processed/backblaze_filtered.parquet sha256=0cce95ff31b2fb6b3d4da14badefe8a46d42714ca2e16ca1b815d55de8471c9c`
+- `model=ST4000DM000 drive_days=6681069 drives=18940 failures=633 smart_columns_all_null=none`
+- `model=ST8000NM0055 drive_days=5215692 drives=14770 failures=348 smart_columns_all_null=none`
+- `model=ST12000NM0008 drive_days=7272074 drives=20236 failures=404 smart_columns_all_null=none`
+- `model=TOSHIBA MG07ACA14TA drive_days=13883449 drives=38579 failures=385 smart_columns_all_null=smart_187_raw,smart_188_raw`
+- `pooled drive_days=33052284 failures=1770 afr=1.9546%`
+- `verification_against_a1_decision=PASS`
+- `output=data/processed/backblaze_filtered.parquet sha256=6055ce133a24063c6b09de4e36877e744ae53ec29fa567901dad2dcbd9c25e86`
 
-- `smart_columns_all_null` counts aligned SMART columns that hold no value for the kept models; they are retained so the column list stays fixed.
+- `smart_columns_all_null` counts aligned SMART columns that hold no value for any kept model; the per-model entry lists the columns with no value for that model.
 
 ## B2 — Per-drive timelines
 
-- Input: `data/processed/backblaze_filtered.parquet` (provisional B1 subset)
-- SMART columns: `smart_5_raw`, `smart_9_raw`, `smart_12_raw`, `smart_187_raw`, `smart_188_raw`, `smart_193_raw`, `smart_194_raw`, `smart_197_raw`, `smart_198_raw`
+- Input: `data/processed/backblaze_filtered.parquet` (B1; window, models and columns in `data_pipeline/A1_DECISION.md`)
+- SMART columns: `smart_5_raw`, `smart_9_raw`, `smart_12_raw`, `smart_187_raw`, `smart_188_raw`, `smart_193_raw`, `smart_194_raw`, `smart_197_raw`, `smart_198_raw`, `smart_199_raw`
+- `smart_187_raw` and `smart_188_raw` have no value for the Toshiba model; their level and difference features and the matching `_missing` flags are NaN and True for that model. `smart_12_raw` is kept because it is non-null in more than 99% of rows for every kept model
 - Windows (calendar days, trailing): 7, 30; `smart_188_raw` uses 7 only and has no level column
 - Minimum observations for a difference: 2
-- Feature columns: `smart_5_raw`, `smart_5_raw_diff7d`, `smart_5_raw_diff30d`, `smart_9_raw`, `smart_9_raw_diff7d`, `smart_9_raw_diff30d`, `smart_12_raw`, `smart_12_raw_diff7d`, `smart_12_raw_diff30d`, `smart_187_raw`, `smart_187_raw_diff7d`, `smart_187_raw_diff30d`, `smart_188_raw_diff7d`, `smart_193_raw`, `smart_193_raw_diff7d`, `smart_193_raw_diff30d`, `smart_194_raw`, `smart_194_raw_diff7d`, `smart_194_raw_diff30d`, `smart_197_raw`, `smart_197_raw_diff7d`, `smart_197_raw_diff30d`, `smart_198_raw`, `smart_198_raw_diff7d`, `smart_198_raw_diff30d`
+- Feature columns: `smart_5_raw`, `smart_5_raw_diff7d`, `smart_5_raw_diff30d`, `smart_9_raw`, `smart_9_raw_diff7d`, `smart_9_raw_diff30d`, `smart_12_raw`, `smart_12_raw_diff7d`, `smart_12_raw_diff30d`, `smart_187_raw`, `smart_187_raw_diff7d`, `smart_187_raw_diff30d`, `smart_188_raw_diff7d`, `smart_193_raw`, `smart_193_raw_diff7d`, `smart_193_raw_diff30d`, `smart_194_raw`, `smart_194_raw_diff7d`, `smart_194_raw_diff30d`, `smart_197_raw`, `smart_197_raw_diff7d`, `smart_197_raw_diff30d`, `smart_198_raw`, `smart_198_raw_diff7d`, `smart_198_raw_diff30d`, `smart_199_raw`, `smart_199_raw_diff7d`, `smart_199_raw_diff30d`
 - Missingness: one `<feature>_missing` boolean per feature column; no value is imputed
-- Timelines table holds backward-looking columns only; `last_seen`, `days_observed`, `failed_in_window` and `failure_date` are in the drive index
+- Timelines table holds backward-looking columns only; `last_seen`, `days_observed`, `failed_in_window` and `failure_date` are in the drive index, which also carries `model`
+- Horizon labels, counted per drive-day, not stored: horizon 30 days. Positive: the drive's recorded failure date lies in [d, d + 30]. Negative: no failure within 30 days and the drive has a row on or after d + 30. Censored: every other row, including rows whose 30-day horizon extends past the last date of the input and rows of drives that left the data without a recorded failure. The first and last date are taken from the input
+- Eligible drives: drives with at least one positive or negative row; `all_censored` drives have none
 - Counts from the last run of `backblaze/timelines.py`:
 
-- `rows_in=4775365 drives=53235`
-- `timelines_rows=4775365 timelines_columns=58`
-- `drive_index_rows=53235 failed_in_window=276`
+- `rows_in=33052284 drives=92525`
+- `window_first=2022-01-01 window_last=2022-12-31 horizon_days=30`
+- `timelines_rows=33052284 timelines_columns=64`
+- `drive_index_rows=92525 failed_in_window=1770`
+- `model=ST12000NM0008 timelines_rows=7272074 drives=20236 failed_in_window=404`
+- `model=ST4000DM000 timelines_rows=6681069 drives=18940 failed_in_window=633`
+- `model=ST8000NM0055 timelines_rows=5215692 drives=14770 failed_in_window=348`
+- `model=TOSHIBA MG07ACA14TA timelines_rows=13883449 drives=38579 failed_in_window=385`
+- `labels_h30 model=all positive=52387 negative=30370344 censored=2629553`
+- `labels_h30 model=ST12000NM0008 positive=12005 negative=6685135 censored=574934`
+- `labels_h30 model=ST4000DM000 positive=18873 negative=6132680 censored=529516`
+- `labels_h30 model=ST8000NM0055 positive=10077 negative=4787720 censored=417895`
+- `labels_h30 model=TOSHIBA MG07ACA14TA positive=11432 negative=12764809 censored=1107208`
+- `label_drives model=all drives=92525 eligible=92403 with_positive=1770 negative_only=90633 all_censored=122`
+- `label_drives model=ST12000NM0008 drives=20236 eligible=20219 with_positive=404 negative_only=19815 all_censored=17`
+- `label_drives model=ST4000DM000 drives=18940 eligible=18894 with_positive=633 negative_only=18261 all_censored=46`
+- `label_drives model=ST8000NM0055 drives=14770 eligible=14730 with_positive=348 negative_only=14382 all_censored=40`
+- `label_drives model=TOSHIBA MG07ACA14TA drives=38579 eligible=38560 with_positive=385 negative_only=38175 all_censored=19`
 - `drives_with_multiple_failure_rows=0`
-- `rows_with_gap_days_before_gt_1=420`
-- `rows_first_observation=53235`
-- `smart_5_raw_missing=528`
-- `smart_5_raw_diff7d_missing=54357`
-- `smart_5_raw_diff30d_missing=54732`
-- `smart_9_raw_missing=528`
-- `smart_9_raw_diff7d_missing=54357`
-- `smart_9_raw_diff30d_missing=54732`
-- `smart_12_raw_missing=528`
-- `smart_12_raw_diff7d_missing=54357`
-- `smart_12_raw_diff30d_missing=54732`
-- `smart_187_raw_missing=528`
-- `smart_187_raw_diff7d_missing=54357`
-- `smart_187_raw_diff30d_missing=54732`
-- `smart_188_raw_diff7d_missing=54357`
-- `smart_193_raw_missing=528`
-- `smart_193_raw_diff7d_missing=54357`
-- `smart_193_raw_diff30d_missing=54732`
-- `smart_194_raw_missing=528`
-- `smart_194_raw_diff7d_missing=54357`
-- `smart_194_raw_diff30d_missing=54732`
-- `smart_197_raw_missing=528`
-- `smart_197_raw_diff7d_missing=54357`
-- `smart_197_raw_diff30d_missing=54732`
-- `smart_198_raw_missing=528`
-- `smart_198_raw_diff7d_missing=54357`
-- `smart_198_raw_diff30d_missing=54732`
-- `output=data/processed/backblaze_timelines.parquet rows=4775365 sha256=e69a9f721555a375967570cbff4aca3e22f6d54eef78670e0c18e34b39f241cb`
-- `output=data/processed/backblaze_drive_index.parquet rows=53235 sha256=8164b58225818faf6cb56cbe490ee81c6f1e4eb1df60cea8641d3fc84b44f594`
+- `rows_with_gap_days_before_gt_1=154660`
+- `rows_first_observation=92525`
+- `smart_5_raw_missing=3167`
+- `smart_5_raw_diff7d_missing=99040`
+- `smart_5_raw_diff30d_missing=99412`
+- `smart_9_raw_missing=3167`
+- `smart_9_raw_diff7d_missing=99040`
+- `smart_9_raw_diff30d_missing=99412`
+- `smart_12_raw_missing=3167`
+- `smart_12_raw_diff7d_missing=99040`
+- `smart_12_raw_diff30d_missing=99412`
+- `smart_187_raw_missing=13885319`
+- `smart_187_raw_diff7d_missing=13941287`
+- `smart_187_raw_diff30d_missing=13941836`
+- `smart_188_raw_diff7d_missing=13941287`
+- `smart_193_raw_missing=3167`
+- `smart_193_raw_diff7d_missing=99040`
+- `smart_193_raw_diff30d_missing=99412`
+- `smart_194_raw_missing=3167`
+- `smart_194_raw_diff7d_missing=99040`
+- `smart_194_raw_diff30d_missing=99412`
+- `smart_197_raw_missing=3167`
+- `smart_197_raw_diff7d_missing=99040`
+- `smart_197_raw_diff30d_missing=99412`
+- `smart_198_raw_missing=3167`
+- `smart_198_raw_diff7d_missing=99040`
+- `smart_198_raw_diff30d_missing=99412`
+- `smart_199_raw_missing=3167`
+- `smart_199_raw_diff7d_missing=99040`
+- `smart_199_raw_diff30d_missing=99412`
+- `output=data/processed/backblaze_timelines.parquet rows=33052284 sha256=210636de2eff526982e1d1d91aab67e248b8a28d36c10b59c5064a71a58511fe`
+- `output=data/processed/backblaze_drive_index.parquet rows=92525 sha256=c85a2bab4d3d79e7f43bdff6b33a2d0eb5190b8cda29558ab1ac41762ddb57d0`
 
 ## B3 — Tencent extract
 
@@ -237,6 +271,17 @@ profiles are aggregates of selected extreme volumes over one shared 24 h window.
   - key uniqueness: `(serial_number, date)` in the extract and the timelines,
     `serial_number` in the drive index, `disk_uid` in the disk summary (rows
     with a null key value are compared as `DataFrame.duplicated` compares them);
+  - the Backblaze extract against the values recorded in `backblaze/extract.py`
+    (`A1_DECISION.md`): the model set, failures and drive-days per model and pooled,
+    the date range and 364 distinct dates, the NaN pattern of `smart_187_raw` and
+    `smart_188_raw` (all NaN for the Toshiba model, populated for the Seagate models),
+    the populated share of `smart_12_raw` (at least 0.99 for every model), and the 364
+    source files in `manifest.json`;
+  - the 30-day label counts and the eligible-drive counts recomputed from the
+    timelines and the drive index against the lines in B2 above;
+  - `tests/test_no_leakage.py` exists, and a cut-and-recompute of the stored
+    timelines on a sample of drives at the midpoint of the date range is identical to
+    the stored rows and to the truncated recomputation;
   - `validate_disk_index_frame` (contract) on the disk index;
   - `validate_replay_frame` and `validate_replay_grid` (contract) on each of
     the four profiles as CSV and as Parquet, the 288-row length, and equality

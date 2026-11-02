@@ -137,14 +137,14 @@ Rebuild start/end times, rebuild bandwidth allocated, application latency during
 
 Do not guess silently on these; surface them to Aryan to raise with the team. Build the parts of your lane that don't depend on the answer first (see §8 execution order).
 
-**Status:** items 1, 2, 4 and 5 are resolved by the frozen contract (resolution noted on each item); item 6 is resolved provisionally and awaits ratification; item 7 is partly resolved; item 3 is not resolved. The original text of each item is kept below as history.
+**Status:** items 1, 2, 4 and 5 are resolved by the frozen contract (resolution noted on each item); item 6 is resolved by the A1 decision record (status: proposed, not yet reviewed by the other lanes); item 7 is partly resolved; item 3 is not resolved. The original text of each item is kept below as history.
 
 1. **Hazard unit contradiction:** "per hour" (field 5) vs. a probability `p` (hazard signature). Not your call, but your B2 output's column choices should stay agnostic to this. **Resolved:** the model returns `p` over the horizon; field 5 is a per-hour rate converted with `hazard_p_to_per_hour` and aggregated over the surviving drives (`contracts/INTERFACES.md` section 10 #1, section 8).
 2. **Numeric constants undefined:** horizon `H`, risk budget `ε`, latency limit `L_max`, control-interval length, episode horizon. None have values yet. Slide 15: "must be fixed before implementation and not tuned after seeing results." **Resolved:** frozen in `contracts/INTERFACES.md` section 9 (horizon 30 days = 720 h, `RISK_BUDGET_EPS`, `LATENCY_LIMIT_FACTOR`, 300 s control interval, `MAX_EPISODE_STEPS`).
 3. **"Distribution-aware" has no home:** the title claims the controller uses the full remaining-recovery-time distribution, but no field in the 12-field observation vector carries it. Not yours to fix, but don't invent one either. **Not resolved:** the contract keeps the 12-field observation vector.
 4. **Tencent unit conversion:** `_kbps` → MB/s for `fg_bw`. **[PROPOSED]** your B3/B4 output should store raw KB/s values (do not pre-convert), and the MB/s conversion happens in the adapter that feeds the simulator — keeps your files a faithful, re-usable record of the source data. Confirm this with Aniruddh before his adapter test (T10) is written. **Resolved:** the pipeline stores raw KB/s and the single KB/s → MB/s conversion is `contracts.kbps_to_mbps` at the simulator boundary (`contracts/INTERFACES.md` section 10 #3); `t_seconds` is rebased to start at 0 by `contracts.to_replay_frame` (section 10 #4).
 5. **Load scaling:** the Tencent example disk peaks around 50 KB/s; the simulator's action set is 20–120 **MB/s**. A single real disk's trace, even unit-converted, will not meaningfully load a simulated storage group at that scale. **This is a real open design question, not just a units bug** — raise it explicitly; don't silently multiply by an invented factor. **Resolved:** the foreground load of one group is the aggregate of N real disk traces (`contracts/INTERFACES.md` section 10 #5); B5 builds it per profile and records N and the measured p95 in `data_pipeline/PREPROCESSING.md`. The aggregate is a modelling assumption and the profiles are selected extremes.
-6. **A1 not yet decided:** which Backblaze quarter, which 1–2 drive models, which SMART columns. This blocks B1. Get it from Aakarsh in writing before starting B1. **Resolved provisionally:** B1 uses `backblaze_2022Q1` and the models ST4000DM000, ST8000NM0055 and ST12000NM0008, marked provisional in the code and in `data_pipeline/PREPROCESSING.md`; written ratification is pending.
+6. **A1 not yet decided:** which Backblaze quarter, which 1–2 drive models, which SMART columns. This blocks B1. Get it from Aakarsh in writing before starting B1. **Resolved by `data_pipeline/A1_DECISION.md`:** calendar year 2022 (`backblaze_2022Q1`..`Q4`, 364 daily files after excluding `backblaze_2022Q4/2022-12-10.csv`), models ST4000DM000, ST8000NM0055, ST12000NM0008 and TOSHIBA MG07ACA14TA, and the SMART columns listed there. The record's status is proposed; review by the other lanes is pending.
 7. **Repo/CI specifics:** Python version, package manager, where large data files live (should NOT be committed to git — see `.gitignore`). **Partly resolved:** Python 3.11 or newer (`data_pipeline/requirements.txt`); pip with that requirements file; large files live under `data_pipeline/data/`, which `.gitignore` excludes. No CI is configured.
 
 ---
@@ -222,3 +222,16 @@ Applies to every file in `data_pipeline/`, present and future.
 - Do not implement the horizon label `Y_H`, survival/hazard fitting, or calibration metrics — that's Aakarsh's A2–A5. Your job stops at clean timelines with censoring info exposed.
 - Do not write the literature verification table or the Phase-2 deck — that's Aditi's C1–C6.
 - Do not change `contracts/INTERFACES.md` or `contracts/contracts.py` once they exist — those are Aniruddh's, frozen after week 1, changeable only with all four teammates' sign-off.
+
+---
+
+## 12. A-lane notes for the Backblaze data (B1/B2 output)
+
+- **Decision record:** `data_pipeline/A1_DECISION.md` (window, models, SMART columns, evidence, limits). 4 models, 1,770 failures, 33,052,284 drive-days, pooled AFR 1.95%.
+- **Split by `serial_number`:** train and test sets are separated by drive, never by row or date alone.
+- **Calibration is the primary metric:** Brier score and a reliability curve. With about 1,770 failures, reliability-curve bins are noisy; report per model and per vendor.
+- **Bar to clear:** beat `hazard/v0.py` on calibration and on PR-AUC on held-out drives.
+- **v0 baseline rate:** `hazard/v0.py` sets its annual rate (2.11%) from Q1 2022 and three Seagate models. Re-derive it from training drives only, or disclose it as derived from data that includes the test drives. The pooled AFR in the current extract is 1.95%.
+- **Model identity is a feature.** Base rates differ from 1.01% to 3.46% by model.
+- **Toshiba has no `smart_187_raw` or `smart_188_raw`;** the timelines hold NaN and `_missing = True` for those features, and v0 applies no multiplier from them to Toshiba rows.
+- **Labels:** `data_pipeline/PREPROCESSING.md` (B2) lists the 30-day positive, negative and censored row counts and the eligible-drive counts. Censored rows are unknown outcomes, not negatives.

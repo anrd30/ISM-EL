@@ -23,15 +23,15 @@ DAY2 = (
 )
 
 
-def test_aligned_columns_match_union_of_daily_files(tmp_path):
+def test_aligned_columns_are_the_fixed_list_for_every_daily_file(tmp_path):
     (tmp_path / "2022-01-01.csv").write_text(DAY1)
     (tmp_path / "2022-01-02.csv").write_text(DAY2)
     files = sorted(tmp_path.glob("*.csv"))
     headers = {f.name: extract.read_header(f) for f in files}
 
-    columns = extract.build_column_list(headers)
+    columns = extract.build_column_list()
 
-    assert columns == extract.CORE_COLUMNS + ["smart_5_raw", "smart_187_raw"]
+    assert columns == extract.CORE_COLUMNS + list(extract.SMART_COLUMNS)
 
     day1 = extract.align_frame(extract.read_day(files[0], headers[files[0].name], columns), columns)
     day2 = extract.align_frame(extract.read_day(files[1], headers[files[1].name], columns), columns)
@@ -39,4 +39,5 @@ def test_aligned_columns_match_union_of_daily_files(tmp_path):
     assert list(day2.columns) == columns
     assert day1["smart_187_raw"].isna().all()
     assert day2["smart_187_raw"].notna().all()
+    assert day1["smart_199_raw"].isna().all() and day2["smart_199_raw"].isna().all()
     assert not day1.empty and pd.api.types.is_float_dtype(day1["smart_187_raw"])

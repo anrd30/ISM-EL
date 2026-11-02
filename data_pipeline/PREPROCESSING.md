@@ -279,11 +279,12 @@ shared 24 h window.
     source files in `manifest.json`;
   - the 30-day label counts and the eligible-drive counts recomputed from the
     timelines and the drive index against the lines in B2 above;
-  - the A2 label table (one row per timelines row in the timelines order, unique
-    `(serial_number, date)`, label values in {-1, 0, 1}, totals equal to the B2 lines) and the
-    A2 drive split (one row per drive of the drive index, split values, no drive in two splits,
-    a failed drive of every model in every split, stratum sizes within one drive of the
-    target shares, per-split counts equal to the A2 lines);
+  - the A2 label table (one row per timelines row in the timelines order with the same
+    `serial_number`, `date` and `model` values, unique `(serial_number, date)`, label values in
+    {-1, 0, 1}, totals equal to the B2 lines) and the A2 drive split (the required columns, one
+    row per drive of the drive index, `model` and `ever_failed` equal to the drive index, split
+    values, no drive in two splits, a failed drive of every model in every split, stratum sizes
+    within one drive of the target shares, per-split counts equal to the A2 lines);
   - `tests/test_no_leakage.py` exists, and a cut-and-recompute of the stored
     timelines on a sample of drives at the midpoint of the date range is identical to
     the stored rows and to the truncated recomputation;

@@ -858,3 +858,106 @@ def test_parse_split_lines_reads_only_the_a2_section():
     assert co.parse_split_lines(text) == {("train", "TOSHIBA MG07ACA14TA"): (5, 1, 2, 3, 4),
                                           ("val", "all"): (1, 0, 0, 0, 1)}
     assert co.parse_split_lines("no section") == {}
+
+
+# -- review findings: model column of the labels, required split columns, split metadata --
+
+def test_swapped_models_between_two_label_rows_with_the_same_label_fail_the_key_check(tree, capsys):
+    def change(frame):
+        for value in (1, 0, -1):
+            part = frame[frame["label"] == value]
+            first = part[part["model"] == SEAGATE].index
+            second = part[part["model"] == TOSHIBA].index
+            if len(first) and len(second):
+                frame.loc[[first[0], second[0]], "model"] = [TOSHIBA, SEAGATE]
+                return frame
+        raise AssertionError("no label value occurs for both models")
+    rewrite_parquet(tree, co.BACKBLAZE_LABELS, change)
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze labels rows and key order"))
+    assert "keys_equal=True" in line and "models_equal=False" in line
+    assert f"[PASS] backblaze labels totals {co.BACKBLAZE_LABELS}" in out
+    assert f"[PASS] backblaze labels values {co.BACKBLAZE_LABELS}" in out
+
+
+def test_the_valid_tree_reports_equal_keys_and_models(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    assert (f"[PASS] backblaze labels rows and key order {co.BACKBLAZE_LABELS}: labels=") in out
+    assert "keys_equal=True models_equal=True" in out
+
+
+def test_model_columns_equal_compares_elementwise_in_slices(tmp_path, monkeypatch):
+    monkeypatch.setattr(co, "MODEL_COMPARE_ROWS", 2)
+    first, second, third = (tmp_path / n for n in ("a.parquet", "b.parquet", "c.parquet"))
+    pd.DataFrame({"model": ["x", "y", "x", "y", "x"]}).to_parquet(first, index=False)
+    pd.DataFrame({"model": ["x", "y", "x", "y", "x"]}).to_parquet(second, index=False)
+    pd.DataFrame({"model": ["x", "y", "x", "y", "y"]}).to_parquet(third, index=False)
+    assert co.model_columns_equal(first, second) is True
+    assert co.model_columns_equal(first, third) is False
+    pd.DataFrame({"model": ["x", "y"]}).to_parquet(third, index=False)
+    assert co.model_columns_equal(first, third) is False
+
+
+@pytest.mark.parametrize("column", ["split", "model"])
+def test_a_split_file_without_a_required_column_fails_every_split_check(tree, capsys, column):
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, lambda f: f.drop(columns=[column]))
+    code, out = run(capsys)
+    assert code == 1 and out.rstrip().endswith("RESULT: FAIL")
+    for label in co.SPLIT_CHECKS:
+        assert f"[FAIL] {label} {co.BACKBLAZE_SPLIT}: missing columns=['{column}']" in out
+
+
+def failed_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if line.startswith("[FAIL]")]
+
+
+def test_models_swapped_between_two_drives_fail_only_the_metadata_check(tree, capsys):
+    def change(frame):
+        def pick(model):
+            return frame[(frame["model"] == model) & frame["ever_failed"] & (frame["split"] == "train")].index[0]
+        first, second = pick(SEAGATE), pick(TOSHIBA)
+        frame.loc[[first, second], "model"] = [TOSHIBA, SEAGATE]
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    lines = failed_lines(out)
+    assert len(lines) == 1, lines
+    assert lines[0] == (f"[FAIL] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: "
+                        "mismatching_drives=2")
+
+
+def test_ever_failed_swapped_between_a_failed_and_a_healthy_drive_fails_only_the_metadata_check(tree, capsys):
+    def change(frame):
+        in_train = frame[(frame["model"] == SEAGATE) & (frame["split"] == "train")]
+        failed = in_train[in_train["ever_failed"]].index[0]
+        healthy = in_train[~in_train["ever_failed"]].index[0]
+        frame.loc[failed, "ever_failed"] = False
+        frame.loc[healthy, "ever_failed"] = True
+        return frame
+    rewrite_parquet(tree, co.BACKBLAZE_SPLIT, change)
+    code, out = run(capsys)
+    assert code == 1
+    lines = failed_lines(out)
+    assert len(lines) == 1, lines
+    assert lines[0].startswith(f"[FAIL] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: ")
+    assert lines[0].endswith("mismatching_drives=2")
+
+
+def test_the_valid_tree_passes_the_metadata_check(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    assert (f"[PASS] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: "
+            "mismatching_drives=0") in out
+
+
+def test_committed_only_skips_the_metadata_check_and_a_missing_index_reports_it_missing(tree, capsys):
+    tree.path(co.BACKBLAZE_DRIVE_INDEX).unlink()
+    code, out = run(capsys)
+    assert f"[MISSING] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}" in out
+    shutil.rmtree(tree.root / "data")
+    code, out = run(capsys, "--committed-only")
+    assert code == 0, out
+    assert f"[SKIP] backblaze split model and failure metadata {co.BACKBLAZE_SPLIT}: not tracked in git" in out

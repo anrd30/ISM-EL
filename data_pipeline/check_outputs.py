@@ -422,6 +422,24 @@ def parse_split_lines(preprocessing: str) -> dict[tuple[str, str], tuple[int, ..
         r"negative=(\d+) censored=(\d+)", section)}
 
 
+MODEL_COMPARE_ROWS = 1_000_000
+
+
+def model_columns_equal(first: Path, second: Path) -> bool:
+    """Elementwise equality of the model column of two Parquet files, read dictionary-encoded and
+    decoded MODEL_COMPARE_ROWS rows at a time."""
+    a = pq.read_table(first, columns=["model"], read_dictionary=["model"]).column("model").combine_chunks()
+    b = pq.read_table(second, columns=["model"], read_dictionary=["model"]).column("model").combine_chunks()
+    if len(a) != len(b):
+        return False
+    for start in range(0, len(a), MODEL_COMPARE_ROWS):
+        left = a.slice(start, MODEL_COMPARE_ROWS).dictionary_decode().cast(pa.string())
+        right = b.slice(start, MODEL_COMPARE_ROWS).dictionary_decode().cast(pa.string())
+        if not left.equals(right):
+            return False
+    return True
+
+
 LABEL_CHECKS = ("backblaze labels rows and key order", "backblaze labels values",
                 "backblaze labels totals")
 
@@ -448,8 +466,15 @@ def check_labels_file(preprocessing: str) -> None:
             and table.column("serial_number").cast(pa.string()).equals(
                 keys.column("serial_number").cast(pa.string()))
             and table.column("date").equals(keys.column("date")))
-    report(verdict(same), f"backblaze labels rows and key order {rel}",
-           f"labels={table.num_rows} timelines={keys.num_rows}")
+    try:
+        models_equal = same and model_columns_equal(labels_path, timelines_path)
+    except Exception as err:
+        report("FAIL", f"backblaze labels rows and key order {rel}", f"model column not compared: {err}")
+        models_equal = None
+    if models_equal is not None:
+        report(verdict(models_equal), f"backblaze labels rows and key order {rel}",
+               f"labels={table.num_rows} timelines={keys.num_rows} keys_equal={same} "
+               f"models_equal={models_equal}")
 
     present = {v for v in pc.unique(table.column("label")).to_pylist()}
     allowed = set(backblaze_labels.LABEL_VALUES)
@@ -472,7 +497,8 @@ def check_labels_file(preprocessing: str) -> None:
            f"positive={measured['all'][0]} negative={measured['all'][1]} censored={measured['all'][2]}")
 
 
-SPLIT_CHECKS = ("backblaze split one row per drive", "backblaze split values", "backblaze split drives unique",
+SPLIT_CHECKS = ("backblaze split one row per drive", "backblaze split model and failure metadata",
+                "backblaze split values", "backblaze split drives unique",
                 "backblaze split failed drives per model", "backblaze split stratum sizes",
                 "backblaze split counts vs PREPROCESSING.md")
 
@@ -491,6 +517,11 @@ def check_drive_split(preprocessing: str) -> None:
     try:
         split = pd.read_parquet(split_path)
         index = pd.read_parquet(index_path, columns=["serial_number", "model", "failed_in_window"])
+        absent_columns = [c for c in backblaze_labels.SPLIT_COLUMNS if c not in split.columns]
+        if absent_columns:
+            for label in SPLIT_CHECKS:
+                report("FAIL", f"{label} {rel}", f"missing columns={absent_columns}")
+            return
         split_names = list(backblaze_labels.SPLITS)
         split["serial_number"] = split["serial_number"].astype(object)
         index["serial_number"] = index["serial_number"].astype(object)
@@ -505,6 +536,12 @@ def check_drive_split(preprocessing: str) -> None:
                    list(split.columns) == backblaze_labels.SPLIT_COLUMNS),
            f"backblaze split one row per drive {rel}",
            f"split_rows={len(split)} index_rows={len(index)} missing={len(missing)} extra={len(extra)}")
+    meta = index.merge(split[["serial_number", "model", "ever_failed"]].drop_duplicates("serial_number"),
+                       on="serial_number", how="left", suffixes=("", "_split"))
+    differing = (meta["model_split"].astype(object).ne(meta["model"].astype(object))
+                 | meta["ever_failed"].astype(object).ne(meta["failed_in_window"].astype(bool)))
+    report(verdict(not differing.any()), f"backblaze split model and failure metadata {rel}",
+           f"mismatching_drives={int(differing.sum())}")
     unknown = sorted(set(split["split"].astype(object)) - set(split_names))
     report(verdict(not unknown), f"backblaze split values {rel}", f"unknown_values={unknown}")
     duplicates = int(split["serial_number"].duplicated().sum())

@@ -9,8 +9,9 @@ Checks, each reported as one PASS / FAIL / MISSING / SKIP line:
   - key uniqueness: (serial_number, date) in the extract and the timelines,
     serial_number in the drive index, disk_uid in the disk summary;
   - the Backblaze extract: the model set, per-model and pooled failures and drive-days,
-    the date range and distinct-date count (EXCLUDED_FILES dates are the only gaps), and the NaN pattern of smart_187_raw and
-    smart_188_raw (all NaN for non-Seagate models, populated for Seagate models), against
+    the date range and distinct-date count (EXCLUDED_FILES dates are the only gaps), the
+    NaN pattern of smart_187_raw and smart_188_raw (all NaN for non-Seagate models, populated
+    for Seagate models) and the populated share of smart_12_raw for every model, against
     the values recorded in backblaze/extract.py; the source file count in the manifest;
   - the 30-day label counts and the eligible-drive split recomputed from the timelines and
     the drive index against the lines in PREPROCESSING.md;
@@ -70,6 +71,7 @@ PROFILE_ROWS = 86400 // CONTROL_INTERVAL_S  # 24 h of samples
 LEAKAGE_TEST = "tests/test_no_leakage.py"
 LEAKAGE_SAMPLE_PER_MODEL = 100
 NAN_PATTERN_COLUMNS = ("smart_187_raw", "smart_188_raw")
+SHARED_COLUMNS = ("smart_12_raw",)
 POPULATED_SHARE_MIN = 0.99
 EXPECTED_SAFE_ACTIONS = {"idle": 4, "diurnal": 3, "bursty": 2, "peak": 1}
 
@@ -232,21 +234,21 @@ def check_unique_key(rel: str, columns: list[str]) -> bool:
 
 
 def read_backblaze_extract_summary(path: Path) -> pd.DataFrame:
-    """Per model: rows, failures, rows with a value in each NAN_PATTERN_COLUMNS column."""
-    columns = ["model", "failure", *NAN_PATTERN_COLUMNS]
-    table = pq.read_table(path, columns=columns)
+    """Per model: rows, failures, rows with a value in each NAN_PATTERN_COLUMNS and SHARED_COLUMNS column."""
+    counted = [*NAN_PATTERN_COLUMNS, *SHARED_COLUMNS]
+    table = pq.read_table(path, columns=["model", "failure", *counted])
     aggregates = [("failure", "sum"), ("failure", "count")]
-    aggregates += [(c, "count") for c in NAN_PATTERN_COLUMNS]
+    aggregates += [(c, "count") for c in counted]
     grouped = table.group_by("model").aggregate(aggregates).to_pandas().set_index("model")
     return grouped.rename(columns={"failure_sum": "failures", "failure_count": "rows",
-                                   **{f"{c}_count": c for c in NAN_PATTERN_COLUMNS}})
+                                   **{f"{c}_count": c for c in counted}})
 
 
 def check_backblaze_extract() -> None:
     rel = BACKBLAZE_FILTERED
     path = ROOT / rel
     labels = ("backblaze model set", "backblaze counts", "backblaze date range",
-              "backblaze NaN pattern")
+              "backblaze NaN pattern", "backblaze shared column coverage")
     if not tracked(rel):
         for label in labels:
             skip(f"{label} {rel}")
@@ -287,7 +289,8 @@ def check_backblaze_extract() -> None:
            f"failures={pooled_failures} expected={exp_failures} "
            f"drive_days={pooled_days} expected={exp_days}")
 
-    first, last = bounds["min"].isoformat(), bounds["max"].isoformat()
+    first = bounds["min"].isoformat() if bounds["min"] is not None else "none"
+    last = bounds["max"].isoformat() if bounds["max"] is not None else "none"
     exp_first, exp_last = backblaze_extract.EXPECTED_DATE_RANGE
     ok = (first, last) == (exp_first, exp_last) and distinct == backblaze_extract.EXPECTED_FILES
     report(verdict(ok), f"backblaze date range {rel}",
@@ -307,6 +310,16 @@ def check_backblaze_extract() -> None:
            "; ".join(problems) if problems else
            f"{', '.join(NAN_PATTERN_COLUMNS)} populated for {', '.join(backblaze_extract.SEAGATE_MODELS)}, "
            "all NaN for the other models")
+
+    shared_problems = []
+    for model in summary.index:
+        for column in SHARED_COLUMNS:
+            share = int(summary.loc[model, column]) / int(summary.loc[model, "rows"])
+            if share < POPULATED_SHARE_MIN:
+                shared_problems.append(f"{model} {column} populated share {share:.4f}")
+    report(verdict(not shared_problems), f"backblaze shared column coverage {rel}",
+           "; ".join(shared_problems) if shared_problems else
+           f"{', '.join(SHARED_COLUMNS)} populated share >= {POPULATED_SHARE_MIN} for every model")
 
 
 def check_backblaze_sources(manifest: dict) -> None:

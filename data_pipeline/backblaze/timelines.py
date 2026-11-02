@@ -32,6 +32,11 @@ Memory: the input is partitioned by a hash of serial_number into BUCKETS
 temporary Parquet files and each bucket is processed on its own, because the
 features of one drive depend only on that drive's rows.
 
+Both outputs are written to <name>.tmp files in the output directory and
+renamed over the published files only after every bucket has been processed
+and the report lines are built; on any exception both temporary files are
+removed and the previously published files are left as they were.
+
 Usage:
     python -I timelines.py [filtered_parquet]
 
@@ -327,7 +332,8 @@ def update_preprocessing(lines: list[str]) -> None:
     PREPROCESSING.write_text(new, encoding="utf-8")
 
 
-def main(argv: list[str]) -> int:
+def build(argv: list[str], tmp_timelines: Path, tmp_index: Path) -> tuple[list[str], int, int]:
+    """Write both tables to the given temporary paths; return (report lines, timeline rows, index rows)."""
     src = Path(argv[1]) if len(argv) > 1 else INPUT
     columns = CORE_IN + list(SMART_COLUMNS)
     rows_in = pq.ParquetFile(src).metadata.num_rows
@@ -361,7 +367,7 @@ def main(argv: list[str]) -> int:
                 if writer is None:
                     table = to_arrow(timelines)
                     schema = table.schema
-                    writer = pq.ParquetWriter(OUT_TIMELINES, schema)
+                    writer = pq.ParquetWriter(tmp_timelines, schema)
                 else:
                     table = to_arrow(timelines, schema)
                 writer.write_table(table)
@@ -388,7 +394,7 @@ def main(argv: list[str]) -> int:
     index = (pd.concat(index_parts, ignore_index=True)
              .sort_values("serial_number", kind="stable").reset_index(drop=True))
     flags = pd.concat(flag_parts)
-    pq.write_table(to_arrow(index), OUT_INDEX)
+    pq.write_table(to_arrow(index), tmp_index)
 
     models = sorted(model_rows)
     span_first = first_date.date().isoformat() if first_date is not None else "none"
@@ -411,8 +417,22 @@ def main(argv: list[str]) -> int:
     ]
     for name in feature_names:
         lines.append(f"{name}_missing={missing_totals[name]}")
+    return lines, timeline_rows, len(index)
+
+
+def main(argv: list[str]) -> int:
+    tmp_timelines = OUT_TIMELINES.with_name(OUT_TIMELINES.name + ".tmp")
+    tmp_index = OUT_INDEX.with_name(OUT_INDEX.name + ".tmp")
+    try:
+        lines, timeline_rows, index_rows = build(argv, tmp_timelines, tmp_index)
+        tmp_timelines.replace(OUT_TIMELINES)
+        tmp_index.replace(OUT_INDEX)
+    except BaseException:
+        tmp_timelines.unlink(missing_ok=True)
+        tmp_index.unlink(missing_ok=True)
+        raise
     entries = []
-    for path, rows in ((OUT_TIMELINES, timeline_rows), (OUT_INDEX, len(index))):
+    for path, rows in ((OUT_TIMELINES, timeline_rows), (OUT_INDEX, index_rows)):
         rel = path.relative_to(ROOT).as_posix()
         digest = sha256_of(path)
         lines.append(f"output={rel} rows={rows} sha256={digest}")

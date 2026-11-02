@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from contracts import contracts
@@ -480,7 +482,9 @@ def test_the_valid_tree_passes_every_backblaze_check(tree, capsys):
     for label in (f"backblaze model set {co.BACKBLAZE_FILTERED}", f"backblaze counts {SEAGATE}",
                   f"backblaze counts {TOSHIBA}", "backblaze counts pooled",
                   f"backblaze date range {co.BACKBLAZE_FILTERED}",
-                  f"backblaze NaN pattern {co.BACKBLAZE_FILTERED}", "backblaze source files in manifest",
+                  f"backblaze NaN pattern {co.BACKBLAZE_FILTERED}",
+                  f"backblaze shared column coverage {co.BACKBLAZE_FILTERED}",
+                  "backblaze source files in manifest",
                   "backblaze label counts vs PREPROCESSING.md", f"leakage test present {co.LEAKAGE_TEST}",
                   "leakage cut-and-recompute backblaze_timelines"):
         assert any(line.startswith(f"[PASS] {label}") for line in out.splitlines()), label
@@ -522,6 +526,7 @@ def test_a_missing_extract_is_missing_not_a_crash(tree, capsys):
     assert code == 1
     assert f"[MISSING] backblaze model set {co.BACKBLAZE_FILTERED}" in out
     assert "[MISSING] leakage cut-and-recompute backblaze_timelines" in out
+    assert f"[MISSING] backblaze shared column coverage {co.BACKBLAZE_FILTERED}" in out
     assert "[FAIL]" not in out and out.rstrip().endswith("RESULT: INCOMPLETE")
 
 
@@ -610,6 +615,52 @@ def test_committed_only_skips_the_backblaze_data_checks_but_checks_sources_and_t
     assert code == 0, out
     assert f"[SKIP] backblaze model set {co.BACKBLAZE_FILTERED}: not tracked in git" in out
     assert "[SKIP] backblaze label counts vs PREPROCESSING.md: not tracked in git" in out
+    assert f"[SKIP] backblaze shared column coverage {co.BACKBLAZE_FILTERED}: not tracked in git" in out
     assert "[SKIP] leakage cut-and-recompute backblaze_timelines: not tracked in git" in out
     assert "[PASS] backblaze source files in manifest" in out
     assert f"[PASS] leakage test present {co.LEAKAGE_TEST}" in out
+
+
+def test_a_model_with_no_smart_12_values_fails_the_shared_column_coverage(tree, capsys):
+    filtered = pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED))
+    filtered.loc[filtered["model"] == TOSHIBA, "smart_12_raw"] = np.nan
+    filtered.to_parquet(tree.path(co.BACKBLAZE_FILTERED), index=False)
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert (f"[FAIL] backblaze shared column coverage {co.BACKBLAZE_FILTERED}: "
+            f"{TOSHIBA} smart_12_raw populated share 0.0000") in out
+    assert f"[PASS] backblaze NaN pattern {co.BACKBLAZE_FILTERED}" in out
+
+
+def test_the_valid_fixture_passes_the_shared_column_coverage(tree, capsys):
+    code, out = run(capsys)
+    assert code == 0, out
+    assert (f"[PASS] backblaze shared column coverage {co.BACKBLAZE_FILTERED}: "
+            f"smart_12_raw populated share >= 0.99 for every model") in out
+
+
+def test_a_date_column_with_no_values_fails_the_date_range_without_raising(tree, capsys):
+    table = pa.Table.from_pandas(pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED)), preserve_index=False)
+    position = table.schema.get_field_index("date")
+    table = table.set_column(position, "date", pa.nulls(len(table), pa.date32()))
+    pq.write_table(table, tree.path(co.BACKBLAZE_FILTERED))
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    line = next(l for l in out.splitlines() if l.startswith("[FAIL] backblaze date range"))
+    assert "first=none last=none" in line
+
+
+def test_an_extract_with_no_rows_fails_the_date_range_without_raising(tree, capsys):
+    table = pa.Table.from_pandas(pd.read_parquet(tree.path(co.BACKBLAZE_FILTERED)), preserve_index=False)
+    position = table.schema.get_field_index("date")
+    table = table.set_column(position, "date", pa.nulls(len(table), pa.date32())).slice(0, 0)
+    pq.write_table(table, tree.path(co.BACKBLAZE_FILTERED))
+    tree.record(co.BACKBLAZE_FILTERED)
+    tree.save()
+    code, out = run(capsys)
+    assert code == 1
+    assert "[FAIL] backblaze date range" in out and "first=none last=none distinct_dates=0" in out

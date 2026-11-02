@@ -275,7 +275,8 @@ shared 24 h window.
     (`A1_DECISION.md`): the model set, failures and drive-days per model and pooled,
     the date range and 364 distinct dates, the NaN pattern of `smart_187_raw` and
     `smart_188_raw` (all NaN for the Toshiba model, populated for the Seagate models),
-    and the 364 source files in `manifest.json`;
+    the populated share of `smart_12_raw` (at least 0.99 for every model), and the 364
+    source files in `manifest.json`;
   - the 30-day label counts and the eligible-drive counts recomputed from the
     timelines and the drive index against the lines in B2 above;
   - `tests/test_no_leakage.py` exists, and a cut-and-recompute of the stored

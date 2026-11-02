@@ -440,3 +440,59 @@ def test_cli_entry_point_in_subprocess(tmp_path):
     assert "timelines_rows=15" in res.stdout
     assert (pipe / "data" / "processed" / "backblaze_timelines.parquet").exists()
     assert len(json.loads((pipe / "manifest.json").read_text())["files"]) == 2
+
+
+# -- atomic publish --
+
+def test_a_normal_run_leaves_no_temporary_files(env):
+    assert timelines.main(["timelines.py"]) == 0
+    assert sorted(p.name for p in timelines.PROCESSED.iterdir()) == [
+        "backblaze_drive_index.parquet", "backblaze_filtered.parquet", "backblaze_timelines.parquet"]
+    assert not list(timelines.PROCESSED.rglob("*.tmp"))
+
+
+def test_an_exception_in_a_late_bucket_leaves_the_published_files_untouched(env, monkeypatch):
+    monkeypatch.setattr(timelines, "BUCKETS", 64)
+    calls = []
+    original = timelines.build_drive_index
+
+    def counting(df):
+        calls.append(1)
+        return original(df)
+
+    monkeypatch.setattr(timelines, "build_drive_index", counting)
+    assert timelines.main(["timelines.py"]) == 0
+    buckets_used = len(calls)
+    assert buckets_used >= 2
+
+    for path in (timelines.OUT_TIMELINES, timelines.OUT_INDEX):
+        path.write_bytes(b"previous output")
+    manifest_before = timelines.MANIFEST.read_bytes()
+    preprocessing_before = timelines.PREPROCESSING.read_bytes()
+    calls.clear()
+
+    def failing_in_last_bucket(df):
+        calls.append(1)
+        if len(calls) == buckets_used:
+            raise RuntimeError("late bucket failure")
+        return original(df)
+
+    monkeypatch.setattr(timelines, "build_drive_index", failing_in_last_bucket)
+    with pytest.raises(RuntimeError, match="late bucket failure"):
+        timelines.main(["timelines.py"])
+    assert timelines.OUT_TIMELINES.read_bytes() == b"previous output"
+    assert timelines.OUT_INDEX.read_bytes() == b"previous output"
+    assert not list(timelines.PROCESSED.rglob("*.tmp"))
+    assert timelines.MANIFEST.read_bytes() == manifest_before
+    assert timelines.PREPROCESSING.read_bytes() == preprocessing_before
+
+
+def test_a_failure_before_any_output_exists_leaves_no_files(env, monkeypatch):
+    def failing(df):
+        raise RuntimeError("first bucket failure")
+
+    monkeypatch.setattr(timelines, "build_drive_index", failing)
+    with pytest.raises(RuntimeError, match="first bucket failure"):
+        timelines.main(["timelines.py"])
+    assert not timelines.OUT_TIMELINES.exists() and not timelines.OUT_INDEX.exists()
+    assert not list(timelines.PROCESSED.rglob("*.tmp"))

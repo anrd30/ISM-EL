@@ -5,10 +5,12 @@ Working title: **Predict, Quantify, Control**.
 A storage group that has lost a drive must rebuild the missing data. The rebuild
 competes with user traffic for the same bandwidth, and until it finishes the
 group has no spare redundancy. This project builds a controller that sets the
-rebuild bandwidth every five minutes using (a) the measured failure hazard of
-the surviving drives and (b) the full distribution of the remaining recovery
-time, under an explicit latency constraint and an explicit second-failure risk
-budget.
+rebuild bandwidth every five minutes using the measured failure hazard of the
+surviving drives, under an explicit latency constraint and an explicit
+additional-drive-failure exposure budget. Conditioning on the full distribution
+of remaining recovery time, not only its mean, is a planned extension: the
+current interface exposes only scalar `work_remaining`/`progress`, not a
+recovery-time distribution.
 
 RVCE, VII semester, Information Storage Management experiential-learning
 project. Lane ownership is recorded in `CLAUDE.md` section 2.
@@ -22,8 +24,9 @@ degraded state and starts reconstructing the lost data onto a spare. Two things
 are true at the same time:
 
 - **The group is exposed.** An 8+2 group tolerates two drive failures. After one
-  failure it tolerates one more. The longer the rebuild takes, the longer the
-  window in which a second failure causes data loss.
+  failure it tolerates one more, leaving no further redundancy; a third failure
+  during the rebuild causes data loss. The longer the rebuild takes, the longer
+  the window in which additional failures can exhaust the group's tolerance.
 - **The rebuild hurts users.** Reconstruction reads from every surviving drive
   and writes to the spare. That bandwidth is taken from foreground traffic, so
   tail latency rises while the rebuild runs.
@@ -79,14 +82,15 @@ One closed loop with three parts.
   load and reports the distribution of completion time, not only its mean,
   together with the latency the users would have seen.
 - **Control.** A policy picks one of four rebuild rates every control interval.
-  A safety filter rejects any action that would break the latency limit or push
-  the group's second-failure probability above the risk budget.
+  A risk safety filter clips requests that would exceed the exposure budget;
+  latency violations are measured and reported rather than rejected by the
+  environment.
 
 ## 4. Expected output
 
 1. A controller that, on held-out load profiles, finishes rebuilds faster than
    fixed-rate and heuristic baselines **at equal or better** latency-violation
-   and second-failure-risk numbers.
+   and additional-drive-failure exposure numbers.
 2. The recovery-time distribution per profile and per policy, reported with its
    tail, not only its mean.
 3. A calibrated hazard model: when it says 2%, about 2% of those drives fail.
@@ -110,7 +114,7 @@ requires agreement across lanes, because all four lanes compile against it.
 | `GROUP_DATA_DRIVES` / `GROUP_PARITY_DRIVES` | 8 / 2 | 8+2 group, tolerates 2 failures, 9 survivors at episode start |
 | `REBUILD_WORK_GB` | 12,000 | One 12 TB drive's worth of reconstruction |
 | `HORIZON_DAYS` / `HORIZON_HOURS` | 30 / 720 | The hazard model's prediction horizon |
-| `RISK_BUDGET_EPS` | 0.005 | Maximum tolerated second-failure probability |
+| `RISK_BUDGET_EPS` | 0.005 | Maximum tolerated additional-drive-failure exposure probability |
 | `LATENCY_VIOLATION_FRACTION_MAX` | 0.05 | An action is unsafe if it violates latency on more than 5% of intervals |
 | `LATENCY_LIMIT_FACTOR` | 1.5 | Latency limit = 1.5 x the service target |
 | `OBS_DIM` | 12 | Observation fields handed to the policy |
@@ -192,7 +196,7 @@ contracts/          Frozen interface: constants, observation/action shapes,
 
 sim/                The simulator (QUANTIFY). config.py holds the latency model
                     and every design constant; recovery_env.py is the episode;
-                    safety_filter.py enforces the latency and risk rules;
+                    safety_filter.py clips requests exceeding the exposure budget;
                     scenario.py loads replay traces and samples fleets;
                     stress.py builds stress scenarios. LIMITATIONS.md is
                     required reading before quoting any simulator number.
@@ -220,7 +224,7 @@ data_pipeline/      Everything that turns raw public datasets into the tables
   tencent/
     inspect_schema.py   Read-only.
     extract_load.py     B3. 16,296 headerless files -> one clean table.
-    build_disk_index.py B4. Per-disk index (strength, burstiness, I/O size).
+    build_disk_index.py B4. Per-disk subscription metadata index joined by disk_uid.
     build_profiles.py   B5. The four 24-hour load profiles + plot + sidecars.
   profiles/             The four profile CSVs, their sidecars, the comparison
                         plot. These ARE committed and are hash-pinned.

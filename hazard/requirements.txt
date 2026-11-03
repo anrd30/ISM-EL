@@ -1,0 +1,7 @@
+# Hazard-lane dependencies; the data pipeline has its own data_pipeline/requirements.txt.
+xgboost>=2.1        # gradient-boosted trees for the v1 ensemble (CUDA build used when a GPU is present)
+scikit-learn>=1.4   # IsotonicRegression for the per-booster calibration
+pandas>=2.2         # categorical model column and the one-row inference frame
+pyarrow>=16.0       # streamed reads of the Parquet tables in fit_v1.py
+numpy>=1.26         # bootstrap weights and threshold interpolation
+pytest>=8.0         # hazard/test_*.py

@@ -20,3 +20,8 @@ Thumbs.db
 !.vscode/extensions.json
 
 .coverage
+# A3: fitted hazard artifacts (~218 MB), regenerate with python -m hazard.fit_v1; hashes in hazard/manifest.json
+hazard/artifacts/
+
+# Local Claude Code settings (machine-specific, never shared)
+.claude/

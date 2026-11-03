@@ -330,9 +330,19 @@ def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
     }
     meta["wall_clock_seconds"] = round(time.time() - started, 1)
     (staging / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    # Publish without a window where out_dir is empty: rename() cannot swap two
+    # non-empty directories atomically, so the previous artifacts are moved aside
+    # first and only removed after the new ones are safely in place. If the
+    # process is killed between the two renames, out_dir is briefly absent but
+    # out_dir.bak holds the previous, still-runnable artifacts, not nothing.
+    backup = out_dir.with_name(out_dir.name + ".bak")
+    if backup.exists():
+        shutil.rmtree(backup)
     if out_dir.exists():
-        shutil.rmtree(out_dir)
+        out_dir.rename(backup)
     staging.rename(out_dir)
+    if backup.exists():
+        shutil.rmtree(backup)
     total = sum(p.stat().st_size for p in out_dir.iterdir())
     print(f"artifacts={out_dir} files={len(list(out_dir.iterdir()))} bytes={total}")
     write_manifest(out_dir)

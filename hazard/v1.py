@@ -95,7 +95,14 @@ def _numeric(value: object) -> float:
         x = float(value)
     except (TypeError, ValueError):
         return math.nan
-    return x if math.isfinite(x) else math.nan
+    if not math.isfinite(x):
+        return math.nan
+    # A value finite in float64 can still overflow float32 (the dtype the model
+    # frame is built in), silently becoming +-inf, which np.isnan would not
+    # catch; recheck finiteness after the same narrowing the frame will do.
+    with np.errstate(over="ignore"):
+        narrowed = float(np.float32(x))
+    return x if math.isfinite(narrowed) else math.nan
 
 
 def build_feature_frame(features: Mapping[str, float], directory: Path = ARTIFACT_DIR) -> pd.DataFrame:

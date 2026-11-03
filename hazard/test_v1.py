@@ -170,6 +170,15 @@ def test_unusable_values_are_missing_not_zero(bad: object, tiny_model: FittedHaz
     check_contract_output(tiny_model({"smart_5_raw": bad}))
 
 
+def test_value_that_overflows_float32_is_missing_not_infinite(tiny_dir: Path) -> None:
+    # 1e100 is finite in float64 but overflows float32 (the frame's dtype) to
+    # inf, which np.isnan would not catch as missing.
+    frame = build_feature_frame({"smart_5_raw": 1e100}, tiny_dir)
+    assert np.isnan(frame["smart_5_raw"].iloc[0])
+    assert frame["smart_5_raw_missing"].iloc[0] == 1.0
+    assert not np.isinf(frame["smart_5_raw"].iloc[0])
+
+
 def test_negative_difference_is_a_value(tiny_dir: Path) -> None:
     frame = build_feature_frame({"smart_194_raw_diff7d": -3.0}, tiny_dir)
     assert frame["smart_194_raw_diff7d"].iloc[0] == -3.0

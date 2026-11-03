@@ -1,4 +1,5 @@
 # Hazard-lane dependencies; the data pipeline has its own data_pipeline/requirements.txt.
+# Python >= 3.11 is required (hashlib.file_digest, used by fit_v1.write_manifest).
 xgboost>=2.1        # gradient-boosted trees for the v1 ensemble (CUDA build used when a GPU is present)
 scikit-learn>=1.4   # IsotonicRegression for the per-booster calibration
 pandas>=2.2         # categorical model column and the one-row inference frame

@@ -32,6 +32,7 @@ and ``meta.json``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sys
@@ -216,6 +217,28 @@ def bootstrap_weights(seed: int, rows: int) -> np.ndarray:
     return np.bincount(draws, minlength=rows).astype(np.float32)
 
 
+MANIFEST = REPO / "hazard" / "manifest.json"
+
+
+def write_manifest(out_dir: Path, manifest_path: Path = MANIFEST) -> dict:
+    """Hash every file of ``out_dir`` and write ``manifest_path`` (staged, then renamed).
+
+    Mirrors ``data_pipeline/manifest.json``'s schema: one entry per file with its
+    path relative to the repository root, its sha256, and ``rows: None`` (these
+    are model binaries, not tables).
+    """
+    entries = []
+    for path in sorted(out_dir.iterdir()):
+        with path.open("rb") as fh:
+            digest = hashlib.file_digest(fh, "sha256").hexdigest()
+        entries.append({"file": str(path.relative_to(REPO).as_posix()), "rows": None, "sha256": digest})
+    manifest = {"files": entries}
+    staging = manifest_path.with_suffix(".json.tmp")
+    staging.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    staging.replace(manifest_path)
+    return manifest
+
+
 def log_loss(y: np.ndarray, p: np.ndarray) -> float:
     p = np.clip(p.astype(np.float64), PROBABILITY_FLOOR, 1.0 - PROBABILITY_FLOOR)
     return float(-np.mean(y * np.log(p) + (1.0 - y) * np.log1p(-p)))
@@ -236,6 +259,7 @@ def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
     drive_split = pd.read_parquet(DRIVE_SPLIT, columns=["serial_number", "model", "split"])
     if drive_split["serial_number"].duplicated().any():
         raise ValueError("drive split has more than one row for a drive")
+    drive_split = drive_split[drive_split["split"].isin(ALLOWED_SPLITS)].copy()
     categories = sorted(drive_split[MODEL_COLUMN].unique().tolist())
     values, flags = feature_columns(pq.ParquetFile(TIMELINES).schema_arrow.names)
 
@@ -311,6 +335,8 @@ def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
     staging.rename(out_dir)
     total = sum(p.stat().st_size for p in out_dir.iterdir())
     print(f"artifacts={out_dir} files={len(list(out_dir.iterdir()))} bytes={total}")
+    write_manifest(out_dir)
+    print(f"manifest={MANIFEST}")
     print(f"wall_clock_seconds={meta['wall_clock_seconds']}")
     return meta
 

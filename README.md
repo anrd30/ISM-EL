@@ -13,7 +13,7 @@ extension: the current interface exposes only scalar
 `work_remaining`/`progress`, not a recovery-time distribution.
 
 RVCE, VII semester, Information Storage Management experiential-learning
-project. Lane ownership is recorded in `CLAUDE.md` section 2.
+project.
 
 ---
 

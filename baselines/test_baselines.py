@@ -9,6 +9,8 @@ system.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,7 @@ from contracts.contracts import (
     N_ACTIONS,
     OBS_DIM,
     RISK_BUDGET_EPS,
+    ContractViolation,
     Observation,
     TerminationReason,
     latency_degradation,
@@ -57,7 +60,7 @@ from contracts.contracts import (
 from sim.config import SimConfig
 from sim.recovery_env import RecoveryEnv
 from sim.safety_filter import exposure_probability
-from workload.generate import PROFILE_NAMES
+from workload.generate import PROFILE_NAMES, generate_profile
 
 HEALTHY = SimConfig(fleet_degradation=0.0)
 
@@ -625,6 +628,242 @@ def test_cli_rejects_unknown_profiles(tmp_path: Path) -> None:
         main(["--profiles", "nonsense", "--seeds", "1", "--out", str(tmp_path)])
     with pytest.raises(SystemExit):
         main(["--profiles", "idle", "--seeds", "0", "--out", str(tmp_path)])
+
+
+# --------------------------------------------------------------------------
+# Replay-CSV workloads and provenance
+# --------------------------------------------------------------------------
+
+REPO_PROFILES = Path(__file__).resolve().parents[1] / "data_pipeline" / "profiles"
+
+
+def _write_csv(
+    directory: Path,
+    name: str = "idle",
+    *,
+    seed: int = 0,
+    sidecar: dict[str, Any] | None = None,
+) -> Path:
+    """Write ``profile_<name>.csv`` from the generator, with an optional sidecar."""
+    path = directory / f"profile_{name}.csv"
+    generate_profile(name, seed).to_csv(path, index=False)
+    if sidecar is not None:
+        path.with_suffix(".meta.json").write_text(json.dumps(sidecar), encoding="utf-8")
+    return path
+
+
+def test_evaluate_and_compare_accept_a_csv_path_with_the_generator_schema(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    from_csv = evaluate(FixedRate(80), profile=csv, seeds=[0, 1])
+    from_generator = evaluate(FixedRate(80), profile="idle", seeds=[0, 1])
+    assert list(from_csv.columns) == list(from_generator.columns) == list(EPISODE_COLUMNS)
+    assert from_csv["workload_source"].eq(csv.as_posix()).all()
+    assert from_generator["workload_source"].eq("idle").all()
+    assert from_csv["profile"].eq("idle").all()
+
+    both = compare([FixedRate(50), FixedRate(80)], profiles=[csv], seeds=[0, 1])
+    assert list(both.columns) == list(EPISODE_COLUMNS)
+    assert len(both) == 4
+    mixed = compare([FixedRate(50)], profiles=[csv, "peak"], seeds=[0])
+    assert mixed["profile"].tolist() == ["idle", "peak"]
+
+
+def test_a_str_is_always_a_profile_name_and_a_path_is_always_a_file(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    with pytest.raises(ValueError, match="pathlib.Path"):
+        evaluate(FixedRate(80), profile=str(csv), seeds=[0])
+    with pytest.raises(FileNotFoundError):
+        evaluate(FixedRate(80), profile=tmp_path / "idle", seeds=[0])  # not the profile "idle"
+
+
+def test_workload_synthetic_is_false_true_or_none_by_provenance(tmp_path: Path) -> None:
+    with_sidecar = _write_csv(tmp_path, "idle", sidecar={"profile": "idle", "synthetic": False})
+    bare_dir = tmp_path / "bare"
+    bare_dir.mkdir()
+    without_sidecar = _write_csv(bare_dir, "idle")
+    assert not without_sidecar.with_suffix(".meta.json").exists()
+    odd_dir = tmp_path / "odd"
+    odd_dir.mkdir()
+    non_boolean = _write_csv(odd_dir, "idle", sidecar={"profile": "idle", "synthetic": "no"})
+
+    assert evaluate(FixedRate(80), profile=with_sidecar, seeds=[0])["workload_synthetic"].iloc[0] is False
+    assert evaluate(FixedRate(80), profile="idle", seeds=[0])["workload_synthetic"].iloc[0] is True
+    unknown = evaluate(FixedRate(80), profile=without_sidecar, seeds=[0, 1])
+    assert unknown["workload_synthetic"].map(lambda v: v is None).all()
+    assert evaluate(FixedRate(80), profile=non_boolean, seeds=[0])["workload_synthetic"].iloc[0] is None
+    # Without a sidecar the label falls back to the file stem; nothing is inferred.
+    assert unknown["profile"].eq("profile_idle").all()
+
+
+def test_real_profile_csvs_carry_the_sidecar_flag() -> None:
+    for name in PROFILE_NAMES:
+        path = REPO_PROFILES / f"profile_{name}.csv"
+        row = evaluate(FixedRate(80), profile=path, seeds=[0]).iloc[0]
+        assert row["profile"] == name
+        assert row["workload_synthetic"] is False
+
+
+def test_pairing_holds_for_csv_runs_and_a_mismatched_scenario_still_raises(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    df = compare([FixedRate(50), FixedRate(80), RiskAwareRuleBased()], profiles=[csv], seeds=[0, 1, 2])
+    check_pairing(df)
+    for column, change in (
+        ("fleet_level", lambda s: s + 0.1),
+        ("trace_start_row", lambda s: s + 1),
+        ("initial_fg_bw_mbps", lambda s: s + 1.0),
+        ("workload_source", lambda s: s + "-other"),
+        ("workload_synthetic", lambda s: s.map(lambda v: None)),
+    ):
+        broken = df.copy()
+        rows = (broken["policy"] == "fixed_80") & (broken["seed"] == 1)
+        broken[column] = broken[column].astype(object)
+        broken.loc[rows, column] = change(broken.loc[rows, column])
+        with pytest.raises(RuntimeError):
+            check_pairing(broken)
+
+
+def test_one_label_from_two_sources_is_rejected_not_merged(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    with pytest.raises(ValueError, match="separate calls"):
+        compare([FixedRate(50)], profiles=[csv, "idle"], seeds=[0])
+    with pytest.raises(ValueError):
+        compare([FixedRate(50)], profiles=[csv, csv], seeds=[0])
+    # Concatenating the two sources by hand is caught by the pairing check and the summaries.
+    merged = pd.concat(
+        [
+            evaluate(FixedRate(50), profile=csv, seeds=[0]),
+            evaluate(FixedRate(50), profile="idle", seeds=[0]),
+        ],
+        ignore_index=True,
+    )
+    with pytest.raises(RuntimeError):
+        check_pairing(merged)
+    with pytest.raises(ValueError):
+        summarise(merged)
+    with pytest.raises(ValueError):
+        paired_delta(merged, "fixed_50", "fixed_50")
+
+
+def test_same_seed_gives_the_same_fleet_and_start_row_for_csv_and_generator(tmp_path: Path) -> None:
+    # Different trace content (generator seed 5), same number of rows.
+    csv = _write_csv(tmp_path, seed=5, sidecar={"profile": "idle", "synthetic": False})
+    seeds = [0, 1, 2, 3]
+    from_csv = evaluate(FixedRate(80), profile=csv, seeds=seeds)
+    from_generator = evaluate(FixedRate(80), profile="idle", seeds=seeds)
+    assert from_csv["fleet_level"].tolist() == from_generator["fleet_level"].tolist()
+    assert from_csv["trace_start_row"].tolist() == from_generator["trace_start_row"].tolist()
+    assert from_csv["initial_budget_infeasible"].tolist() == from_generator["initial_budget_infeasible"].tolist()
+    # The check is not vacuous: scenarios differ across seeds and the sources are different data.
+    assert from_csv["fleet_level"].nunique() == len(seeds)
+    assert from_csv["trace_start_row"].nunique() > 1
+    assert from_csv["workload_source"].iloc[0] != from_generator["workload_source"].iloc[0]
+
+
+def test_a_missing_file_and_an_invalid_csv_raise_clearly(tmp_path: Path) -> None:
+    missing = tmp_path / "absent.csv"
+    with pytest.raises(FileNotFoundError, match="absent.csv"):
+        evaluate(FixedRate(80), profile=missing, seeds=[0])
+    with pytest.raises(FileNotFoundError):
+        compare([FixedRate(80)], profiles=[missing], seeds=[0])
+    with pytest.raises(FileNotFoundError):
+        evaluate(FixedRate(80), profile=tmp_path, seeds=[0])  # a directory is not a replay file
+
+    good = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    frame = pd.read_csv(good)
+    bad_columns = tmp_path / "bad_columns.csv"
+    frame.drop(columns=["disk_usage_mb"]).to_csv(bad_columns, index=False)
+    with pytest.raises(ContractViolation):
+        evaluate(FixedRate(80), profile=bad_columns, seeds=[0])
+    negative = tmp_path / "negative.csv"
+    frame.assign(read_iops=-1).to_csv(negative, index=False)
+    with pytest.raises(ContractViolation):
+        compare([FixedRate(80)], profiles=[negative], seeds=[0])
+    with pytest.raises(ValueError):
+        evaluate(FixedRate(80), profile=good, seeds=[0], config=SimConfig(workload_csv=good))
+
+
+def test_summarise_reports_the_provenance_of_each_profile(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    unlabeled = _write_csv(bare, "peak")
+    df = compare([FixedRate(80)], profiles=[csv, unlabeled, "diurnal"], seeds=[0])
+    summary = summarise(df).set_index("profile")["workload_synthetic"].to_dict()
+    assert summary == {"idle": "false", "profile_peak": "unknown", "diurnal": "true"}
+
+
+def test_cli_runs_a_directory_of_csvs_and_records_provenance(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    _write_csv(profiles, "idle", sidecar={"profile": "idle", "synthetic": False})
+    _write_csv(profiles, "peak")  # no sidecar
+    out = tmp_path / "results"
+    assert main(["--workload-dir", str(profiles), "--seeds", "1", "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    episodes = pd.read_csv(out / "episodes.csv")
+    assert list(episodes.columns) == list(EPISODE_COLUMNS)
+    assert len(episodes) == 7 * 2
+    flags = episodes.groupby("profile")["workload_synthetic"].first().to_dict()
+    assert flags == {"idle": "False", "profile_peak": "unknown"}
+    assert set(episodes["workload_source"]) == {(profiles / "profile_idle.csv").as_posix(), (profiles / "profile_peak.csv").as_posix()}
+    summary_text = (out / "summary.md").read_text(encoding="utf-8")
+    assert summary_text.strip() in printed
+    assert "synthetic: false" in summary_text and "synthetic: unknown" in summary_text
+    assert "uncalibrated" in summary_text.lower()
+    assert "synthetic workloads" not in summary_text
+
+
+def test_rows_carry_the_sha256_of_the_csv_bytes(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    row = evaluate(FixedRate(80), profile=csv, seeds=[0]).iloc[0]
+    assert row["workload_sha256"] == hashlib.sha256(csv.read_bytes()).hexdigest()
+    assert evaluate(FixedRate(80), profile="idle", seeds=[0])["workload_sha256"].iloc[0] is None
+    # Same name, different bytes: the digest changes while the path does not.
+    csv.write_bytes(generate_profile("idle", 9).to_csv(index=False).encode())
+    again = evaluate(FixedRate(80), profile=csv, seeds=[0]).iloc[0]
+    assert again["workload_source"] == row["workload_source"] and again["workload_sha256"] != row["workload_sha256"]
+
+
+def test_summary_prints_the_sidecar_disclosure_or_states_it_is_absent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    _write_csv(profiles, "idle", sidecar={"profile": "idle", "synthetic": False, "disclosure": "selected extremes, not a representative sample"})
+    _write_csv(profiles, "bursty", sidecar={"profile": "bursty", "synthetic": False, "label": "aggregate label text"})
+    _write_csv(profiles, "diurnal", sidecar={"profile": "diurnal", "synthetic": False})
+    _write_csv(profiles, "peak")
+    (profiles / "profile_peak.meta.json").write_text("{not json", encoding="utf-8")
+    out = tmp_path / "out"
+    assert main(["--workload-dir", str(profiles), "--seeds", "1", "--out", str(out)]) == 0
+    text = (out / "summary.md").read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert "disclosure: selected extremes, not a representative sample" in text
+    assert "disclosure: aggregate label text" in text
+    assert "disclosure: absent (sidecar has no disclosure or label field)" in text
+    assert "disclosure: absent (no readable sidecar)" in text
+    assert hashlib.sha256((profiles / "profile_idle.csv").read_bytes()).hexdigest() in text
+    generated = tmp_path / "gen"
+    assert main(["--profiles", "idle", "--seeds", "1", "--out", str(generated)]) == 0
+    assert "disclosure: not applicable (generator profile)" in (generated / "summary.md").read_text(encoding="utf-8")
+
+
+def test_cli_accepts_single_csv_files_and_rejects_bad_workload_arguments(tmp_path: Path) -> None:
+    csv = _write_csv(tmp_path, sidecar={"profile": "idle", "synthetic": False})
+    out = tmp_path / "out"
+    assert main(["--workload-csv", str(csv), "--seeds", "1", "--out", str(out)]) == 0
+    assert len(pd.read_csv(out / "episodes.csv")) == 7
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    broken = tmp_path / "broken.csv"
+    pd.read_csv(csv).drop(columns=["write_iops"]).to_csv(broken, index=False)
+    for argv in (
+        ["--workload-dir", str(empty)],
+        ["--workload-dir", str(tmp_path / "absent")],
+        ["--workload-csv", str(tmp_path / "absent.csv")],
+        ["--workload-csv", str(broken)],
+        ["--workload-csv", str(csv), "--profiles", "idle"],
+    ):
+        with pytest.raises(SystemExit):
+            main([*argv, "--seeds", "1", "--out", str(tmp_path / "x")])
 
 
 # --------------------------------------------------------------------------

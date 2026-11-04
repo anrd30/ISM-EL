@@ -8,6 +8,8 @@ and that the scenario generator exercises the range of the risk input.
 
 from __future__ import annotations
 
+import dataclasses
+import hashlib
 import json
 import math
 import os
@@ -36,6 +38,7 @@ from contracts.contracts import (
     ContractViolation,
     Observation,
     TerminationReason,
+    aggregate_group_hazard,
     compute_reward,
     latency_degradation,
     latency_violation,
@@ -43,9 +46,11 @@ from contracts.contracts import (
     validate_info,
 )
 from contracts.test_adapter_conformance import ALL_CHECKS
+from hazard.v0 import HeuristicHazardV0
 from sim.config import SimConfig, latency_mean_ms, latency_percentiles_ms, violation_rho_threshold
 from sim.recovery_env import RecoveryEnv, make_env
 from sim.safety_filter import apply_safety_filter, exposure_probability
+from sim.scenario import N_SURVIVORS, sample_fleet, sample_hazard_multipliers
 from sim.stress import STRESS_HAZARD_MULTIPLIER, ScaledHazard, stress_config
 from workload.generate import N_ROWS, PROFILE_NAMES
 
@@ -414,6 +419,64 @@ class TestObservationAndInfo:
         assert step_info["alloc_requested_mbps"] == 50.0
         assert step_info["alloc_effective_mbps"] <= step_info["bw_available_mbps"] + 1e-12
         assert step_info["alloc_effective_mbps"] <= step_info["alloc_applied_mbps"] + 1e-12
+
+    def test_trace_start_row_present_on_reset_and_every_step(self) -> None:
+        env = RecoveryEnv()
+        _, info = env.reset(seed=6)
+        validate_info(info)
+        assert "trace_start_row" in info
+        _, _, infos = run_episode(env, lambda t: 2, seed=6)  # run_episode runs validate_info
+        assert len(infos) > 1
+        assert all("trace_start_row" in i for i in infos)
+
+    def test_trace_start_row_is_builtin_int(self) -> None:
+        env = RecoveryEnv()
+        _, info = env.reset(seed=7)
+        _, _, _, _, step_info = env.step(1)
+        for i in (info, step_info):
+            assert type(i["trace_start_row"]) is int
+
+    def test_trace_start_row_constant_within_episode(self) -> None:
+        env = RecoveryEnv()
+        _, info = env.reset(seed=8)
+        start = info["trace_start_row"]
+        _, _, infos = run_episode(env, lambda t: t % N_ACTIONS, seed=8)
+        assert len(infos) > 1
+        assert {i["trace_start_row"] for i in infos} == {start}
+
+    def test_trace_start_row_equals_the_offset_the_env_used(self) -> None:
+        env = RecoveryEnv()
+        for seed in range(5):
+            obs, info = env.reset(seed=seed)
+            assert info["trace_start_row"] == env._offset  # noqa: SLF001
+            # Independent of the attribute: the first observation was read at that row.
+            assert info["fg_bw_mbps"] == float(env._trace.fg_bw_mbps[info["trace_start_row"]])  # noqa: SLF001
+            _, _, _, _, step_info = env.step(1)
+            assert step_info["trace_start_row"] == env._offset  # noqa: SLF001
+            row = (info["trace_start_row"] + 1) % len(env._trace)  # noqa: SLF001
+            assert step_info["fg_bw_mbps"] == float(env._trace.fg_bw_mbps[row])  # noqa: SLF001
+
+    def test_trace_start_row_zero_without_random_offset(self) -> None:
+        env = RecoveryEnv(SimConfig(random_trace_offset=False))
+        _, info = env.reset(seed=3)
+        assert info["trace_start_row"] == 0
+        _, _, _, _, step_info = env.step(1)
+        assert step_info["trace_start_row"] == 0
+
+    def test_trace_start_row_seed_determinism(self) -> None:
+        a, b = RecoveryEnv(), RecoveryEnv()
+        rows_a = [a.reset(seed=s)[1]["trace_start_row"] for s in range(30)]
+        rows_b = [b.reset(seed=s)[1]["trace_start_row"] for s in range(30)]
+        assert rows_a == rows_b
+        assert a.reset(seed=4)[1]["trace_start_row"] == a.reset(seed=4)[1]["trace_start_row"]
+        # Different seeds generally start elsewhere.
+        assert len(set(rows_a)) > 20
+
+    def test_trace_start_row_is_a_valid_trace_index(self) -> None:
+        env = RecoveryEnv()
+        for seed in range(30):
+            _, info = env.reset(seed=seed)
+            assert 0 <= info["trace_start_row"] < len(env._trace)  # noqa: SLF001
 
     def test_percentiles_and_reward_follow_the_documented_formulas(self) -> None:
         env = RecoveryEnv()
@@ -972,3 +1035,361 @@ def test_observation_class_is_used_for_every_vector() -> None:
     restored = Observation.from_vector(obs)
     restored.validate()
     assert np.array_equal(restored.to_vector(), obs)
+
+
+# ----------------------------------------------------------------------
+# Hazard estimation error
+# ----------------------------------------------------------------------
+
+#: ``info`` keys that existed before the estimation-error diagnostics were
+#: added. The recorded digests below cover exactly these keys.
+_PRE_ERROR_INFO_KEYS: tuple[str, ...] = (
+    "latency_p95", "latency_p99", "violated_latency", "p_failure_before_complete",
+    "violated_risk_budget", "alloc_clipped_by_filter", "recovery_complete", "latency_now",
+    "rho", "alloc_requested_mbps", "alloc_applied_mbps", "alloc_effective_mbps",
+    "bw_available_mbps", "fg_bw_mbps", "n_survivors", "p_failure_at_delivered_rate",
+    "trace_wraps", "trace_start_row", "workload_profile", "workload_synthetic",
+    "fleet_degradation_level", "config_label", "termination_reason",
+)
+
+
+def _trajectory_digest(config: SimConfig, seed: int, n_episodes: int = 3, max_steps: int = 600) -> str:
+    """SHA-256 over observations, rewards, flags and pre-existing ``info`` values.
+
+    Floats enter through ``repr``, which is exact, so one differing bit in any
+    observation or ``info`` value changes the digest. Actions come from a
+    generator seeded from ``seed`` so the run is a pure function of the
+    arguments.
+    """
+    env = RecoveryEnv(config)
+    digest = hashlib.sha256()
+    actions = np.random.default_rng(seed + 1000)
+    obs, info = env.reset(seed=seed)
+    for _ in range(n_episodes):
+        digest.update(obs.tobytes())
+        digest.update(repr([(k, info[k]) for k in _PRE_ERROR_INFO_KEYS if k in info]).encode())
+        for _ in range(max_steps):
+            obs, reward, terminated, truncated, info = env.step(int(actions.integers(0, N_ACTIONS)))
+            digest.update(obs.tobytes())
+            digest.update(repr((reward, terminated, truncated)).encode())
+            digest.update(repr([(k, info[k]) for k in _PRE_ERROR_INFO_KEYS if k in info]).encode())
+            if terminated or truncated:
+                break
+        obs, info = env.reset()
+    return digest.hexdigest()
+
+
+#: Digests recorded by running the simulator as it stood before the estimation
+#: error existed. ``stress_seed3`` and ``stress_peak_seed3`` include survivor
+#: failures and a terminal failure, so the failure-draw path is covered.
+_RECORDED_DIGESTS: dict[str, tuple[SimConfig, int, str]] = {
+    "default_seed0": (SimConfig(), 0, "44ff8f6dba3692482345bbd596f9101cc37cdb14d4d52c4fd00fa546ceefd154"),
+    "default_seed7": (SimConfig(), 7, "87103736fca3c07413861eec2268e4853d82aedde2b8e8d70640fd95bcec3ee6"),
+    "peak_mid_seed3": (
+        SimConfig(workload_profile="peak", fleet_degradation=0.5),
+        3,
+        "737e6109efc9f9380154eab06a1a69e6edaf6b5bc88ef352c284a8edc238dd8e",
+    ),
+    "degraded_seed11": (
+        SimConfig(fleet_degradation=1.0, workload_profile="bursty"),
+        11,
+        "ecffe856aab3ccbceca38e460863c1f50395e6017d86a7e72da5da6a9fc3b71d",
+    ),
+    "stress_seed2": (stress_config(), 2, "1f10eabd31047e172033580ec12e4e71a87e80ccb2041f340360540f27faad1e"),
+    "stress_seed3": (stress_config(), 3, "2bf567cf561afcd5e39a2cbbfe5e386303e5c43777db13b8d42f96339b35f8f5"),
+    "stress_peak_seed3": (
+        stress_config(base=SimConfig(workload_profile="peak")),
+        3,
+        "ddbdbf7ae759e85983c1060d0f5e44bbca6b4faa2dcb7b9182fc51753cad23fe",
+    ),
+}
+
+
+class _ConstantRisk:
+    """Risk model returning the same horizon probability for every drive."""
+
+    def __init__(self, p_horizon: float) -> None:
+        self.p_horizon = p_horizon
+
+    def __call__(self, features: dict[str, float], horizon_hours: float) -> tuple[float, float]:
+        return self.p_horizon, 0.0
+
+
+def _interval_prob(hazard_per_hour: np.ndarray) -> np.ndarray:
+    """Per-interval failure probability of per-hour hazards, as the fleet defines it."""
+    return -np.expm1((CONTROL_INTERVAL_S / 3600.0) * np.log1p(-hazard_per_hour))
+
+
+def _error_env(sigma: float, **kwargs: Any) -> RecoveryEnv:
+    return RecoveryEnv(SimConfig(hazard_error_sigma=sigma, workload_profile="diurnal", **kwargs))
+
+
+class TestHazardEstimationError:
+    """The true per-drive hazard is the estimate times a lognormal multiplier."""
+
+    @pytest.mark.parametrize("name", sorted(_RECORDED_DIGESTS))
+    def test_sigma_zero_reproduces_recorded_trajectory(self, name: str) -> None:
+        """Default sigma gives the same observations, rewards, flags and info bit for bit."""
+        config, seed, expected = _RECORDED_DIGESTS[name]
+        assert config.hazard_error_sigma == 0.0
+        assert _trajectory_digest(config, seed) == expected
+
+    def test_sigma_zero_truth_is_the_estimate(self) -> None:
+        env = _error_env(0.0, fleet_degradation=0.6)
+        _, info = env.reset(seed=4)
+        assert env._fleet is not None
+        assert np.array_equal(env._fleet.hazard_multiplier, np.ones(N_SURVIVORS))
+        assert np.array_equal(env._fleet.true_hazard_per_hour, env._fleet.estimated_hazard_per_hour)
+        assert info["hazard_realised_ratio"] == 1.0
+        assert info["hazard_true_per_hour"] == info["hazard_reported_per_hour"]
+        for _ in range(30):
+            _, _, term, trunc, info = env.step(1)
+            assert info["hazard_realised_ratio"] == 1.0
+            assert info["hazard_true_per_hour"] == info["hazard_reported_per_hour"]
+            if term or trunc:
+                break
+
+    def test_positive_sigma_true_differs_from_reported(self) -> None:
+        env = _error_env(0.5, fleet_degradation=0.6)
+        _, info = env.reset(seed=4)
+        assert env._fleet is not None
+        assert not np.allclose(env._fleet.true_hazard_per_hour, env._fleet.estimated_hazard_per_hour)
+        assert info["hazard_error_sigma"] == 0.5
+        assert info["hazard_true_per_hour"] != info["hazard_reported_per_hour"]
+        assert info["hazard_realised_ratio"] != 1.0
+        assert info["hazard_true_per_hour"] == pytest.approx(
+            info["hazard_reported_per_hour"] * info["hazard_realised_ratio"], rel=1e-12
+        )
+        validate_info(info)
+
+    def test_error_leaves_fleet_and_estimate_unchanged(self) -> None:
+        """The multipliers use their own stream, so features and estimates match sigma 0."""
+        base = _error_env(0.0, fleet_degradation=0.6)
+        noisy = _error_env(0.8, fleet_degradation=0.6)
+        obs0, info0 = base.reset(seed=9)
+        obs1, info1 = noisy.reset(seed=9)
+        assert base._fleet is not None and noisy._fleet is not None
+        assert base._fleet.features == noisy._fleet.features
+        assert np.array_equal(base._fleet.pairs, noisy._fleet.pairs)
+        assert np.array_equal(base._fleet.estimated_hazard_per_hour, noisy._fleet.estimated_hazard_per_hour)
+        assert np.array_equal(obs0, obs1)
+        assert info0["trace_start_row"] == info1["trace_start_row"]
+        assert info0["hazard_reported_per_hour"] == info1["hazard_reported_per_hour"]
+
+    def test_observation_and_filter_see_the_estimate(self) -> None:
+        """Until a failure changes the survivors, a noisy run and a clean run are indistinguishable to the policy."""
+        base = _error_env(0.0, fleet_degradation=0.5)
+        noisy = _error_env(1.0, fleet_degradation=0.5)
+        obs0, info0 = base.reset(seed=21)
+        obs1, info1 = noisy.reset(seed=21)
+        assert np.array_equal(obs0, obs1)
+        assert info1["hazard_true_per_hour"] != info1["hazard_reported_per_hour"]
+        # The observation carries the reported value, not the true one.
+        assert Observation.from_vector(obs1).hazard == pytest.approx(info1["hazard_reported_per_hour"], rel=1e-5)
+        assert Observation.from_vector(obs1).hazard != pytest.approx(info1["hazard_true_per_hour"], rel=1e-5)
+        # The reset exposure is computed on the estimate.
+        assert info1["p_failure_before_complete"] == exposure_probability(
+            info1["hazard_reported_per_hour"], REBUILD_WORK_GB, float(max(ACTIONS_MBPS))
+        )
+        assert info1["p_failure_true_at_applied_rate"] != info1["p_failure_before_complete"]
+        # The first filter decision uses the estimate.
+        decision = apply_safety_filter(0, info1["hazard_reported_per_hour"], REBUILD_WORK_GB)
+        _, _, _, _, step1 = noisy.step(0)
+        assert step1["p_failure_before_complete"] == decision.p_failure
+        assert step1["alloc_clipped_by_filter"] == decision.clipped
+        assert step1["alloc_applied_mbps"] == decision.applied_mbps
+        base.step(0)
+        # Identical decisions and observations while the survivors are identical.
+        for _ in range(150):
+            ob, _, tb, trb, ib = base.step(2)
+            on, _, tn, trn, inn = noisy.step(2)
+            if ib["n_survivors"] != 9 or inn["n_survivors"] != 9:
+                break
+            assert np.array_equal(ob, on)
+            for key in ("p_failure_before_complete", "violated_risk_budget", "alloc_applied_mbps", "alloc_clipped_by_filter"):
+                assert ib[key] == inn[key]
+            assert (tb, trb) == (tn, trn)
+
+    def test_failures_are_drawn_from_the_truth(self) -> None:
+        """The first failure step follows the true probabilities, not the estimated ones."""
+        config = SimConfig(
+            hazard_error_sigma=1.5,
+            hazard_model=_ConstantRisk(0.6),
+            workload_profile="idle",
+            fleet_degradation=0.0,
+        )
+        n_matching_truth = 0
+        n_where_estimate_disagrees = 0
+        for seed in range(12):
+            env = RecoveryEnv(config)
+            env.reset(seed=seed)
+            fleet = env._fleet
+            assert fleet is not None
+            true_p = _interval_prob(fleet.true_hazard_per_hour)
+            est_p = _interval_prob(fleet.estimated_hazard_per_hour)
+            assert np.allclose(fleet.interval_fail_prob, true_p, rtol=1e-12, atol=0.0)
+            assert not np.allclose(fleet.interval_fail_prob, est_p)
+            # Replay the failure stream independently of the environment.
+            episode_seed = int(np.random.default_rng(seed).integers(0, 2**31 - 1))
+            replay = np.random.default_rng([episode_seed, 1])
+            draws = []
+            first_env: int | None = None
+            t = 0
+            while True:
+                t += 1
+                draws.append(replay.random(N_SURVIVORS))
+                _, _, term, trunc, info = env.step(3)
+                if info["n_survivors"] < N_SURVIVORS:
+                    first_env = t
+                    break
+                if term or trunc:
+                    break
+
+            def first_failure(prob: np.ndarray) -> int | None:
+                for idx, d in enumerate(draws, start=1):
+                    if np.any(d < prob):
+                        return idx
+                return None
+
+            assert first_env == first_failure(true_p)
+            n_matching_truth += 1
+            if first_failure(est_p) != first_env:
+                n_where_estimate_disagrees += 1
+        assert n_matching_truth == 12
+        assert n_where_estimate_disagrees >= 1, "scenario never separates truth from estimate"
+
+    @pytest.mark.parametrize("sigma", [0.25, 0.5, 1.0])
+    def test_multiplier_is_unbiased_lognormal(self, sigma: float) -> None:
+        """Over 1,000,000 draws the mean is 1 within 5 standard errors; log-moments match."""
+        n = 1_000_000
+        m = sample_hazard_multipliers(np.random.default_rng(12345), sigma, n)
+        assert np.all(m > 0.0)
+        sem = math.sqrt(math.expm1(sigma * sigma)) / math.sqrt(n)
+        assert abs(float(m.mean()) - 1.0) < 5.0 * sem
+        logs = np.log(m)
+        assert abs(float(logs.mean()) - (-0.5 * sigma * sigma)) < 5.0 * sigma / math.sqrt(n)
+        assert float(logs.std()) == pytest.approx(sigma, rel=0.01)
+
+    def test_multiplier_mean_through_the_environment(self) -> None:
+        """Pooled over 1,000 episodes (9,000 drives) the fleet multipliers average 1 within 5 sem."""
+        sigma = 0.5
+        env = _error_env(sigma)
+        pooled = []
+        for seed in range(1000):
+            env.reset(seed=seed)
+            assert env._fleet is not None
+            pooled.append(env._fleet.hazard_multiplier.copy())
+        values = np.concatenate(pooled)
+        assert values.size == 9000
+        sem = math.sqrt(math.expm1(sigma * sigma)) / math.sqrt(values.size)
+        assert abs(float(values.mean()) - 1.0) < 5.0 * sem
+
+    def test_error_is_constant_within_an_episode_and_redrawn_across(self) -> None:
+        env = _error_env(0.7, fleet_degradation=0.4)
+        env.reset(seed=3)
+        assert env._fleet is not None
+        first = env._fleet.hazard_multiplier.copy()
+        assert np.allclose(env._fleet.true_hazard_per_hour / env._fleet.estimated_hazard_per_hour, first)
+        ratios = set()
+        for _ in range(60):
+            _, _, term, trunc, info = env.step(2)
+            assert env._fleet is not None
+            assert np.array_equal(env._fleet.hazard_multiplier, first)
+            if info["n_survivors"] == N_SURVIVORS:
+                ratios.add(info["hazard_realised_ratio"])
+            if term or trunc:
+                break
+        assert len(ratios) == 1, "the group ratio moved with no survivor lost"
+        draws = []
+        for _ in range(20):
+            env.reset()
+            assert env._fleet is not None
+            draws.append(tuple(env._fleet.hazard_multiplier))
+        assert len(set(draws)) == 20
+        assert first.tolist() not in [list(d) for d in draws]
+        assert len(set(first.tolist())) == N_SURVIVORS, "drives share one multiplier"
+
+    def test_same_seed_gives_same_error_draw(self) -> None:
+        a, b, c = _error_env(0.6), _error_env(0.6), _error_env(0.6)
+        a.reset(seed=77)
+        b.reset(seed=77)
+        c.reset(seed=78)
+        assert a._fleet is not None and b._fleet is not None and c._fleet is not None
+        assert np.array_equal(a._fleet.hazard_multiplier, b._fleet.hazard_multiplier)
+        assert not np.array_equal(a._fleet.hazard_multiplier, c._fleet.hazard_multiplier)
+        # A second episode on the same stream also repeats.
+        a.reset()
+        b.reset()
+        assert np.array_equal(a._fleet.hazard_multiplier, b._fleet.hazard_multiplier)
+
+    def test_same_seed_same_noisy_trajectory(self) -> None:
+        digests = []
+        for _ in range(2):
+            digests.append(_trajectory_digest(SimConfig(hazard_error_sigma=0.9), 5, n_episodes=2, max_steps=300))
+        assert digests[0] == digests[1]
+
+    def test_failed_drive_leaves_both_aggregates(self) -> None:
+        env = _error_env(0.9, fleet_degradation=0.5)
+        _, info_before = env.reset(seed=2)
+        fleet = env._fleet
+        assert fleet is not None
+        forced = np.zeros(N_SURVIVORS)
+        forced[3] = 1.0  # drive 3 fails on the next draw, the others cannot
+        env._fleet = dataclasses.replace(fleet, interval_fail_prob=forced)
+        _, _, term, _, info = env.step(2)
+        assert not term
+        assert info["n_survivors"] == N_SURVIVORS - 1
+        alive = np.ones(N_SURVIVORS, dtype=bool)
+        alive[3] = False
+        fleet = env._fleet
+        assert fleet is not None
+        expected_reported, _ = aggregate_group_hazard(fleet.pairs[alive])
+        assert info["hazard_reported_per_hour"] == pytest.approx(expected_reported, rel=1e-12)
+        expected_true = float(fleet.true_hazard_per_hour[alive].sum())
+        assert info["hazard_true_per_hour"] == pytest.approx(expected_true, rel=1e-9)
+        assert info["hazard_realised_ratio"] == pytest.approx(
+            expected_true / float(fleet.estimated_hazard_per_hour[alive].sum()), rel=1e-12
+        )
+        assert info["hazard_reported_per_hour"] < info_before["hazard_reported_per_hour"]
+        assert info["hazard_true_per_hour"] < info_before["hazard_true_per_hour"]
+
+    def test_diagnostic_keys_are_builtin_and_contract_valid(self) -> None:
+        env = _error_env(0.4)
+        _, reset_info = env.reset(seed=1)
+        _, _, _, _, step_info = env.step(1)
+        for info in (reset_info, step_info):
+            validate_info(info)
+            for key in ("hazard_error_sigma", "hazard_reported_per_hour", "hazard_true_per_hour", "hazard_realised_ratio"):
+                assert type(info[key]) is float
+            assert type(info["violated_risk_budget_true"]) is bool
+
+    @pytest.mark.parametrize("bad", [-0.1, -1e-12, float("nan"), float("inf"), float("-inf"), True, "0.5", None])
+    def test_invalid_sigma_is_rejected(self, bad: Any) -> None:
+        with pytest.raises(ValueError, match="hazard_error_sigma"):
+            SimConfig(hazard_error_sigma=bad)
+
+    @pytest.mark.parametrize("bad", [-0.1, float("nan"), float("inf")])
+    def test_invalid_sigma_rejected_below_the_config(self, bad: float) -> None:
+        with pytest.raises(ValueError):
+            sample_hazard_multipliers(np.random.default_rng(0), bad)
+        with pytest.raises(ValueError):
+            sample_fleet(np.random.default_rng(0), HeuristicHazardV0(), hazard_error_sigma=bad)
+
+    def test_positive_sigma_without_error_rng_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="error_rng"):
+            sample_fleet(np.random.default_rng(0), HeuristicHazardV0(), hazard_error_sigma=0.3)
+
+    def test_sigma_zero_draws_no_random_numbers(self) -> None:
+        rng = np.random.default_rng(5)
+        before = rng.bit_generator.state
+        m = sample_hazard_multipliers(rng, 0.0)
+        assert rng.bit_generator.state == before
+        assert np.array_equal(m, np.ones(N_SURVIVORS))
+
+    def test_huge_multiplier_cannot_push_hazard_to_one(self) -> None:
+        env = RecoveryEnv(SimConfig(hazard_error_sigma=6.0, hazard_model=_ConstantRisk(0.99)))
+        for seed in range(20):
+            env.reset(seed=seed)
+            assert env._fleet is not None
+            assert np.all(env._fleet.true_hazard_per_hour < 1.0)
+            assert np.all(np.isfinite(env._fleet.interval_fail_prob))

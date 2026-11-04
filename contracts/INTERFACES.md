@@ -10,7 +10,9 @@ This document is the human-readable spec for `contracts/contracts.py`. It fixes 
 | Freeze point | End of week 1 |
 | Change rule | Changeable only with the sign-off of all four teammates, recorded in the changelog at the bottom of this file |
 
-Nothing described here has been measured. Every numeric value is a **design decision**, and every statement about behaviour describes what the code is required to do, not what it has been shown to do.
+Nothing described here has been measured except where a constant is tagged `[MEASURED]` below. Every other numeric value is a **design decision**, and every statement about behaviour describes what the code is required to do, not what it has been shown to do.
+
+**Provenance convention.** Every numeric constant in `contracts/contracts.py` (and in `sim/config.py`) carries exactly one tag in its comment: `[MEASURED]` (taken from data, source named), `[DERIVED]` (computed from other constants or a stated model, derivation shown or referenced) or `[ASSUMED]` (chosen by design, never checked against data). Several of this project's constants were set by reasoning before any data existed, and a wrong constant does not fail a test: it sits in a file looking plausible while the suite passes over it. The tag turns "which numbers have never been checked against data" into a grep. A tag records origin, not correctness; nothing here implies the simulator or its latency model has been validated.
 
 ## 2. Observation vector
 
@@ -30,6 +32,8 @@ Twelve fields, in this order, never reordered. The Python class is `Observation`
 | 9 | `work_remaining` | GB | 12000.0 | Simulator |
 | 10 | `alloc_current` | MB/s | 120.0 (= `max(ACTIONS_MBPS)`) | Simulator |
 | 11 | `bw_available` | MB/s | 200.0 | Simulator |
+
+**Fields 0 and 1 are inert.** The simulator's latency model is bandwidth-only (`rho = (fg_bw + alloc) / BW_TOTAL_MBPS`), so `fg_read_iops` and `fg_write_iops` never enter the dynamics, the reward, the termination rule or the safety filter, and a policy cannot learn to use them. Their scale (20000, `[ASSUMED]`) is also far below real aggregate values (a measurement on real profiles found 88k to 118k read and 95k to 265k write IOPS on the bursty profile, and the idle profile above the scale on 13% of rows), so both fields are clipped at 1.0 much of the time; that costs nothing only because the fields are inert. **No claim may be made that the controller responds to foreground IOPS.** See `sim/LIMITATIONS.md` section 12.
 
 **Starting value of `redundancy_left`.** A rebuild episode begins after one drive has failed, so it **starts at `redundancy_left = 1`**. A second failure takes it to 0, and a third failure is data loss. `redundancy_left = 2` is the healthy state and **never occurs during an episode**; it exists in the valid range `[0, 2]` and as the normalisation scale so that the field means the same thing outside a rebuild.
 
@@ -53,6 +57,8 @@ The scales are literal constants in `contracts.py`. They are never computed from
 The cost is that values above a scale saturate at 1.0. That is accepted.
 
 **Hazard scale `1.8e-4`, and what saturation means.** Fields 5 and 6 are **group-level aggregates**: the sum of the per-hour hazards of the surviving drives (section 8). The scale is chosen from the design, not from data. The baseline per-drive hazard is 2.41e-6 per hour (section 9), so with nine survivors the baseline group hazard is 9 x 2.41e-6 = 2.17e-5 per hour. The budget `RISK_BUDGET_EPS = 5e-3` stops being satisfiable by the fastest action (120 MB/s) at about 8.3x baseline, which is 8.3 x 2.17e-5 = 1.8e-4 per hour for the group; per drive that is 8.3 x 2.41e-6 = 2.0e-5, and `(GROUP_SIZE - 1) * 2e-5 = 1.8e-4`. Setting the scale there makes field 5 saturate exactly where every action violates the budget and the controller has no choice left to make. `contracts.py` checks at import that the scale equals `(GROUP_SIZE - 1) * 2e-5`, so a change to the group geometry fails loudly instead of silently invalidating it.
+
+**Stale inputs.** The baseline hazard (2.41e-6 per hour), the 8.3x multiple and the scale arithmetic above all rest on the 2.11% AFR from the earlier Q1-2022 three-model extract. The project's data window has since moved to full-year 2022 with four models, and the rate there is 1.95%. These figures are stale pending re-derivation, which has not been done in this document; nothing above has been recomputed.
 
 | Hazard multiple of baseline | Group hazard (per hour, 9 survivors) | Normalised field 5 | Meaning |
 |---|---|---|---|
@@ -212,27 +218,29 @@ which is computable from the observation alone. This is the definition the safet
 
 ## 9. Frozen numeric constants
 
-All values are design decisions. The arithmetic is shown so that each can be re-derived and challenged.
+Values are design decisions unless the tag says otherwise. The arithmetic is shown so that each can be re-derived and challenged. The first column of tags follows the provenance convention of section 1; `[DERIVED]` inherits the weakest tag among its inputs.
 
-| Constant | Value | Justification (design decision) |
-|---|---|---|
-| `CONTRACT_VERSION` | `"1.4.0"` | Semantic version of this contract |
-| `CONTROL_INTERVAL_S` | 300 | Matches the Tencent trace sampling interval, so one control step is one trace sample and no resampling is needed |
-| `HORIZON_DAYS` | 30 | Hazard prediction window |
-| `HORIZON_HOURS` | 720.0 | 30 d x 24 h/d. Horizon H of the hazard model. A 30-day window is standard in the SMART failure-prediction literature, which keeps published PR-AUC figures comparable |
-| `RISK_BUDGET_EPS` | 5e-3 | Bounds P(at least one additional failure before rebuild completes). Slack at baseline hazard, binding from about 1.4x baseline; derivation below |
-| `LATENCY_LIMIT_FACTOR` | 1.5 | `L_max = 1.5 x latency_target` |
-| `LATENCY_VIOLATION_FRACTION_MAX` | 0.05 | At most 5% of control steps may exceed `L_max` |
-| `MAX_EPISODE_STEPS` | 2400 | 2400 x 300 s = 720,000 s = 200 h. Slowest action (20 MB/s) needs 2000 steps; see below |
-| `ACTIONS_MBPS` | (20, 50, 80, 120) | Prototype set, illustrative, not measured device limits |
-| `N_ACTIONS` | 4 | `len(ACTIONS_MBPS)` |
-| `GROUP_DATA_DRIVES` | 8 | Group geometry 8+2 |
-| `GROUP_PARITY_DRIVES` | 2 | Group geometry 8+2 |
-| `GROUP_TOLERATED_FAILURES` | 2 | Equals the parity count |
-| `GROUP_SIZE` | 10 | `GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES`. Survivors at episode start: `GROUP_SIZE - 1 = 9`, used in the risk arithmetic and in the hazard scale |
-| `DRIVE_CAPACITY_GB` | 12000.0 | 12 TB drive (decimal) |
-| `REBUILD_WORK_GB` | 12000.0 | One drive's worth of reconstruction |
-| `BW_TOTAL_MBPS` | 200.0 | Shared bandwidth budget per group; the largest action (120) leaves 80 MB/s for foreground |
+| Constant | Value | Tag | Justification |
+|---|---|---|---|
+| `CONTRACT_VERSION` | `"1.4.0"` | n/a (string) | Semantic version of this contract |
+| `CONTROL_INTERVAL_S` | 300 | `[MEASURED]` | Matches the Tencent trace sampling interval (dataset README), so one control step is one trace sample and no resampling is needed |
+| `HORIZON_DAYS` | 30 | `[ASSUMED]` | Hazard prediction window |
+| `HORIZON_HOURS` | 720.0 | `[DERIVED]` | 30 d x 24 h/d. Horizon H of the hazard model. A 30-day window is standard in the SMART failure-prediction literature, which keeps published PR-AUC figures comparable |
+| `RISK_BUDGET_EPS` | 5e-3 | `[ASSUMED]` | Bounds P(at least one additional failure before rebuild completes). Slack at baseline hazard, binding from about 1.4x baseline; derivation below. The baseline rests on the measured AFR note in the risk-budget subsection, which is stale |
+| `LATENCY_LIMIT_FACTOR` | 1.5 | `[ASSUMED]` | `L_max = 1.5 x latency_target` |
+| `LATENCY_VIOLATION_FRACTION_MAX` | 0.05 | `[ASSUMED]` | At most 5% of control steps may exceed `L_max` |
+| `MAX_EPISODE_STEPS` | 2400 | `[DERIVED]` | 2400 x 300 s = 720,000 s = 200 h. Slowest action (20 MB/s) needs 2000 steps; see below. Import-time check enforces only the lower bound; the 400-step margin is a design choice and the inputs (work, slowest action) are `[ASSUMED]` |
+| `ACTIONS_MBPS` | (20, 50, 80, 120) | `[ASSUMED]` | Prototype set, illustrative, not measured device limits |
+| `N_ACTIONS` | 4 | `[DERIVED]` | `len(ACTIONS_MBPS)` |
+| `GROUP_DATA_DRIVES` | 8 | `[ASSUMED]` | Group geometry 8+2 |
+| `GROUP_PARITY_DRIVES` | 2 | `[ASSUMED]` | Group geometry 8+2 |
+| `GROUP_TOLERATED_FAILURES` | 2 | `[DERIVED]` | Equals the parity count |
+| `GROUP_SIZE` | 10 | `[DERIVED]` | `GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES`. Survivors at episode start: `GROUP_SIZE - 1 = 9`, used in the risk arithmetic and in the hazard scale |
+| `DRIVE_CAPACITY_GB` | 12000.0 | `[ASSUMED]` | 12 TB drive (decimal) |
+| `REBUILD_WORK_GB` | 12000.0 | `[DERIVED]` | One drive's worth of reconstruction; equals `DRIVE_CAPACITY_GB` (import-time check) |
+| `BW_TOTAL_MBPS` | 200.0 | `[ASSUMED]` | Shared bandwidth budget per group; the largest action (120) leaves 80 MB/s for foreground |
+
+Observation scales: the hazard scale `1.8e-4` is `[DERIVED]` from `(GROUP_SIZE - 1) * 2e-5` (section 3); the IOPS scales (20000) and latency scales (50.0) are `[ASSUMED]`; the remaining scales are `[DERIVED]` from the constant they equal. Reward coefficients `alpha`, `beta`, `gamma` are `[ASSUMED]`. The simulator's own constants (unloaded latency 2 ms, target 15 ms, `rho_max` 0.98, drive spread 0.15) are `[ASSUMED]` in `sim/config.py`.
 
 ### Rebuild duration (why the action set is meaningful)
 
@@ -255,7 +263,7 @@ At 80 MB/s a rebuild runs about 41.7 h. The span of 27.8 h to 166.7 h across the
 
 Inputs:
 
-- Pooled Seagate AFR near 2.11%. This figure is derived from the project's own Q1 2022 Backblaze inspection (276 failures across 4.78M drive-days for the three pooled Seagate models: 276 / 4.78M x 365 = 2.11% per drive-year), and is consistent with the vendor's published AFRs for those models. It is **not independently verified by this contract**.
+- Pooled Seagate AFR near 2.11%. This figure is derived from the project's own Q1 2022 Backblaze inspection (276 failures across 4.78M drive-days for the three pooled Seagate models: 276 / 4.78M x 365 = 2.11% per drive-year), and is consistent with the vendor's published AFRs for those models. It is **not independently verified by this contract**. Provenance: `[MEASURED]`, but from that earlier Q1-2022 extract only. The data window has since changed and the figure has **not been re-derived against the current window**; the baseline hazard (2.41e-6 per hour), the multiples in the table below, the hazard scale and the claim that `5e-3` is slack at baseline are all downstream of it and stale until it is.
 - 8,760 h per year.
 - 9 surviving drives in a 10-drive group after one failure.
 
@@ -264,7 +272,7 @@ per-drive-hour hazard   lambda = 0.0211 / 8760 ~= 2.41e-6 per hour
 exposure over a rebuild P(k) = 1 - exp(-9 x k x lambda x T)
 ```
 
-`k` is a multiplier on the per-drive hazard (`k = 1` is the fleet baseline) and `T` is the rebuild duration at the allocation. All values below are design arithmetic for a constant rate, not outputs of the risk model.
+`k` is a multiplier on the per-drive hazard (`k = 1` is the fleet baseline) and `T` is the rebuild duration at the allocation. All values below are design arithmetic for a constant rate, not outputs of the risk model. **Stale inputs:** the 2.11% AFR behind `lambda` and every probability and multiple in the table below comes from the earlier Q1-2022 three-model extract; the data window has since moved to full-year 2022 with four models, where the rate is 1.95%. The table is stale pending re-derivation and has not been recomputed here.
 
 | Allocation (MB/s) | T (h) | 1x baseline | 2x | 10x | Constraint binds (P > 5e-3) above `k` = |
 |---|---|---|---|---|---|

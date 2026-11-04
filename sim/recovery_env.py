@@ -48,7 +48,12 @@ Failure process and its simplifications
 ---------------------------------------
 Each surviving drive fails independently within an interval with probability
 ``1 - (1 - h) ** (CONTROL_INTERVAL_S / 3600)``, ``h`` being that drive's
-per-hour hazard from the risk model. A failure decrements ``redundancy_left``;
+*true* per-hour hazard: the risk model's estimate times a per-drive lognormal
+error multiplier drawn once per episode (``SimConfig.hazard_error_sigma``;
+see :mod:`sim.scenario`). The observation, the safety filter and the exposure
+it bounds use the *estimate* only, so with a positive sigma the filter is no
+longer exactly protective. With the default sigma of 0 the true hazard is the
+estimate and the draw consumes no randomness. A failure decrements ``redundancy_left``;
 more failures than the remaining redundancy is ``TERMINAL_FAILURE``. A failed
 drive stops contributing to the hazard aggregate. Rebuild speed is kept
 unchanged when a survivor is lost, and the second failed drive is not itself
@@ -85,6 +90,7 @@ from contracts.contracts import (
 from sim.config import SimConfig, latency_mean_ms, latency_percentiles_ms
 from sim.safety_filter import apply_safety_filter, exposure_probability
 from sim.scenario import (
+    HAZARD_ERROR_STREAM,
     N_SURVIVORS,
     Fleet,
     ReplayTrace,
@@ -143,6 +149,16 @@ class RecoveryEnv:
         (the lowest the filter can reach), and ``violated_risk_budget`` is
         true when even that exceeds the budget.
 
+        Both this ``info`` and every later ``step`` ``info`` carry
+        ``trace_start_row``: the built-in ``int`` index into the replay trace
+        at which this episode began (``0`` when ``random_trace_offset`` is
+        off). It is fixed for the whole episode; it is the start row, not the
+        current position. It exists because an episode's results are only
+        reproducible if the trace offset is recorded alongside the seed: the
+        offset is drawn as ``integers(0, len(trace))``, so the same seed with
+        a different trace length would start at a different row. Consumers
+        should read this key rather than the private ``_offset`` attribute.
+
         Raises:
             ValueError: if ``seed`` is not a non-negative integer.
         """
@@ -153,6 +169,7 @@ class RecoveryEnv:
         episode_seed = int(self._master.integers(0, _SEED_BOUND))
         scenario_rng = np.random.default_rng([episode_seed, 0])
         self._failure_rng = np.random.default_rng([episode_seed, 1])
+        error_rng = np.random.default_rng([episode_seed, HAZARD_ERROR_STREAM])
 
         self._trace = self._load_trace(scenario_rng, episode_seed)
         n_rows = len(self._trace)
@@ -162,6 +179,8 @@ class RecoveryEnv:
             self.config.hazard_model,
             level=self.config.fleet_degradation,
             drive_spread_sd=self.config.drive_spread_sd,
+            hazard_error_sigma=float(self.config.hazard_error_sigma),
+            error_rng=error_rng,
         )
 
         self._t = 0
@@ -177,6 +196,7 @@ class RecoveryEnv:
         rho = self._rho(fg, 0.0)
         latency = latency_mean_ms(rho, self.config)
         p_best = exposure_probability(self._hazard, self._work, float(max(ACTIONS_MBPS)))
+        p_best_true = exposure_probability(self._true_group_hazard(), self._work, float(max(ACTIONS_MBPS)))
         obs = self._observation(row, fg, latency, 0.0, avail)
         info = self._info(
             latency=latency,
@@ -192,6 +212,8 @@ class RecoveryEnv:
             avail=avail,
             fg=fg,
             p_effective=p_best,
+            p_true_applied=p_best_true,
+            p_true_effective=p_best_true,
         )
         return obs, info
 
@@ -225,6 +247,10 @@ class RecoveryEnv:
         avail = self._headroom(fg)
         effective = min(decision.applied_mbps, avail)
         p_effective = exposure_probability(self._hazard, self._work, effective)
+        # Exposure at the true hazard (diagnostic only; nothing acts on it).
+        true_hazard_now = self._true_group_hazard()
+        p_true_applied = exposure_probability(true_hazard_now, self._work, decision.applied_mbps)
+        p_true_effective = exposure_probability(true_hazard_now, self._work, effective)
 
         rho = self._rho(fg, effective)
         latency = latency_mean_ms(rho, cfg)
@@ -280,6 +306,8 @@ class RecoveryEnv:
             avail=avail,
             fg=fg,
             p_effective=p_effective,
+            p_true_applied=p_true_applied,
+            p_true_effective=p_true_effective,
         )
         return obs, reward, terminated, truncated, info
 
@@ -307,6 +335,24 @@ class RecoveryEnv:
         if not self._alive.any():
             return 0.0, 0.0
         return aggregate_group_hazard(self._fleet.pairs[self._alive])
+
+    def _hazard_realised_ratio(self) -> float:
+        """Sum of true over sum of estimated per-hour hazard of the live drives.
+
+        1.0 when no drive is alive. Both sums run over the same arrays in the
+        same order, so the ratio is exactly 1.0 when the error is off.
+        """
+        assert self._fleet is not None
+        if not self._alive.any():
+            return 1.0
+        estimated = float(self._fleet.estimated_hazard_per_hour[self._alive].sum())
+        if estimated == 0.0:
+            return 1.0
+        return float(self._fleet.true_hazard_per_hour[self._alive].sum()) / estimated
+
+    def _true_group_hazard(self) -> float:
+        """Group hazard the failures are drawn from: reported hazard times the realised ratio."""
+        return self._hazard * self._hazard_realised_ratio()
 
     def _headroom(self, fg_bw: float) -> float:
         """``max(0, rho_max * BW_TOTAL_MBPS - fg_bw)``, observation field 11."""
@@ -354,10 +400,23 @@ class RecoveryEnv:
         avail: float,
         fg: float,
         p_effective: float,
+        p_true_applied: float,
+        p_true_effective: float,
     ) -> dict[str, Any]:
-        """Assemble and validate ``info``: contract keys plus diagnostics."""
+        """Assemble and validate ``info``: contract keys plus diagnostics.
+
+        The ``hazard_*`` and ``*_true*`` diagnostics expose the estimation
+        error: the reported group hazard (what the policy and filter saw), the
+        group hazard failures are drawn from, and their realised ratio, all for
+        the drives alive at the end of the interval. ``p_true_applied`` and
+        ``p_true_effective`` are the exposure of the applied and the delivered
+        rate at the true hazard, as of the start of the interval. The contract
+        keys ``p_failure_before_complete`` and ``violated_risk_budget`` stay
+        defined on the estimate, because that is what the filter bounds.
+        """
         assert self._trace is not None and self._fleet is not None
         p95, p99 = latency_percentiles_ms(latency)
+        ratio = self._hazard_realised_ratio()
         info: dict[str, Any] = {
             "latency_p95": float(p95),
             "latency_p99": float(p99),
@@ -377,10 +436,18 @@ class RecoveryEnv:
             "n_survivors": int(self._alive.sum()),
             "p_failure_at_delivered_rate": float(p_effective),
             "trace_wraps": int((self._offset + self._t) // len(self._trace)),
+            "trace_start_row": int(self._offset),
             "workload_profile": self._trace.profile,
             "workload_synthetic": self._trace.synthetic,
             "fleet_degradation_level": float(self._fleet.level),
             "config_label": self.config.label,
+            "hazard_error_sigma": float(self.config.hazard_error_sigma),
+            "hazard_reported_per_hour": float(self._hazard),
+            "hazard_true_per_hour": float(self._hazard * ratio),
+            "hazard_realised_ratio": float(ratio),
+            "p_failure_true_at_applied_rate": float(p_true_applied),
+            "p_failure_true_at_delivered_rate": float(p_true_effective),
+            "violated_risk_budget_true": bool(not p_true_applied < RISK_BUDGET_EPS),
         }
         if reason is not None:
             info["termination_reason"] = reason.value

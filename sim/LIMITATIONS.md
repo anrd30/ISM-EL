@@ -26,7 +26,9 @@ The constants `latency_unloaded_ms = 2.0`, `latency_target_ms = 15.0` and
 depends directly on that threshold, so every violation-rate figure is
 conditional on these constants. The target was raised from 5 ms and then 8 ms
 because at those values the `peak` profile had no action inside the budget;
-15 ms is the smallest round value at which every profile admits one.
+15 ms is the smallest round value at which every profile admits one *at a
+healthy fleet*. Under the default randomised fleet `peak` admits none (section
+13).
 
 ## 2. The service-level target constrains the mean, not the tail
 
@@ -140,6 +142,24 @@ its worst seed and `bursty` at 50 MB/s 4.4%, so the latency budget is
 sensitive to `latency_target_ms` and to the profile shapes, which are
 synthetic and whose p95 is set by scaling.
 
+The table and the "actions within the budget" column describe a **healthy
+fleet**. They do not hold under the default randomised-fleet configuration; see
+section 13.
+
+**Real profiles come from one 24-hour window and repeat with period 288.** The
+real-derived profiles are all drawn from a single 24-hour window (2020-08-06
+04:00 UTC) and, as the trace is tiled cyclically, repeat with exact period 288
+rows (one day at 300 s). A policy evaluated on them could in principle recover
+next-interval load from the same time one day earlier in its own history. Any
+advantage measured over a forecasting oracle on these profiles therefore bounds
+what *memorisation* of that window could achieve, not what *generalisation*
+could. A held-out window is needed to separate the two; until one is used, no
+claim of generalisation to unseen workloads may rest on the real profiles. The window and period are
+measured: all four profiles in `data_pipeline/profiles/` have 288 rows with
+`t_seconds` starting at 0 and a uniform 300 s step, and the sidecar
+`profile_bursty.meta.json` records `window_start_utc = 2020-08-06T04:00:00Z`
+(`window_start_ts = 1596686400`), `synthetic = false`, `n_disks = 36`.
+
 ## 10. The latency term of the reward is silent over most of the operating range
 
 With `latency_target_ms = 15.0` and an unloaded latency of 2 ms,
@@ -177,3 +197,118 @@ latency awareness below 0.87.
 - The fleet degradation level distribution and per-drive spread are design
   decisions chosen so that the group-hazard observation spans its range; they
   are not fitted to any fleet.
+
+## 12. Observation fields 0 and 1 (foreground IOPS) are inert
+
+`fg_read_iops` and `fg_write_iops` are in the observation vector, but the
+latency model is `rho = (fg_bw + alloc) / BW_TOTAL_MBPS`: bandwidth only. IOPS
+never enters the dynamics, the reward, the termination rule or the safety
+filter. Those two fields therefore cannot affect any decision the environment
+makes, and a policy cannot learn to use them in any way that changes an outcome.
+
+**No claim may be made that the controller responds to foreground IOPS.** A
+policy that nominally receives them is, as far as the environment's consequences
+go, ignoring them.
+
+Two consequences:
+
+- Their normalisation scale (20,000, `contracts.OBS_SCALES`) is far below real
+  aggregate values. A measurement on the real profiles found read IOPS of 88k to
+  118k and write IOPS of 95k to 265k on the bursty profile, and the idle profile
+  exceeding the scale on 13% of rows. Both fields therefore sit clipped at 1.0
+  much of the time.
+- That clipping currently costs nothing precisely because the fields are inert.
+  Re-scaling would not help until something consumes them: a model in which
+  IOPS (for example through request size or queue depth) affects latency would
+  have to be added first, and the scale chosen with real aggregates in view.
+
+## 13. The feasibility ladder is a healthy-fleet statement
+
+The documented 4/3/2/1 count of latency-feasible actions for
+idle/diurnal/bursty/peak (section 9) holds when the drive fleet is healthy.
+Under the default randomised-fleet configuration, measured over 40 seeds on
+both synthetic and real-derived profiles, **`peak` has zero feasible actions**:
+the safety filter raises the allocation on degraded fleets, and the latency
+limit is then exceeded whatever the policy requests.
+
+This is not a synthetic-versus-real divergence: both sources behave the same
+way. It also means the statement in section 1 that "every profile admits one"
+action inside the budget is conditional on a healthy fleet and on the constants
+there; it is not a property of the default configuration. All figures here are
+simulated and conditional on the uncalibrated latency model of section 1.
+
+## 14. Latency and reliability are jointly infeasible on `peak` with a degraded fleet
+
+This follows from section 13 and from the contract's stated precedence:
+reliability (the risk budget, enforced by the safety filter) is the hard
+constraint and latency is the objective. Under the default fleet, no policy met
+the 5% latency budget (`LATENCY_VIOLATION_FRACTION_MAX`) in more than 20% of
+`peak` episodes.
+
+This is the precedence rule behaving as specified, not a defect. Its
+consequence for reporting: **`peak` results under a degraded fleet measure the
+safety filter more than the policy**, because the filter overrides the
+requested allocation. They must not be read as a comparison between policies.
+A comparison of policies on `peak` needs a healthy or pinned-healthy fleet
+(`SimConfig.fleet_degradation`), reported as such.
+
+## 15. Hazard estimation error is implemented but switched off
+
+**What it is.** `SimConfig.hazard_error_sigma` is the log-space standard
+deviation of a multiplicative error between the risk model's reported per-drive
+hazard (the estimate) and the hazard failures are drawn from (the truth). The
+true hazard of a drive is `estimate * exp(N(-sigma^2/2, sigma^2))`, drawn once
+per drive per episode from its own random stream. The observation, the safety
+filter and the exposure it bounds see the estimate; only the failure draw uses
+the truth. The multiplier is lognormal because hazards are positive and span
+orders of magnitude, and its mean is exactly 1 (the `-sigma^2/2` term), so the
+error adds dispersion without shifting the fleet's mean hazard. It is drawn per
+drive per episode because a model's error on a drive is a property of that
+drive's features, which are fixed for the episode; fresh per-interval noise
+would average out over a rebuild's hundreds of intervals. `info` carries
+`hazard_reported_per_hour`, `hazard_true_per_hour`, `hazard_realised_ratio`,
+`hazard_error_sigma`, and the exposure at the true hazard
+(`p_failure_true_at_applied_rate`, `p_failure_true_at_delivered_rate`,
+`violated_risk_budget_true`). The contract keys `p_failure_before_complete` and
+`violated_risk_budget` remain defined on the estimate.
+
+**Why it exists.** With truth equal to the estimate, a filter acting on the
+estimate is exactly protective, so there is nothing left for a policy to get
+right or wrong about the reliability constraint. Measured on the simulator with
+the parameter at zero:
+
+- A policy built to ignore the hazard fields entirely produced outcomes
+  indistinguishable from a risk-aware one: paired difference -0.004 (sem 0.010)
+  over 40 seeds on real workload profiles, with 2 of 40 episodes differing at
+  all.
+- The filter clipped the risk-blind policy on 4.5%, 11.9% and 28.5% of steps on
+  three profiles, and the outcome was unchanged regardless.
+- In a PPO smoke run, episode exposure sat just below the budget (4.78e-3 to
+  4.98e-3 against 5e-3) whatever the policy did, so the reliability Lagrange
+  multiplier never left zero and the learner received no gradient on that
+  constraint.
+
+**Current state: off.** The default is `0.0`, which reproduces the simulator
+without estimation error bit for bit (checked against recorded trajectories,
+including survivor failures and a terminal failure). No non-zero value is
+chosen anywhere in the code. Its tag is `[ASSUMED]`, the only tag that fits a
+constant that has no source.
+
+**Consequence of leaving it at zero.** The hazard ablation cannot detect
+anything, because the hazard input cannot matter to an outcome the filter
+already guarantees, and the reliability constraint is inert, because the
+filtered policy meets the budget by construction. A result showing "no effect of
+the hazard input" or "constraint satisfied" from a zero-sigma run is a property
+of the simulator, not evidence about a risk model or a policy.
+
+**Do not pick a value.** The right sigma is the dispersion of the log ratio
+between a fitted risk model's estimated and realised hazard, and that has to be
+derived from a measured calibration curve of that model. Switching the
+parameter on with a round number would substitute one invented figure for
+another, and every result downstream would inherit it. Even a derived value
+describes one model on one data window, and the multiplier family (lognormal,
+independent across drives, identical for every drive and hazard level) is itself
+an assumption: real calibration error is typically larger at the extremes of
+the predicted range and correlated across drives that share a batch. Nothing in
+this section makes the simulator calibrated, and no result obtained with
+a positive sigma is validated by it.

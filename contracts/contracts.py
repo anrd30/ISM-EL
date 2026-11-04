@@ -9,9 +9,31 @@ data pipeline, evaluation and report).
 It is frozen at ``CONTRACT_VERSION``. Any change requires sign-off from all
 four teammates and a row in the changelog of ``contracts/INTERFACES.md``.
 
-Every numeric value below is a design decision, not a measurement. Nothing in
+Numeric values below are design decisions except where a ``[MEASURED]`` tag
+names its source; the provenance tags (next paragraph) are the authoritative
+record of which is which. Nothing in
 this module implies that a model has been trained, a simulator calibrated or a
 result obtained.
+
+Provenance convention. Every numeric constant below carries exactly one
+provenance tag in its comment:
+
+- ``[MEASURED]``: taken from data, with the source named;
+- ``[DERIVED]``: computed from other constants or from a stated model, with the
+  derivation shown or referenced;
+- ``[ASSUMED]``: chosen by design and never checked against data.
+
+Why this exists: several of this project's constants were set by reasoning
+before any data existed, and a wrong constant does not fail a test. It sits in
+a file looking plausible while the suite passes over it. The tag makes "which
+numbers have never been checked against data" a grep for the literal tag text
+instead of a memory exercise. A tag states where a number came from, not that it
+is right: ``[MEASURED]`` does not mean validated, and ``[DERIVED]`` inherits the
+weakest tag among its inputs. The tags are the authoritative record of which
+values are measured; the same convention
+applies in ``sim/config.py``. See also ``contracts/INTERFACES.md`` (sections 2
+and 9) and ``sim/LIMITATIONS.md`` for what the simulator's constants can and
+cannot support.
 
 Dependencies: Python 3.11+, numpy, standard library only.
 """
@@ -85,27 +107,38 @@ class ContractViolation(Exception):
 
 CONTRACT_VERSION: str = "1.4.0"
 
-CONTROL_INTERVAL_S: int = 300  # equals the Tencent trace sampling interval
-HORIZON_DAYS: int = 30
-HORIZON_HOURS: float = 720.0  # hazard model horizon H
+CONTROL_INTERVAL_S: int = 300  # [MEASURED] sampling interval of the Tencent trace (dataset README); one control step = one trace sample
+HORIZON_DAYS: int = 30  # [ASSUMED] 30-day window, a literature convention (INTERFACES.md section 9); not checked against this project's data
+HORIZON_HOURS: float = 720.0  # [DERIVED] HORIZON_DAYS * 24 (import-time check); hazard model horizon H
 # Bounds P(at least one additional failure before recovery completes), per
 # episode. This is an exposure probability, not a data-loss probability.
+# [ASSUMED] The budget value is a design choice. The arithmetic that motivated
+# it (INTERFACES.md section 9) rests on a pooled AFR near 2.11%, which is
+# [MEASURED] from the project's own earlier Q1-2022 Backblaze extract (276
+# failures / 4.78M drive-days, three pooled Seagate models). The data window has
+# since changed and that figure has NOT been re-derived against the current
+# window, so the AFR, and every multiple derived from it, is stale until it is.
 RISK_BUDGET_EPS: float = 5e-3
-LATENCY_LIMIT_FACTOR: float = 1.5  # L_max = LATENCY_LIMIT_FACTOR * latency_target
-LATENCY_VIOLATION_FRACTION_MAX: float = 0.05
-# 200 h at 300 s. Must exceed the slowest action's completion time
-# (REBUILD_WORK_GB at min(ACTIONS_MBPS)), or a fixed-rate baseline can never finish.
+LATENCY_LIMIT_FACTOR: float = 1.5  # [ASSUMED] L_max = LATENCY_LIMIT_FACTOR * latency_target
+LATENCY_VIOLATION_FRACTION_MAX: float = 0.05  # [ASSUMED] at most 5% of steps over L_max
+# [DERIVED] 200 h at 300 s. Must exceed the slowest action's completion time
+# (REBUILD_WORK_GB at min(ACTIONS_MBPS)), or a fixed-rate baseline can never
+# finish: 12e6 MB / 20 MB/s / 300 s = 2000 steps, and the import-time check
+# enforces only that 2400 >= 2000. The 400-step margin (about 17%) is a design
+# choice, and the derivation's inputs (REBUILD_WORK_GB, min(ACTIONS_MBPS),
+# CONTROL_INTERVAL_S) are [ASSUMED] except the interval, so this is only as
+# sound as those.
 MAX_EPISODE_STEPS: int = 2400
-ACTIONS_MBPS: tuple[int, ...] = (20, 50, 80, 120)  # prototype set; illustrative, not measured device limits
-N_ACTIONS: int = 4
+ACTIONS_MBPS: tuple[int, ...] = (20, 50, 80, 120)  # [ASSUMED] prototype set; illustrative, not measured device limits
+N_ACTIONS: int = 4  # [DERIVED] len(ACTIONS_MBPS) (import-time check)
 
-GROUP_DATA_DRIVES: int = 8
-GROUP_PARITY_DRIVES: int = 2
-GROUP_TOLERATED_FAILURES: int = 2
-GROUP_SIZE: int = GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES  # 10; survivors at episode start: GROUP_SIZE - 1 = 9
-DRIVE_CAPACITY_GB: float = 12000.0
-REBUILD_WORK_GB: float = 12000.0  # one drive's worth of reconstruction
-BW_TOTAL_MBPS: float = 200.0  # shared budget per group
+GROUP_DATA_DRIVES: int = 8  # [ASSUMED] group geometry 8+2
+GROUP_PARITY_DRIVES: int = 2  # [ASSUMED] group geometry 8+2
+GROUP_TOLERATED_FAILURES: int = 2  # [DERIVED] equals GROUP_PARITY_DRIVES (import-time check)
+GROUP_SIZE: int = GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES  # [DERIVED] 10; survivors at episode start: GROUP_SIZE - 1 = 9
+DRIVE_CAPACITY_GB: float = 12000.0  # [ASSUMED] 12 TB drive (decimal)
+REBUILD_WORK_GB: float = 12000.0  # [DERIVED] one drive's worth of reconstruction = DRIVE_CAPACITY_GB (import-time check; written as a literal)
+BW_TOTAL_MBPS: float = 200.0  # [ASSUMED] shared budget per group
 
 
 # --------------------------------------------------------------------------
@@ -127,26 +160,40 @@ OBS_FIELDS: tuple[str, ...] = (
     "bw_available",
 )
 
-OBS_DIM: int = 12
+OBS_DIM: int = 12  # [DERIVED] len(OBS_FIELDS) (import-time check)
 
 # Normalisation scales are frozen constants, never computed from data: a
 # data-dependent scale would leak dataset statistics into the policy input.
+# "Never computed from data" is a rule about the code path; it does not make a
+# scale [MEASURED], and a scale chosen by reasoning can still be wrong. Tags
+# below follow the provenance convention in the module docstring.
 OBS_SCALES: dict[str, float] = {
-    "fg_read_iops": 20000.0,  # IOPS
-    "fg_write_iops": 20000.0,  # IOPS
-    "fg_bw": BW_TOTAL_MBPS,  # MB/s
-    "latency_now": 50.0,  # ms
-    "latency_target": 50.0,  # ms
-    # Group-level aggregate: (GROUP_SIZE - 1) * 2e-5. 2e-5 per drive saturates at
-    # ~8.3x the baseline per-drive hazard (2.41e-6 /h), the multiple at which
-    # even the fastest action exceeds RISK_BUDGET_EPS.
-    "hazard": 1.8e-4,  # per hour, sum over surviving drives
-    "hazard_uncertainty": 1.8e-4,  # per hour, sum in quadrature over surviving drives
-    "redundancy_left": float(GROUP_TOLERATED_FAILURES),  # count
-    "progress": 1.0,  # fraction
-    "work_remaining": REBUILD_WORK_GB,  # GB
-    "alloc_current": float(max(ACTIONS_MBPS)),  # MB/s
-    "bw_available": BW_TOTAL_MBPS,  # MB/s
+    # [ASSUMED] 20000 IOPS. A measurement on the real profiles (see
+    # sim/LIMITATIONS.md section 12) found aggregate IOPS well above this scale
+    # (read 88k-118k and write 95k-265k on bursty; idle above it on 13% of
+    # rows), so fields 0 and 1 sit clipped at 1.0 much of the time. They are
+    # also inert: the latency model is bandwidth-only, so nothing consumes
+    # them. No claim may be made that the controller responds to IOPS.
+    "fg_read_iops": 20000.0,  # [ASSUMED] IOPS; field is inert, see above
+    "fg_write_iops": 20000.0,  # [ASSUMED] IOPS; field is inert, see above
+    "fg_bw": BW_TOTAL_MBPS,  # [DERIVED] = BW_TOTAL_MBPS, MB/s
+    "latency_now": 50.0,  # [ASSUMED] ms
+    "latency_target": 50.0,  # [ASSUMED] ms
+    # [DERIVED] Group-level aggregate: (GROUP_SIZE - 1) * 2e-5, checked at
+    # import. 2e-5 per drive saturates at ~8.3x the baseline per-drive hazard
+    # (2.41e-6 /h), the multiple at which even the fastest action exceeds
+    # RISK_BUDGET_EPS. The baseline rests on the [MEASURED] pooled AFR from the
+    # project's earlier Q1-2022 Backblaze extract, which has not been re-derived
+    # against the current data window; the budget and the action set it is
+    # combined with are [ASSUMED]. The literal 2e-5 is therefore only as
+    # sound as those inputs.
+    "hazard": 1.8e-4,  # [DERIVED] per hour, sum over surviving drives
+    "hazard_uncertainty": 1.8e-4,  # [DERIVED] same scale as "hazard"; per hour, sum in quadrature over surviving drives
+    "redundancy_left": float(GROUP_TOLERATED_FAILURES),  # [DERIVED] = GROUP_TOLERATED_FAILURES, count
+    "progress": 1.0,  # [DERIVED] a fraction's upper bound by definition
+    "work_remaining": REBUILD_WORK_GB,  # [DERIVED] = REBUILD_WORK_GB, GB
+    "alloc_current": float(max(ACTIONS_MBPS)),  # [DERIVED] = max(ACTIONS_MBPS), MB/s
+    "bw_available": BW_TOTAL_MBPS,  # [DERIVED] = BW_TOTAL_MBPS, MB/s
 }
 
 
@@ -157,6 +204,11 @@ class Observation:
     Units and suppliers:
 
     - ``fg_read_iops``, ``fg_write_iops`` (IOPS), ``fg_bw`` (MB/s): data pipeline.
+      The two IOPS fields are inert in the simulator: its latency model uses
+      bandwidth only, so IOPS never enters the dynamics, the reward, the
+      termination rule or the safety filter, and their scale (20000) is below
+      real aggregate values. No claim may be made that a controller responds to
+      foreground IOPS. See ``sim/LIMITATIONS.md`` section 12.
     - ``latency_now``, ``latency_target`` (ms): simulator.
     - ``hazard``, ``hazard_uncertainty`` (per hour): risk model. Group-level
       aggregates over the surviving drives, built with
@@ -426,9 +478,9 @@ class RewardConfig:
     hardcoded at a call site.
     """
 
-    alpha: float = 1.0  # weight on latency degradation D
-    beta: float = 0.1  # weight on degraded-state cost C
-    gamma: float = 10.0  # weight on violation term V
+    alpha: float = 1.0  # [ASSUMED] weight on latency degradation D
+    beta: float = 0.1  # [ASSUMED] weight on degraded-state cost C
+    gamma: float = 10.0  # [ASSUMED] weight on violation term V
 
     @classmethod
     def from_dict(cls, d: Mapping[str, float]) -> "RewardConfig":
@@ -1154,6 +1206,8 @@ def _check_internal_consistency() -> None:
         "REPLAY_DTYPES keys must equal REPLAY_COLUMNS in order": tuple(REPLAY_DTYPES) == REPLAY_COLUMNS,
         "REBUILD_WORK_GB must equal DRIVE_CAPACITY_GB": REBUILD_WORK_GB == DRIVE_CAPACITY_GB,
         "GROUP_SIZE must equal GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES": GROUP_SIZE == GROUP_DATA_DRIVES + GROUP_PARITY_DRIVES,
+        # The 2e-5 per-drive figure is [DERIVED] (see OBS_SCALES); this check
+        # ties the hazard scale to the group size, not to any data.
         "hazard scales must equal (GROUP_SIZE - 1) * 2e-5": all(
             math.isclose(OBS_SCALES[k], (GROUP_SIZE - 1) * 2e-5, rel_tol=1e-9)
             for k in ("hazard", "hazard_uncertainty")

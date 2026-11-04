@@ -6,6 +6,27 @@ calibrated against any device or workload. The contract owns the group
 geometry, the action set, the reward coefficients' type and the limits; this
 module owns only what the simulator itself has to assume.
 
+Provenance convention
+---------------------
+Every numeric constant here carries exactly one provenance tag in its comment
+or docstring entry:
+
+- ``[MEASURED]``: taken from data, with the source named;
+- ``[DERIVED]``: computed from other constants or from a stated model, with the
+  derivation shown or referenced;
+- ``[ASSUMED]``: chosen by design and never checked against data.
+
+Why this exists: several of this project's constants were set by reasoning
+before any data existed, and a wrong constant does not fail a test. It sits in
+a file looking plausible while the suite passes over it. The tag makes "which
+numbers have never been checked against data" a grep
+(grep for the literal tag text) instead of a memory exercise. A tag is a statement
+about the constant's origin, not about its correctness; ``[MEASURED]`` does not
+mean validated, and no tag in this module means the simulator or its latency
+model has been validated. Every simulator constant below is ``[ASSUMED]`` or
+``[DERIVED]``; none is ``[MEASURED]``. The same convention applies in
+``contracts/contracts.py``.
+
 Latency model
 -------------
 Foreground traffic and rebuild traffic share one bandwidth budget
@@ -57,11 +78,27 @@ profile meaningless. The ``peak`` profile has a p95 foreground load of 0.8 of
 the budget (``contracts/INTERFACES.md``, section 10, decision 5); with a
 20 MB/s rebuild added the p95 utilisation is about 0.90. Targets of 5 ms
 (threshold 0.733) and 8 ms (0.833) both left ``peak`` with no action inside the
-latency budget. At 15 ms the threshold is 0.911, just above that 0.90, so every
+latency budget. At 15 ms the threshold is 0.911, just above that 0.90, so (at
+a healthy fleet only; under the default randomised fleet ``peak`` admits none,
+see ``sim/LIMITATIONS.md`` section 13) every
 profile admits at least one action inside the budget, and the number of such
 actions falls as the workload gets heavier. Whether an action satisfies the
 latency budget on a profile is measured, not assumed, and is a property of this
 idealised model only; see ``sim/LIMITATIONS.md``.
+
+The statement that "every profile admits at least one action inside the
+latency budget" holds for a healthy fleet only. Under the default
+randomised-fleet configuration the safety filter raises the allocation on
+degraded fleets and ``peak`` has zero feasible actions (measured over 40 seeds,
+synthetic and real-derived profiles alike). Peak results under a degraded fleet
+therefore measure the safety filter more than the policy. See
+``sim/LIMITATIONS.md`` sections 13 and 14.
+
+Inert observation fields. The latency model uses bandwidth only
+(``rho = (fg_bw + alloc) / BW_TOTAL_MBPS``), so the foreground IOPS fields of
+the observation (indices 0 and 1) never affect the dynamics, the reward or the
+filter. No claim may be made that the controller responds to IOPS; see
+``sim/LIMITATIONS.md`` section 12.
 
 Shaping consequence. The degradation term ``D = max(0, (L - target) / target)``
 is zero while latency is below the target, that is while
@@ -103,6 +140,9 @@ __all__ = [
 ]
 
 # Quantile multipliers of an exponential distribution: -ln(1 - q).
+# [DERIVED] from the single-queue exponential-response-time idealisation in the
+# module docstring (q = 0.95 and 0.99); the idealisation itself is [ASSUMED]
+# and the factors are not measured tail ratios of any device.
 _P95_FACTOR: float = math.log(20.0)
 _P99_FACTOR: float = math.log(100.0)
 
@@ -110,6 +150,14 @@ _P99_FACTOR: float = math.log(100.0)
 @dataclass(frozen=True)
 class SimConfig:
     """Simulator configuration. Every default is a design decision.
+
+    Provenance tags (see the module docstring): ``latency_unloaded_ms``,
+    ``latency_target_ms``, ``rho_max``, ``drive_spread_sd`` and
+    ``hazard_error_sigma`` are all ``[ASSUMED]``. The ``reward`` coefficients are defined, and tagged, in
+    ``contracts/contracts.py``. The fleet-degradation distribution (uniform on
+    ``[0, 1]`` when ``fleet_degradation`` is ``None``) is ``[ASSUMED]``, and its
+    default consequences for ``peak`` are in ``sim/LIMITATIONS.md`` sections 13
+    and 14.
 
     Attributes:
         latency_unloaded_ms: Mean service latency at zero utilisation. Design
@@ -145,6 +193,16 @@ class SimConfig:
             the replay trace rather than row 0. Design decision: on, so a
             rebuild may begin at any time of day instead of always at the
             trace's midnight.
+        hazard_error_sigma: Standard deviation, in log space, of the
+            multiplicative error between the risk model's reported per-drive
+            hazard (the estimate, which the observation and the safety filter
+            see) and the hazard failures are drawn from (the truth). The true
+            hazard of a drive is ``estimate * exp(N(-sigma^2/2, sigma^2))``,
+            drawn once per drive per episode. ``0.0`` makes truth equal the
+            estimate and reproduces the simulator without estimation error
+            exactly. ``[ASSUMED]`` and left at ``0.0``: no calibration curve of
+            a fitted risk model exists yet, and any non-zero value would be an
+            invented number. See ``sim/LIMITATIONS.md`` section 15.
         hazard_model: The per-drive risk model, called once per surviving
             drive at reset. Default is the heuristic v0.
         label: Name of the configuration, copied into every ``info`` as
@@ -153,15 +211,24 @@ class SimConfig:
             :func:`sim.stress.stress_config` sets a stress label.
     """
 
+    # [ASSUMED] 2 ms unloaded latency; never checked against any device.
     latency_unloaded_ms: float = 2.0
+    # [ASSUMED] 15 ms target; chosen against the synthetic profiles' p95 load
+    # (see the module docstring), not against any latency measurement.
     latency_target_ms: float = 15.0
+    # [ASSUMED] 0.98 utilisation ceiling; a numerical guard, not a device limit.
     rho_max: float = 0.98
     reward: RewardConfig = field(default_factory=RewardConfig)
     workload_profile: str | None = None
     workload_csv: str | os.PathLike[str] | None = None
     fleet_degradation: float | None = None
+    # [ASSUMED] 0.15 per-drive spread about the fleet level; not fitted to any
+    # fleet.
     drive_spread_sd: float = 0.15
     random_trace_offset: bool = True
+    # [ASSUMED] 0.0: estimation error switched off. Not derived from any
+    # measured calibration error; do not set non-zero without deriving it.
+    hazard_error_sigma: float = 0.0
     hazard_model: HazardModel = field(default_factory=HeuristicHazardV0)
     label: str = "default"
 
@@ -183,6 +250,12 @@ class SimConfig:
             raise ValueError(f"fleet_degradation must be in [0, 1], got {self.fleet_degradation!r}")
         if not (math.isfinite(self.drive_spread_sd) and self.drive_spread_sd >= 0.0):
             raise ValueError(f"drive_spread_sd must be finite and >= 0, got {self.drive_spread_sd!r}")
+        if isinstance(self.hazard_error_sigma, bool) or not (
+            isinstance(self.hazard_error_sigma, (int, float))
+            and math.isfinite(self.hazard_error_sigma)
+            and self.hazard_error_sigma >= 0.0
+        ):
+            raise ValueError(f"hazard_error_sigma must be a finite number >= 0, got {self.hazard_error_sigma!r}")
 
 
 def latency_mean_ms(rho: float, cfg: SimConfig) -> float:

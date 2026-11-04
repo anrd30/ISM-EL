@@ -89,9 +89,11 @@ One closed loop with three parts.
   latency violations are measured and reported rather than rejected by the
   environment.
 
-Built so far: the simulator, the safety filter and the non-learned controllers.
-The hazard model is still the unfitted `hazard/v0.py` placeholder and the
-learned controller has no training script. Section 8 has the per-task status.
+Built so far: the simulator, the safety filter, the non-learned controllers,
+and a fitted hazard model (`hazard/v1.py`, A3). `hazard/v0.py`'s unfitted
+placeholder is still the model the simulator actually calls; wiring the
+simulator to v1's feature set is A5, not yet done. The learned controller has
+no training script. Section 8 has the per-task status.
 
 ## 4. Expected output
 
@@ -220,10 +222,17 @@ sim/                The simulator (QUANTIFY). config.py holds the latency model
                     stress.py builds stress scenarios. LIMITATIONS.md is
                     required reading before quoting any simulator number.
 
-hazard/             The risk interface (PREDICT). v0.py is a placeholder:
-                    a constant annual failure rate (2.11%) times a bounded
-                    SMART multiplier. It is not fitted to data and is the
-                    baseline the real model must beat.
+hazard/             The risk interface (PREDICT). v0.py is a constant annual
+                    failure rate (2.11%) times a bounded SMART multiplier, not
+                    fitted to data; it is still the model the simulator
+                    actually calls. v1.py is the fitted alternative (A3): a
+                    25-model XGBoost bootstrap ensemble with isotonic
+                    calibration, built by fit_v1.py from A2's train/val split
+                    and tested by test_v1.py. v1's artifacts
+                    (artifacts/v1/, about 218 MB) are gitignored like
+                    data_pipeline's generated outputs; manifest.json
+                    hash-pins them and A3_DECISION.md records the fit's
+                    evidence and limits.
 
 baselines/          Non-learned controllers to compare against: the four fixed
                     rates, a risk-blind workload throttle, a risk-aware rule, and
@@ -271,20 +280,25 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-02, on `main`: 396 tests pass under `data_pipeline/tests`, which is
+As of 2026-11-04, on `main`: 396 tests pass under `data_pipeline/tests`, which is
 the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
-`hazard/` carry their own tests and run from the repo root. The
-acceptance checker reports `RESULT: PASS` in `--committed-only` mode on a clean
-clone, and in full mode once the Backblaze/Tencent outputs have been regenerated
-locally (they are gitignored, so a clean clone's full-mode run reports
-`INCOMPLETE` until then, not `PASS`).
+`hazard/` carry their own tests and run from the repo root. Across the whole
+repo, `python -m pytest -q` passes 1,535 tests with 16 pre-existing skips
+unrelated to the hazard lane. The acceptance checker reports `RESULT: PASS` in
+`--committed-only` mode on a clean clone, and in full mode once the
+Backblaze/Tencent outputs have been regenerated locally (they are gitignored,
+so a clean clone's full-mode run reports `INCOMPLETE` until then, not `PASS`).
+`hazard/v1.py`'s own artifacts are gitignored the same way, so a clean clone's
+`hazard` tests run against a small synthetic fixture built in-process, not the
+real fitted model, until `python -m hazard.fit_v1` is run locally.
 
 | Area | Task | Status |
 | --- | --- | --- |
 | Interface | Frozen contract v1.4.0 | Done |
 | Simulator | Episode, latency model, safety filter, scenarios, stress | Done |
 | Baselines | Fixed-rate and heuristic controllers, evaluation harness | Done |
-| Risk (placeholder) | `hazard/v0.py` constant-rate + SMART multiplier | Done, to be replaced |
+| Risk (placeholder) | `hazard/v0.py` constant-rate + SMART multiplier | Done, still the model the simulator calls |
+| Risk (fitted) | `hazard/v1.py` -- 25-model XGBoost bootstrap ensemble, isotonic calibration | Done, PR #11; not yet wired into the simulator |
 | Data B0 | Repo scaffold, ignore rules, schema inspection | Done |
 | Data B1 | Backblaze extract, 4 models, 2022 | Done |
 | Data B2 | Per-drive timelines, drive index, leakage test | Done |
@@ -294,14 +308,14 @@ locally (they are gitignored, so a clean clone's full-mode run reports
 | Data B6 | Acceptance checker | Done |
 | Risk A1 | Data window, drive models, SMART columns | Done, PR #7 |
 | Risk A2 | 30-day labels, drive-level train/val/test split | Done, PR #8 |
-| Risk A3 | Fit the hazard model on the training split | Not started |
+| Risk A3 | Fit the hazard model on the training split | Done, PR #11 |
 | Risk A4 | Evaluate: calibration, PR-AUC, recall vs `hazard/v0.py` | Not started |
 | Risk A5 | Replace `hazard/v0.py` with the fitted model | Not started |
 | Risk A6 | Risk-model slides | Not started |
 | Control | RL controller training | No training script in the repo yet |
 | Report | Literature review, figures, report, deck | Tracked outside this repo |
 
-### What A1 and A2 produced
+### What A1, A2 and A3 produced
 
 | Output | Rows | Grain |
 | --- | --- | --- |
@@ -318,6 +332,15 @@ Split: 1,770 failed drives divided 1,239 / 266 / 265.
 rows where `label != -1`; censored rows are unknown outcomes, not healthy
 drives. And use the stored split: never re-split, and never split by row or by
 date, because consecutive rows of one drive are near-copies.
+
+**What A3 produced.** A 25-model bootstrap ensemble (`hazard/artifacts/v1/`,
+about 218 MB, gitignored; hashes in `hazard/manifest.json`), fit on the train
+split (21,291,333 rows, 36,871 positive) and calibrated on val (4,567,066
+rows, 7,762 positive). Ensemble validation log-loss 0.010024, Brier 0.001585 --
+a real improvement over a constant-at-base-rate prediction (log-loss 0.01254,
+Brier 0.001697), but a modest one; these are sanity checks, not evidence of
+real-world quality, since val was also used for calibration. Whether v1
+actually beats `hazard/v0.py` on the untouched test split is A4's question.
 
 ## 9. Known limitations and open items
 
@@ -343,7 +366,17 @@ date, because consecutive rows of one drive are near-copies.
 - `RISK_BUDGET_EPS` bounds exposure, never data loss. An episode starts with one
   tolerated failure left, so exposure is one further failure and loss needs two.
   A data-loss figure has to be computed separately and labelled as such.
-- `A1_DECISION.md` and `A2_DECISION.md` both still read "Status: proposed".
+- Every one of A3's 25 boosters hit its round cap; early stopping never fired,
+  so the fit's true plateau was never observed.
+- A3's calibration has almost no resolution across most of the low-risk input
+  space: an all-zero input and an input with one SMART raw count set as high
+  as 50,000 (the rest absent) calibrate to the identical output, because both
+  raw scores fall under isotonic's lowest step.
+- `sim/scenario.py` still only generates the 5 synthetic features of
+  `hazard.v0.FEATURE_NAMES`, so v1's 57 inputs cannot be fed by the simulator
+  yet; that wiring is A5.
+- `A1_DECISION.md`, `A2_DECISION.md` and `A3_DECISION.md` all still read
+  "Status: proposed".
 
 ## 10. Getting started
 
@@ -388,6 +421,19 @@ outputs against `manifest.json` and `PREPROCESSING.md`:
 python -I data_pipeline/check_outputs.py
 ```
 
+**Fit the hazard model (optional, A3).** Needs `data_pipeline`'s outputs
+already regenerated. From the repo root:
+
+```
+pip install -r hazard/requirements.txt
+python -m hazard.fit_v1
+```
+
+About 95 minutes on a laptop GPU (CUDA); falls back to CPU, much slower, if
+none is found. Writes `hazard/artifacts/v1/` (gitignored, about 218 MB) and
+regenerates `hazard/manifest.json`. Without this, `hazard`'s own tests still
+pass against a small synthetic fixture built in-process.
+
 **Run everything:**
 
 ```
@@ -422,6 +468,7 @@ python -m pytest -q
 | `data_pipeline/PREPROCESSING.md` | What every pipeline stage did, with its last run's counts |
 | `data_pipeline/A1_DECISION.md` | Which Backblaze data, and the evidence for it |
 | `data_pipeline/A2_DECISION.md` | The label rule and the split, with per-split counts |
+| `hazard/A3_DECISION.md` | What model was fit, how, and its real evidence and limits |
 | `CLAUDE.md` | Lane ownership, conventions, code standards, A-lane notes |
 
 ## 13. Data attribution

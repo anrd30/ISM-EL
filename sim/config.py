@@ -241,7 +241,7 @@ class SimConfig:
     # measured calibration error; do not set non-zero without deriving it.
     hazard_error_sigma: float = 0.0
     hazard_model: HazardModel = field(default_factory=FittedHazardV1)
-    feature_fn: FleetFeatureFn = v1_drive_features
+    feature_fn: FleetFeatureFn = field(default=v1_drive_features, kw_only=True)
     label: str = "default"
 
     def __post_init__(self) -> None:

@@ -70,7 +70,14 @@ class _Ensemble:
 @lru_cache(maxsize=None)
 def _load(directory: Path) -> _Ensemble:
     """Load and cache the boosters, calibrator thresholds and metadata of ``directory``."""
-    meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+    try:
+        meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"{directory} is missing or incomplete (no meta.json). "
+            "Regenerate it with `python -m hazard.fit_v1`, or use "
+            "sim.config.v0_config() to run without the v1 artifacts."
+        ) from exc
     boosters = []
     for name in meta["boosters"]:
         booster = xgb.Booster()

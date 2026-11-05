@@ -391,9 +391,9 @@ def sample_fleet(
     model: HazardModel,
     level: float | None = None,
     drive_spread_sd: float = 0.15,
-    feature_fn: FleetFeatureFn = v0_drive_features,
     hazard_error_sigma: float = 0.0,
     error_rng: np.random.Generator | None = None,
+    feature_fn: FleetFeatureFn = v0_drive_features,
 ) -> Fleet:
     """Sample a correlated fleet of surviving drives and score it.
 
@@ -405,15 +405,15 @@ def sample_fleet(
             one in which most survivors are degraded together.
         drive_spread_sd: Standard deviation of each drive's deviation from the
             fleet level.
-        feature_fn: Per-drive feature builder, called once per drive with
-            ``(rng, drive_level, batch_age_hours, age_noise)``. It must match
-            ``model``: the default builds the v0 model's inputs.
         hazard_error_sigma: Log-space standard deviation of the multiplicative
             estimation error (see the module docstring); ``0.0`` means truth
             equals the estimate.
         error_rng: Source of the error multipliers, kept separate from ``rng``
             so the fleet is identical with and without error. Required when
             ``hazard_error_sigma > 0``.
+        feature_fn: Per-drive feature builder, called once per drive with
+            ``(rng, drive_level, batch_age_hours, age_noise)``. It must match
+            ``model``: the default builds the v0 model's inputs.
 
     Each drive's failure probability per control interval is
     ``1 - (1 - h) ** (CONTROL_INTERVAL_S / 3600)`` with ``h`` the drive's

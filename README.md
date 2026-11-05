@@ -294,15 +294,12 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-05, on `main`: 396 tests pass under `data_pipeline/tests`, which is
+As of 2026-11-06, on `main`: 396 tests pass under `data_pipeline/tests`, which is
 the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
 `hazard/` carry their own tests and run from the repo root. Across the whole
-repo, the last confirmed full `python -m pytest -q` run (right after A5's
-fleet-generator reconciliation, PR #13, before its two post-merge review
-rounds) passed 1,674 tests with 16 pre-existing skips; both review rounds
-added a handful of their own tests (including an xgboost-optional skip) and
-were each verified against their own scope rather than a fresh full-suite
-count, so 1,674 is a floor, not the final number. The acceptance checker
+repo, a full `python -m pytest -q` run on `main` (after PR #14's test-split
+fast-follow and PR #15's docs update) passed 1,682 tests with 16 pre-existing
+skips -- the current confirmed count. The acceptance checker
 reports `RESULT: PASS` in
 `--committed-only` mode on a clean clone, and in full mode once the
 Backblaze/Tencent outputs have been regenerated locally (they are gitignored,
@@ -331,7 +328,7 @@ real fitted model, until `python -m hazard.fit_v1` is run locally.
 | Risk A4 | Evaluate: calibration, PR-AUC, recall vs `hazard/v0.py` | Done, PR #12 |
 | Risk A5 | Replace `hazard/v0.py` with the fitted model | Done, PR #13 |
 | Risk A6 | Risk-model slides | Not started |
-| Control | RL controller training | No training script in the repo yet |
+| Control | RL controller training | `agent/train.py` (PPO, checkpointing, ablation flag) built; no full training run yet, only a smoke run; `hazard_error_sigma` still at its `0.0` default, which leaves the reliability constraint inert (`sim/LIMITATIONS.md` section 15) |
 | Report | Literature review, figures, report, deck | Tracked outside this repo |
 
 ### What A1 through A5 produced

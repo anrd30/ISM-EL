@@ -47,13 +47,15 @@ from contracts.contracts import (
 )
 from contracts.test_adapter_conformance import ALL_CHECKS
 from hazard.v0 import HeuristicHazardV0
-from sim.config import SimConfig, latency_mean_ms, latency_percentiles_ms, violation_rho_threshold
+from sim.config import SimConfig, latency_mean_ms, latency_percentiles_ms, v0_config, violation_rho_threshold
 from sim.recovery_env import RecoveryEnv, make_env
 from sim.safety_filter import apply_safety_filter, exposure_probability
 from sim.scenario import N_SURVIVORS, sample_fleet, sample_hazard_multipliers
 from sim.stress import STRESS_HAZARD_MULTIPLIER, ScaledHazard, stress_config
+from hazard.v1 import ARTIFACT_DIR as V1_ARTIFACT_DIR
 from workload.generate import N_ROWS, PROFILE_NAMES
 
+_V1_PRESENT = (V1_ARTIFACT_DIR / "meta.json").exists()
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIELD_5 = OBS_FIELDS.index("hazard")
 
@@ -75,6 +77,11 @@ class StressHazard:
 
     def __call__(self, features: dict[str, float], horizon_hours: float = 720.0) -> tuple[float, float]:
         return 0.999999, 0.0
+
+
+def make_v0_env(config: SimConfig | None = None) -> RecoveryEnv:
+    """Environment factory pinned to the v0 hazard and its feature function."""
+    return make_env(v0_config() if config is None else config)
 
 
 def write_constant_csv(path: Path, total_mbps: float, rows: int = N_ROWS) -> Path:
@@ -126,14 +133,14 @@ def run_episode(env: RecoveryEnv, policy: Any, seed: int | None = None) -> tuple
 class TestLatencyModel:
     def test_formula_and_unloaded_limit(self) -> None:
         """latency = unloaded / (1 - rho): equals the unloaded latency at rho = 0."""
-        cfg = SimConfig()
+        cfg = v0_config()
         assert latency_mean_ms(0.0, cfg) == pytest.approx(2.0)
         assert latency_mean_ms(0.5, cfg) == pytest.approx(4.0)
         assert latency_mean_ms(0.9, cfg) == pytest.approx(20.0)
 
     def test_convex_and_increasing(self) -> None:
         """Convexity is what makes the trade-off non-trivial: strictly positive second differences."""
-        cfg = SimConfig()
+        cfg = v0_config()
         rhos = np.linspace(0.0, cfg.rho_max, 50)
         values = np.array([latency_mean_ms(r, cfg) for r in rhos])
         assert np.all(np.diff(values) > 0.0)
@@ -141,7 +148,7 @@ class TestLatencyModel:
 
     def test_utilisation_is_capped_at_rho_max(self) -> None:
         """A foreground load above the ceiling cannot send latency to infinity."""
-        cfg = SimConfig()
+        cfg = v0_config()
         cap = 2.0 / (1.0 - cfg.rho_max)
         for rho in (0.98, 0.99, 1.0, 1.5):
             assert latency_mean_ms(rho, cfg) == pytest.approx(cap)
@@ -152,7 +159,7 @@ class TestLatencyModel:
         The threshold is found by bisection on the actual latency model and the
         contract's own ``latency_violation``, then compared with the closed form.
         """
-        cfg = SimConfig()
+        cfg = v0_config()
         closed_form = 1.0 - 2.0 / (LATENCY_LIMIT_FACTOR * 15.0)
         assert closed_form == pytest.approx(0.91111, abs=1e-4)
         assert cfg.latency_target_ms == 15.0
@@ -172,7 +179,7 @@ class TestLatencyModel:
 
     def test_degradation_term_is_silent_until_rho_0_867(self) -> None:
         """D = 0 while latency <= target (rho <= 1 - 2/15 ~ 0.867); informative only up to the 0.911 cliff."""
-        cfg = SimConfig()
+        cfg = v0_config()
         silent_until = 1.0 - cfg.latency_unloaded_ms / cfg.latency_target_ms
         assert silent_until == pytest.approx(0.8667, abs=1e-4)
         for rho in (0.0, 0.5, 0.8, silent_until - 1e-6):
@@ -183,7 +190,7 @@ class TestLatencyModel:
 
     def test_target_above_unloaded_so_light_load_is_not_degraded(self) -> None:
         """With target 15 ms > unloaded 2 ms an idle system has no violation and no degradation."""
-        cfg = SimConfig()
+        cfg = v0_config()
         idle = latency_mean_ms(0.0, cfg)
         assert latency_violation(idle, cfg.latency_target_ms) == 0.0
         assert latency_degradation(idle, cfg.latency_target_ms) == 0.0
@@ -191,9 +198,9 @@ class TestLatencyModel:
     def test_target_not_above_unloaded_is_rejected(self) -> None:
         """If the target equalled the unloaded latency, any load would register as degradation."""
         with pytest.raises(ValueError):
-            SimConfig(latency_target_ms=2.0)
+            v0_config(latency_target_ms=2.0)
         with pytest.raises(ValueError):
-            SimConfig(latency_target_ms=1.0)
+            v0_config(latency_target_ms=1.0)
 
     def test_percentiles_are_exponential_quantiles(self) -> None:
         p95, p99 = latency_percentiles_ms(10.0)
@@ -214,7 +221,7 @@ class TestLatencyModel:
             dict(drive_spread_sd=-0.1),
         ):
             with pytest.raises(ValueError):
-                SimConfig(**bad)
+                v0_config(**bad)
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +294,7 @@ class TestSafetyFilter:
 
     def test_env_filter_flags_are_consistent_with_info(self) -> None:
         """Across many scenarios: applied >= requested, clip flag matches, budget flag matches P."""
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         seen_clip = seen_ok = False
         for seed in range(80):
             env.reset(seed=seed)
@@ -302,7 +309,7 @@ class TestSafetyFilter:
 
     def test_env_applies_maximum_when_nothing_feasible(self, tmp_path: Path) -> None:
         csv = write_constant_csv(tmp_path / "load.csv", 20.0)
-        env = RecoveryEnv(SimConfig(workload_csv=csv, hazard_model=StressHazard()))
+        env = RecoveryEnv(v0_config(workload_csv=csv, hazard_model=StressHazard()))
         env.reset(seed=0)
         for action in range(N_ACTIONS):
             env.reset(seed=0)
@@ -319,12 +326,17 @@ class TestSafetyFilter:
 class TestConformance:
     def test_all_checks_pass_in_process(self) -> None:
         for check in ALL_CHECKS:
+            check(make_v0_env)
+
+    @pytest.mark.skipif(not _V1_PRESENT, reason="hazard/artifacts/v1 absent")
+    def test_all_checks_pass_with_default_config(self) -> None:
+        for check in ALL_CHECKS:
             check(make_env)
 
     @pytest.mark.parametrize("profile", PROFILE_NAMES)
     def test_all_checks_pass_for_each_pinned_profile(self, profile: str) -> None:
         def factory() -> RecoveryEnv:
-            return make_env(SimConfig(workload_profile=profile))
+            return make_env(v0_config(workload_profile=profile))
 
         for check in ALL_CHECKS:
             check(factory)
@@ -332,7 +344,7 @@ class TestConformance:
     def test_external_environment_tests_run_and_pass_not_skip(self) -> None:
         """With ISM_ENV_FACTORY set, the harness's 7 external-environment tests run and pass."""
         env = dict(os.environ)
-        env["ISM_ENV_FACTORY"] = "sim.recovery_env:make_env"
+        env["ISM_ENV_FACTORY"] = "sim.test_recovery_env:make_v0_env"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         result = subprocess.run(
             [
@@ -365,7 +377,7 @@ class TestConformance:
 
 class TestObservationAndInfo:
     def test_reset_observation_fields(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         obs, info = env.reset(seed=3)
         assert_valid_obs(obs)
         v = dict(zip(OBS_FIELDS, obs.tolist()))
@@ -380,7 +392,7 @@ class TestObservationAndInfo:
 
     def test_valid_observation_and_info_over_full_episodes(self) -> None:
         """Every reset and step of several full episodes passes the contract checks."""
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         ends = []
         for seed, policy in (
             (0, lambda t: 3),
@@ -396,7 +408,7 @@ class TestObservationAndInfo:
         assert set(ends) <= {r.value for r in TerminationReason}
 
     def test_diagnostic_keys_and_types(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         _, info = env.reset(seed=1)
         _, _, _, _, step_info = env.step(1)
         for i in (info, step_info):
@@ -421,7 +433,7 @@ class TestObservationAndInfo:
         assert step_info["alloc_effective_mbps"] <= step_info["alloc_applied_mbps"] + 1e-12
 
     def test_trace_start_row_present_on_reset_and_every_step(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         _, info = env.reset(seed=6)
         validate_info(info)
         assert "trace_start_row" in info
@@ -430,14 +442,14 @@ class TestObservationAndInfo:
         assert all("trace_start_row" in i for i in infos)
 
     def test_trace_start_row_is_builtin_int(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         _, info = env.reset(seed=7)
         _, _, _, _, step_info = env.step(1)
         for i in (info, step_info):
             assert type(i["trace_start_row"]) is int
 
     def test_trace_start_row_constant_within_episode(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         _, info = env.reset(seed=8)
         start = info["trace_start_row"]
         _, _, infos = run_episode(env, lambda t: t % N_ACTIONS, seed=8)
@@ -445,7 +457,7 @@ class TestObservationAndInfo:
         assert {i["trace_start_row"] for i in infos} == {start}
 
     def test_trace_start_row_equals_the_offset_the_env_used(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         for seed in range(5):
             obs, info = env.reset(seed=seed)
             assert info["trace_start_row"] == env._offset  # noqa: SLF001
@@ -457,14 +469,14 @@ class TestObservationAndInfo:
             assert step_info["fg_bw_mbps"] == float(env._trace.fg_bw_mbps[row])  # noqa: SLF001
 
     def test_trace_start_row_zero_without_random_offset(self) -> None:
-        env = RecoveryEnv(SimConfig(random_trace_offset=False))
+        env = RecoveryEnv(v0_config(random_trace_offset=False))
         _, info = env.reset(seed=3)
         assert info["trace_start_row"] == 0
         _, _, _, _, step_info = env.step(1)
         assert step_info["trace_start_row"] == 0
 
     def test_trace_start_row_seed_determinism(self) -> None:
-        a, b = RecoveryEnv(), RecoveryEnv()
+        a, b = RecoveryEnv(v0_config()), RecoveryEnv(v0_config())
         rows_a = [a.reset(seed=s)[1]["trace_start_row"] for s in range(30)]
         rows_b = [b.reset(seed=s)[1]["trace_start_row"] for s in range(30)]
         assert rows_a == rows_b
@@ -473,13 +485,13 @@ class TestObservationAndInfo:
         assert len(set(rows_a)) > 20
 
     def test_trace_start_row_is_a_valid_trace_index(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         for seed in range(30):
             _, info = env.reset(seed=seed)
             assert 0 <= info["trace_start_row"] < len(env._trace)  # noqa: SLF001
 
     def test_percentiles_and_reward_follow_the_documented_formulas(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         env.reset(seed=5)
         for _ in range(20):
             _, reward, _, _, info = env.step(2)
@@ -494,7 +506,7 @@ class TestObservationAndInfo:
 
     def test_p_failure_matches_contract_formula_on_observed_hazard(self) -> None:
         """P is computed from the group hazard shown in field 5 (here unsaturated)."""
-        env = RecoveryEnv(SimConfig(fleet_degradation=0.2, drive_spread_sd=0.0))
+        env = RecoveryEnv(v0_config(fleet_degradation=0.2, drive_spread_sd=0.0))
         obs, _ = env.reset(seed=11)
         assert obs[FIELD_5] < 1.0
         hazard = float(obs[FIELD_5]) * OBS_SCALES["hazard"]
@@ -503,14 +515,14 @@ class TestObservationAndInfo:
         assert info["p_failure_before_complete"] == pytest.approx(1.0 - math.exp(-hazard * hours), rel=1e-4)
 
     def test_bad_actions_raise_contract_violation(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         env.reset(seed=0)
         for bad in (-1, N_ACTIONS, 99, 1.5, True, "a", None):
             with pytest.raises(ContractViolation):
                 env.step(bad)  # type: ignore[arg-type]
 
     def test_step_without_running_episode_raises(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         with pytest.raises(RuntimeError):
             env.step(0)
         env.reset(seed=0)
@@ -526,7 +538,7 @@ class TestObservationAndInfo:
     @pytest.mark.parametrize("bad_seed", [-1, 1.5, True, "3"])
     def test_bad_seed_is_rejected(self, bad_seed: Any) -> None:
         with pytest.raises(ValueError):
-            RecoveryEnv().reset(seed=bad_seed)
+            RecoveryEnv(v0_config()).reset(seed=bad_seed)
 
 
 class TestTermination:
@@ -546,12 +558,12 @@ class TestTermination:
         seen: dict[str, tuple[bool, bool]] = {}
 
         # RECOVERY_COMPLETE: default scenario, fastest rebuild.
-        t_, tr_, info, _ = self._final(RecoveryEnv(SimConfig(**HEALTHY)), 3)
+        t_, tr_, info, _ = self._final(RecoveryEnv(v0_config(**HEALTHY)), 3)
         seen[info["termination_reason"]] = (t_, tr_)
         assert info["recovery_complete"] is True
 
         # TERMINAL_FAILURE: hostile hazard model, so that two further failures occur.
-        loss_cfg = SimConfig(hazard_model=StressHazard())
+        loss_cfg = v0_config(hazard_model=StressHazard())
         for seed in range(30):
             env = RecoveryEnv(loss_cfg)
             env.reset(seed=seed)
@@ -569,7 +581,7 @@ class TestTermination:
 
         # HORIZON_EXPIRED: foreground load leaves no headroom, so no progress is possible.
         stalled = write_constant_csv(tmp_path / "stalled.csv", 199.0)
-        t_, tr_, info, steps = self._final(RecoveryEnv(SimConfig(workload_csv=stalled, **HEALTHY)), 3)
+        t_, tr_, info, steps = self._final(RecoveryEnv(v0_config(workload_csv=stalled, **HEALTHY)), 3)
         seen[info["termination_reason"]] = (t_, tr_)
         assert steps == MAX_EPISODE_STEPS and info["recovery_complete"] is False
 
@@ -580,16 +592,16 @@ class TestTermination:
 
     def test_episode_never_exceeds_max_steps(self, tmp_path: Path) -> None:
         stalled = write_constant_csv(tmp_path / "stalled.csv", 199.0)
-        env = RecoveryEnv(SimConfig(workload_csv=stalled))
+        env = RecoveryEnv(v0_config(workload_csv=stalled))
         steps, final, _ = run_episode(env, lambda t: 0, seed=0)
         assert steps <= MAX_EPISODE_STEPS
         for seed in range(6):
-            steps, _, _ = run_episode(RecoveryEnv(), lambda t: t % 2, seed=seed)
+            steps, _, _ = run_episode(RecoveryEnv(v0_config()), lambda t: t % 2, seed=seed)
             assert steps <= MAX_EPISODE_STEPS
 
     def test_loss_requires_more_failures_than_remaining_redundancy(self) -> None:
         """Redundancy goes 1 -> 0 on the first failure; hazard drops with the lost drive."""
-        env = RecoveryEnv(SimConfig(hazard_model=StressHazard()))
+        env = RecoveryEnv(v0_config(hazard_model=StressHazard()))
         for seed in range(30):
             env.reset(seed=seed)
             hazard_before = env._hazard  # noqa: SLF001 - checking the aggregate drops
@@ -616,7 +628,7 @@ class TestRebuild:
     @pytest.mark.parametrize("seed", [0, 1, 2])
     def test_constant_120_and_constant_20_both_complete_within_horizon(self, profile: str, seed: int) -> None:
         """The 2400-step horizon clears the slowest action; neither fixed policy is truncated."""
-        env = RecoveryEnv(SimConfig(workload_profile=profile, **HEALTHY))
+        env = RecoveryEnv(v0_config(workload_profile=profile, **HEALTHY))
         fast_steps, fast, _ = run_episode(env, lambda t: 3, seed=seed)
         slow_steps, slow, _ = run_episode(env, lambda t: 0, seed=seed)
         assert fast["termination_reason"] == TerminationReason.RECOVERY_COMPLETE.value
@@ -628,7 +640,7 @@ class TestRebuild:
 
     def test_healthy_group_is_never_clipped_at_baseline_hazard(self) -> None:
         """At baseline hazard all four actions are feasible, so the filter stays out of the way."""
-        env = RecoveryEnv(SimConfig(workload_profile="diurnal", **HEALTHY))
+        env = RecoveryEnv(v0_config(workload_profile="diurnal", **HEALTHY))
         _, _, infos = run_episode(env, lambda t: 0, seed=0)
         assert not any(i["alloc_clipped_by_filter"] for i in infos)
         assert not any(i["violated_risk_budget"] for i in infos)
@@ -638,7 +650,7 @@ class TestRebuild:
         csv = write_constant_csv(tmp_path / "load.csv", 60.0)
         steps, mean_latency = [], []
         for action in range(N_ACTIONS):
-            env = RecoveryEnv(SimConfig(workload_csv=csv, **HEALTHY))
+            env = RecoveryEnv(v0_config(workload_csv=csv, **HEALTHY))
             n, final, infos = run_episode(env, lambda t, a=action: a, seed=0)
             assert final["termination_reason"] == TerminationReason.RECOVERY_COMPLETE.value
             assert not any(i["alloc_clipped_by_filter"] for i in infos)
@@ -655,7 +667,7 @@ class TestRebuild:
         """Same scenario, different fixed action: completion never slower, first-step latency never lower."""
         steps, first_latency = [], []
         for action in range(N_ACTIONS):
-            env = RecoveryEnv(SimConfig(workload_profile="diurnal", **HEALTHY))
+            env = RecoveryEnv(v0_config(workload_profile="diurnal", **HEALTHY))
             n, _, infos = run_episode(env, lambda t, a=action: a, seed=7)
             steps.append(n)
             first_latency.append(infos[0]["latency_now"])
@@ -663,7 +675,7 @@ class TestRebuild:
         assert all(a <= b for a, b in zip(first_latency, first_latency[1:]))
 
     def test_progress_and_work_are_consistent(self) -> None:
-        env = RecoveryEnv(SimConfig(**HEALTHY))
+        env = RecoveryEnv(v0_config(**HEALTHY))
         env.reset(seed=4)
         previous = 0.0
         for _ in range(50):
@@ -682,7 +694,7 @@ class TestRebuild:
         outcomes = {}
         for fg in (100.0, 162.0, 162.5, 170.0):
             csv = write_constant_csv(tmp_path / f"fg_{fg}.csv", fg)
-            env = RecoveryEnv(SimConfig(workload_csv=csv, **HEALTHY))
+            env = RecoveryEnv(v0_config(workload_csv=csv, **HEALTHY))
             env.reset(seed=0)
             _, _, _, _, info = env.step(0)
             outcomes[fg] = info["violated_latency"]
@@ -692,7 +704,7 @@ class TestRebuild:
     def test_alloc_is_limited_by_headroom(self, tmp_path: Path) -> None:
         """alloc_effective = min(applied, headroom): at fg 150 only 46 MB/s are available."""
         csv = write_constant_csv(tmp_path / "fg150.csv", 150.0)
-        env = RecoveryEnv(SimConfig(workload_csv=csv, **HEALTHY))
+        env = RecoveryEnv(v0_config(workload_csv=csv, **HEALTHY))
         env.reset(seed=0)
         _, _, _, _, info = env.step(3)
         assert info["bw_available_mbps"] == pytest.approx(0.98 * 200.0 - 150.0)
@@ -709,13 +721,13 @@ class TestRebuild:
 class TestWorkload:
     def test_kbps_converted_once_to_mbps(self, tmp_path: Path) -> None:
         csv = write_constant_csv(tmp_path / "load.csv", 128.0)
-        obs, info = RecoveryEnv(SimConfig(workload_csv=csv)).reset(seed=0)
+        obs, info = RecoveryEnv(v0_config(workload_csv=csv)).reset(seed=0)
         assert info["fg_bw_mbps"] == pytest.approx(128.0)
         assert obs[OBS_FIELDS.index("fg_bw")] == pytest.approx(128.0 / BW_TOTAL_MBPS)
 
     def test_trace_is_tiled_cyclically_and_wraps_are_recorded(self, tmp_path: Path) -> None:
         stalled = write_constant_csv(tmp_path / "stalled.csv", 199.0)
-        env = RecoveryEnv(SimConfig(workload_csv=stalled, random_trace_offset=False))
+        env = RecoveryEnv(v0_config(workload_csv=stalled, random_trace_offset=False))
         _, info = env.reset(seed=0)
         assert info["trace_wraps"] == 0
         for t in range(1, 700):
@@ -725,7 +737,7 @@ class TestWorkload:
 
     def test_trace_wraps_with_random_offset(self, tmp_path: Path) -> None:
         stalled = write_constant_csv(tmp_path / "stalled.csv", 199.0)
-        env = RecoveryEnv(SimConfig(workload_csv=stalled))
+        env = RecoveryEnv(v0_config(workload_csv=stalled))
         env.reset(seed=3)
         offset = env._offset  # noqa: SLF001
         _, _, _, _, info = env.step(0)
@@ -735,11 +747,11 @@ class TestWorkload:
 
     def test_pinned_profile(self) -> None:
         for name in PROFILE_NAMES:
-            _, info = RecoveryEnv(SimConfig(workload_profile=name)).reset(seed=2)
+            _, info = RecoveryEnv(v0_config(workload_profile=name)).reset(seed=2)
             assert info["workload_profile"] == name
 
     def test_profile_sampling_covers_all_four_profiles(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         seen = {env.reset(seed=s)[1]["workload_profile"] for s in range(60)}
         assert seen == set(PROFILE_NAMES)
 
@@ -761,7 +773,7 @@ class TestWorkload:
         if sidecar is not None:
             text = sidecar if isinstance(sidecar, str) else json.dumps(sidecar)
             (tmp_path / "profile_x.meta.json").write_text(text, encoding="utf-8")
-        env = RecoveryEnv(SimConfig(workload_csv=csv))
+        env = RecoveryEnv(v0_config(workload_csv=csv))
         _, info = env.reset(seed=0)
         assert info["workload_synthetic"] is expected
         _, _, _, _, step_info = env.step(0)
@@ -772,7 +784,7 @@ class TestWorkload:
         bad = tmp_path / "bad.csv"
         pd.DataFrame({"t_seconds": [0, 300], "read_iops": [1, 2]}).to_csv(bad, index=False)
         with pytest.raises(ContractViolation):
-            RecoveryEnv(SimConfig(workload_csv=bad)).reset(seed=0)
+            RecoveryEnv(v0_config(workload_csv=bad)).reset(seed=0)
 
 
 # ---------------------------------------------------------------------------
@@ -783,7 +795,7 @@ class TestWorkload:
 class TestDeterminism:
     @staticmethod
     def _trajectory(seed: int, config: SimConfig | None = None) -> list[tuple[Any, ...]]:
-        env = RecoveryEnv(config)
+        env = RecoveryEnv(v0_config() if config is None else config)
         rng = np.random.default_rng(99)  # actions: independent of the env's own randomness
         obs, info = env.reset(seed=seed)
         out: list[tuple[Any, ...]] = [(obs.copy(), None, False, False, dict(info))]
@@ -807,7 +819,7 @@ class TestDeterminism:
         self._assert_equal(self._trajectory(seed), self._trajectory(seed))
 
     def test_same_seed_on_a_reused_env(self) -> None:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         runs = []
         for _ in range(2):
             obs, _ = env.reset(seed=8)
@@ -818,7 +830,7 @@ class TestDeterminism:
         assert all(np.array_equal(x, y) for x, y in zip(*runs))
 
     def test_same_seed_with_failures_is_identical(self) -> None:
-        cfg = SimConfig(hazard_model=StressHazard())
+        cfg = v0_config(hazard_model=StressHazard())
         self._assert_equal(self._trajectory(2, cfg), self._trajectory(2, cfg))
 
     def test_different_seeds_give_different_scenarios(self) -> None:
@@ -836,7 +848,7 @@ class TestRiskInputCoverage:
 
     @pytest.fixture(scope="class")
     def field5_and_feasible(self) -> tuple[np.ndarray, np.ndarray]:
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         f5, feasible = [], []
         for seed in range(self.N_RESETS):
             obs, _ = env.reset(seed=seed)
@@ -894,7 +906,7 @@ class TestRiskInputCoverage:
         """Within-episode spread of drive severity is smaller than the spread across episodes."""
         from hazard.v0 import severity_multiplier
 
-        env = RecoveryEnv()
+        env = RecoveryEnv(v0_config())
         within, means = [], []
         for seed in range(200):
             env.reset(seed=seed)
@@ -904,10 +916,10 @@ class TestRiskInputCoverage:
         assert np.mean(within) < np.var(means)
 
     def test_pinned_fleet_level_is_respected(self) -> None:
-        env = RecoveryEnv(SimConfig(fleet_degradation=1.0, drive_spread_sd=0.0))
+        env = RecoveryEnv(v0_config(fleet_degradation=1.0, drive_spread_sd=0.0))
         _, info = env.reset(seed=0)
         assert info["fleet_degradation_level"] == 1.0
-        env = RecoveryEnv(SimConfig(fleet_degradation=0.0, drive_spread_sd=0.0))
+        env = RecoveryEnv(v0_config(fleet_degradation=0.0, drive_spread_sd=0.0))
         obs, info = env.reset(seed=0)
         assert info["fleet_degradation_level"] == 0.0
         # Healthy fleet: only the age term raises the hazard above baseline (<= 1.12x).
@@ -940,7 +952,7 @@ class TestProfileViolationFractions:
             for action in range(N_ACTIONS):
                 per_seed = []
                 for seed in range(3):
-                    env = RecoveryEnv(SimConfig(workload_profile=profile, **HEALTHY))
+                    env = RecoveryEnv(v0_config(workload_profile=profile, **HEALTHY))
                     _, _, infos = run_episode(env, lambda t, a=action: a, seed=seed)
                     assert not any(i["alloc_clipped_by_filter"] for i in infos)
                     per_seed.append(float(np.mean([i["violated_latency"] for i in infos])))
@@ -969,7 +981,7 @@ class TestProfileViolationFractions:
 
 class TestStressConfiguration:
     def test_default_label(self) -> None:
-        _, info = RecoveryEnv().reset(seed=0)
+        _, info = RecoveryEnv(v0_config()).reset(seed=0)
         assert info["config_label"] == "default"
 
     def test_stress_config_is_labelled_in_every_info(self) -> None:
@@ -982,7 +994,7 @@ class TestStressConfiguration:
         assert step_info["config_label"] == cfg.label
 
     def test_stress_config_keeps_other_fields(self) -> None:
-        cfg = stress_config(base=SimConfig(workload_profile="idle", latency_target_ms=9.0))
+        cfg = stress_config(base=v0_config(workload_profile="idle", latency_target_ms=9.0))
         assert cfg.workload_profile == "idle" and cfg.latency_target_ms == 9.0
         assert isinstance(cfg.hazard_model, ScaledHazard)
 
@@ -1030,7 +1042,7 @@ class TestStressConfiguration:
 
 def test_observation_class_is_used_for_every_vector() -> None:
     """The vector is built via Observation.to_vector: it round-trips through from_vector."""
-    env = RecoveryEnv()
+    env = RecoveryEnv(v0_config())
     obs, _ = env.reset(seed=0)
     restored = Observation.from_vector(obs)
     restored.validate()
@@ -1083,22 +1095,22 @@ def _trajectory_digest(config: SimConfig, seed: int, n_episodes: int = 3, max_st
 #: error existed. ``stress_seed3`` and ``stress_peak_seed3`` include survivor
 #: failures and a terminal failure, so the failure-draw path is covered.
 _RECORDED_DIGESTS: dict[str, tuple[SimConfig, int, str]] = {
-    "default_seed0": (SimConfig(), 0, "44ff8f6dba3692482345bbd596f9101cc37cdb14d4d52c4fd00fa546ceefd154"),
-    "default_seed7": (SimConfig(), 7, "87103736fca3c07413861eec2268e4853d82aedde2b8e8d70640fd95bcec3ee6"),
+    "default_seed0": (v0_config(), 0, "44ff8f6dba3692482345bbd596f9101cc37cdb14d4d52c4fd00fa546ceefd154"),
+    "default_seed7": (v0_config(), 7, "87103736fca3c07413861eec2268e4853d82aedde2b8e8d70640fd95bcec3ee6"),
     "peak_mid_seed3": (
-        SimConfig(workload_profile="peak", fleet_degradation=0.5),
+        v0_config(workload_profile="peak", fleet_degradation=0.5),
         3,
         "737e6109efc9f9380154eab06a1a69e6edaf6b5bc88ef352c284a8edc238dd8e",
     ),
     "degraded_seed11": (
-        SimConfig(fleet_degradation=1.0, workload_profile="bursty"),
+        v0_config(fleet_degradation=1.0, workload_profile="bursty"),
         11,
         "ecffe856aab3ccbceca38e460863c1f50395e6017d86a7e72da5da6a9fc3b71d",
     ),
     "stress_seed2": (stress_config(), 2, "1f10eabd31047e172033580ec12e4e71a87e80ccb2041f340360540f27faad1e"),
     "stress_seed3": (stress_config(), 3, "2bf567cf561afcd5e39a2cbbfe5e386303e5c43777db13b8d42f96339b35f8f5"),
     "stress_peak_seed3": (
-        stress_config(base=SimConfig(workload_profile="peak")),
+        stress_config(base=v0_config(workload_profile="peak")),
         3,
         "ddbdbf7ae759e85983c1060d0f5e44bbca6b4faa2dcb7b9182fc51753cad23fe",
     ),
@@ -1121,7 +1133,7 @@ def _interval_prob(hazard_per_hour: np.ndarray) -> np.ndarray:
 
 
 def _error_env(sigma: float, **kwargs: Any) -> RecoveryEnv:
-    return RecoveryEnv(SimConfig(hazard_error_sigma=sigma, workload_profile="diurnal", **kwargs))
+    return RecoveryEnv(v0_config(hazard_error_sigma=sigma, workload_profile="diurnal", **kwargs))
 
 
 class TestHazardEstimationError:
@@ -1212,7 +1224,7 @@ class TestHazardEstimationError:
 
     def test_failures_are_drawn_from_the_truth(self) -> None:
         """The first failure step follows the true probabilities, not the estimated ones."""
-        config = SimConfig(
+        config = v0_config(
             hazard_error_sigma=1.5,
             hazard_model=_ConstantRisk(0.6),
             workload_profile="idle",
@@ -1325,7 +1337,7 @@ class TestHazardEstimationError:
     def test_same_seed_same_noisy_trajectory(self) -> None:
         digests = []
         for _ in range(2):
-            digests.append(_trajectory_digest(SimConfig(hazard_error_sigma=0.9), 5, n_episodes=2, max_steps=300))
+            digests.append(_trajectory_digest(v0_config(hazard_error_sigma=0.9), 5, n_episodes=2, max_steps=300))
         assert digests[0] == digests[1]
 
     def test_failed_drive_leaves_both_aggregates(self) -> None:
@@ -1366,7 +1378,7 @@ class TestHazardEstimationError:
     @pytest.mark.parametrize("bad", [-0.1, -1e-12, float("nan"), float("inf"), float("-inf"), True, "0.5", None])
     def test_invalid_sigma_is_rejected(self, bad: Any) -> None:
         with pytest.raises(ValueError, match="hazard_error_sigma"):
-            SimConfig(hazard_error_sigma=bad)
+            v0_config(hazard_error_sigma=bad)
 
     @pytest.mark.parametrize("bad", [-0.1, float("nan"), float("inf")])
     def test_invalid_sigma_rejected_below_the_config(self, bad: float) -> None:
@@ -1387,7 +1399,7 @@ class TestHazardEstimationError:
         assert np.array_equal(m, np.ones(N_SURVIVORS))
 
     def test_huge_multiplier_cannot_push_hazard_to_one(self) -> None:
-        env = RecoveryEnv(SimConfig(hazard_error_sigma=6.0, hazard_model=_ConstantRisk(0.99)))
+        env = RecoveryEnv(v0_config(hazard_error_sigma=6.0, hazard_model=_ConstantRisk(0.99)))
         for seed in range(20):
             env.reset(seed=seed)
             assert env._fleet is not None

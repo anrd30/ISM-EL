@@ -25,3 +25,5 @@ hazard/artifacts/
 
 # Local Claude Code settings (machine-specific, never shared)
 .claude/
+graphify-out/
+_to_delete/

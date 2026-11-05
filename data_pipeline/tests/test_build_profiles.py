@@ -545,9 +545,9 @@ def profile_frame(read_kbps, write_kbps, read_iops=None, write_iops=None):
 
 def brute_force_ladder(frame):
     """Per-action violating share, with plain float arithmetic and the configured constants."""
-    from sim.config import SimConfig
+    from sim.config import v0_config
 
-    cfg = SimConfig()
+    cfg = v0_config()
     limit_ms = contracts.LATENCY_LIMIT_FACTOR * cfg.latency_target_ms
     fg = ((frame["read_bw_kbps"] + frame["write_bw_kbps"]) / 1000.0).tolist()
     fractions = {}

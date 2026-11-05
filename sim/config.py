@@ -130,10 +130,13 @@ from contracts.contracts import (
     RewardConfig,
 )
 from hazard.v0 import HeuristicHazardV0
+from hazard.v1 import FittedHazardV1
+from sim.scenario import FleetFeatureFn, v0_drive_features, v1_drive_features
 from workload.generate import PROFILE_NAMES
 
 __all__ = [
     "SimConfig",
+    "v0_config",
     "latency_mean_ms",
     "latency_percentiles_ms",
     "violation_rho_threshold",
@@ -204,7 +207,15 @@ class SimConfig:
             a fitted risk model exists yet, and any non-zero value would be an
             invented number. See ``sim/LIMITATIONS.md`` section 15.
         hazard_model: The per-drive risk model, called once per surviving
-            drive at reset. Default is the heuristic v0.
+            drive at reset. Default is the fitted v1
+            (``hazard.v1.FittedHazardV1``, which reads its artifacts at
+            construction); the heuristic v0 is selected by passing
+            ``HeuristicHazardV0()`` together with ``v0_drive_features`` (see
+            :func:`v0_config`).
+        feature_fn: Per-drive feature builder passed to
+            ``sim.scenario.sample_fleet``; it must produce the inputs of
+            ``hazard_model``. Default is ``sim.scenario.v1_drive_features``,
+            matching the v1 default; ``v0_drive_features`` matches v0.
         label: Name of the configuration, copied into every ``info`` as
             ``config_label`` so results can be traced to the configuration
             that produced them. ``"default"`` for the unmodified simulator;
@@ -229,7 +240,8 @@ class SimConfig:
     # [ASSUMED] 0.0: estimation error switched off. Not derived from any
     # measured calibration error; do not set non-zero without deriving it.
     hazard_error_sigma: float = 0.0
-    hazard_model: HazardModel = field(default_factory=HeuristicHazardV0)
+    hazard_model: HazardModel = field(default_factory=FittedHazardV1)
+    feature_fn: FleetFeatureFn = field(default=v1_drive_features, kw_only=True)
     label: str = "default"
 
     def __post_init__(self) -> None:
@@ -256,6 +268,16 @@ class SimConfig:
             and self.hazard_error_sigma >= 0.0
         ):
             raise ValueError(f"hazard_error_sigma must be a finite number >= 0, got {self.hazard_error_sigma!r}")
+
+
+def v0_config(**overrides: object) -> SimConfig:
+    """Return a ``SimConfig`` with the heuristic v0 hazard and its matching feature function.
+
+    ``overrides`` are passed to ``SimConfig`` and may replace either of the two.
+    """
+    fields: dict[str, object] = {"hazard_model": HeuristicHazardV0(), "feature_fn": v0_drive_features}
+    fields.update(overrides)
+    return SimConfig(**fields)  # type: ignore[arg-type]
 
 
 def latency_mean_ms(rho: float, cfg: SimConfig) -> float:

@@ -54,12 +54,12 @@ from contracts.contracts import (
     latency_degradation,
     latency_violation,
 )
-from sim.config import SimConfig
+from sim.config import SimConfig, v0_config
 from sim.recovery_env import RecoveryEnv
 from sim.safety_filter import exposure_probability
 from workload.generate import PROFILE_NAMES
 
-HEALTHY = SimConfig(fleet_degradation=0.0)
+HEALTHY = v0_config(fleet_degradation=0.0)
 
 
 def _bound(policy: Policy, config: SimConfig | None = None) -> Policy:
@@ -264,7 +264,7 @@ def test_risk_aware_never_requests_less_than_the_floor() -> None:
 def test_prediction_equals_the_simulators_realised_latency() -> None:
     """With the next foreground load known exactly, the predicted latency is exact."""
     for profile in PROFILE_NAMES:
-        cfg = dataclasses.replace(SimConfig(), workload_profile=profile)
+        cfg = dataclasses.replace(v0_config(), workload_profile=profile)
         rule = LatencyRule(cfg)
         env = RecoveryEnv(cfg)
         env.reset(seed=11)
@@ -282,7 +282,7 @@ def test_prediction_equals_the_simulators_realised_latency() -> None:
 
 
 def test_peek_matches_the_load_the_next_step_executes_across_a_trace_wrap() -> None:
-    cfg = dataclasses.replace(SimConfig(), workload_profile="bursty")
+    cfg = dataclasses.replace(v0_config(), workload_profile="bursty")
     env = RecoveryEnv(cfg)
     env.reset(seed=5)
     wraps = 0
@@ -303,7 +303,7 @@ def test_peek_requires_a_running_episode() -> None:
 
 def test_array_cost_terms_match_the_contract_helpers() -> None:
     """The vectorised D and V inside ``LatencyRule.score`` equal the contract's helpers."""
-    cfg = SimConfig()
+    cfg = v0_config()
     rule = LatencyRule(cfg)
     reward = cfg.reward
     for fg in np.linspace(0.0, 199.0, 60):
@@ -328,7 +328,7 @@ def test_load_rule_is_monotone_in_foreground_load() -> None:
 
 
 def test_load_rule_never_requests_an_allocation_it_predicts_to_violate_when_another_fits() -> None:
-    cfg = SimConfig()
+    cfg = v0_config()
     rule = LatencyRule(cfg)
     policy = WorkloadOnlyThrottle(cfg)
     for fg in np.linspace(0.0, 195.0, 80):
@@ -373,7 +373,7 @@ def test_oracle_action_has_the_lowest_true_score_at_every_step() -> None:
     and on a bursty trace it must be strictly better somewhere or the test is
     vacuous.
     """
-    cfg = dataclasses.replace(SimConfig(), workload_profile="bursty")
+    cfg = dataclasses.replace(v0_config(), workload_profile="bursty")
     rule = LatencyRule(cfg)
     policy = RiskAwareRuleBased(cfg)
     oracle = OracleLookahead(cfg)
@@ -424,7 +424,7 @@ def test_risk_aware_is_never_clipped_by_the_filter_on_a_healthy_fleet() -> None:
 
 def test_workload_only_is_clipped_by_the_filter_when_the_hazard_is_high() -> None:
     """The blind policy relies on the filter; the aware one does not (same scenarios)."""
-    cfg = SimConfig(fleet_degradation=0.6)
+    cfg = v0_config(fleet_degradation=0.6)
     blind = evaluate(WorkloadOnlyThrottle(cfg), profile="peak", seeds=[0, 1], config=cfg)
     aware = evaluate(RiskAwareRuleBased(cfg), profile="peak", seeds=[0, 1], config=cfg)
     assert blind["clip_fraction"].mean() > 0.0
@@ -433,7 +433,7 @@ def test_workload_only_is_clipped_by_the_filter_when_the_hazard_is_high() -> Non
 
 def test_evaluate_rows_come_from_info() -> None:
     """Cross-check the aggregated columns against an independent loop over ``info``."""
-    cfg = dataclasses.replace(SimConfig(), workload_profile="diurnal")
+    cfg = dataclasses.replace(v0_config(), workload_profile="diurnal")
     policy = FixedRate(80)
     row = evaluate(policy, profile="diurnal", seeds=[3]).iloc[0]
 
@@ -524,7 +524,7 @@ def test_check_pairing_detects_a_scenario_mismatch() -> None:
 
 def test_scenarios_do_not_depend_on_the_policy() -> None:
     """Same seed, different actions: the first observation and the fleet agree."""
-    cfg = dataclasses.replace(SimConfig(), workload_profile="bursty")
+    cfg = dataclasses.replace(v0_config(), workload_profile="bursty")
     first = RecoveryEnv(cfg)
     second = RecoveryEnv(cfg)
     obs_a, info_a = first.reset(seed=9)
@@ -544,7 +544,7 @@ def test_evaluate_rejects_bad_arguments() -> None:
     with pytest.raises(ValueError):
         evaluate(FixedRate(20), profile="idle", seeds=[0, 0])
     with pytest.raises(ValueError):
-        evaluate(FixedRate(20), profile="idle", seeds=[0], config=SimConfig(workload_csv="x.csv"))
+        evaluate(FixedRate(20), profile="idle", seeds=[0], config=v0_config(workload_csv="x.csv"))
     with pytest.raises(ValueError):
         compare([FixedRate(20), FixedRate(20)], profiles=["idle"], seeds=[0])
     with pytest.raises(ValueError):
@@ -552,13 +552,13 @@ def test_evaluate_rejects_bad_arguments() -> None:
 
 
 def test_evaluate_rejects_a_policy_built_for_a_different_latency_model() -> None:
-    other = SimConfig(latency_unloaded_ms=3.0)
+    other = v0_config(latency_unloaded_ms=3.0)
     with pytest.raises(ValueError):
         evaluate(RiskAwareRuleBased(other), profile="idle", seeds=[0])
 
 
 def test_evaluate_pins_the_profile_without_mutating_the_config() -> None:
-    cfg = SimConfig()
+    cfg = v0_config()
     df = evaluate(FixedRate(120), profile="peak", seeds=[0], config=cfg)
     assert cfg.workload_profile is None
     assert df["profile"].iloc[0] == "peak"
@@ -641,7 +641,7 @@ def test_risk_aware_is_clipped_only_when_the_hazard_field_is_saturated(level: fl
     the filter can still raise a request is a hazard above the observation's
     scale, which the clipped field cannot show.
     """
-    cfg = SimConfig(fleet_degradation=level)
+    cfg = v0_config(fleet_degradation=level)
     for profile in PROFILE_NAMES:
         env = RecoveryEnv(dataclasses.replace(cfg, workload_profile=profile))
         policy = RiskAwareRuleBased(cfg, k=1.0)

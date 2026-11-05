@@ -1,6 +1,10 @@
 """Stress configuration: an elevated hazard, for measuring data loss only.
 
-STRESS RUNS ARE NOT DEFAULT-CONFIGURATION RESULTS. With the v0 hazard the
+STRESS RUNS ARE NOT DEFAULT-CONFIGURATION RESULTS. ``stress_config()`` with no ``base`` is pinned to the v0 hazard and its
+feature function on purpose, independent of the ``SimConfig`` default, because
+the figures below were measured with v0.
+
+With the v0 hazard the
 probability of a terminal failure (two further drive failures inside one
 rebuild) is of order 1e-5 per episode, so a default-configuration run of any
 feasible size observes no loss at all, and zero events in a few thousand
@@ -35,7 +39,7 @@ from dataclasses import dataclass, replace
 
 from contracts.contracts import HORIZON_HOURS, HazardModel
 from hazard.v0 import HeuristicHazardV0
-from sim.config import SimConfig
+from sim.config import SimConfig, v0_config
 
 __all__ = ["STRESS_HAZARD_MULTIPLIER", "ScaledHazard", "stress_config"]
 
@@ -86,12 +90,14 @@ def stress_config(
 
     Args:
         multiplier: Cumulative-hazard factor.
-        base: Configuration to copy (default ``SimConfig()``); only its hazard
-            model and label are replaced.
+        base: Configuration to copy; only its hazard model and label are
+            replaced. The default is the v0 configuration (``v0_config()``),
+            not ``SimConfig()``: the stress figures are defined on the v0
+            hazard, independent of the ``SimConfig`` default.
 
     The result is labelled ``"stress_hazard_x<multiplier>"`` in every ``info``.
     Results from it are stress-run results, not default-configuration results.
     """
-    config = base if base is not None else SimConfig()
+    config = base if base is not None else v0_config()
     model = ScaledHazard(HeuristicHazardV0() if base is None else config.hazard_model, multiplier)
     return replace(config, hazard_model=model, label=f"stress_hazard_x{multiplier:g}")

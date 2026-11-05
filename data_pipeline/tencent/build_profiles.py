@@ -330,10 +330,10 @@ def latency_ladder(frame: pd.DataFrame, name: str = "profile") -> dict:
     allocations whose violating share is at most LATENCY_VIOLATION_FRACTION_MAX.
     """
     from sim import scenario
-    from sim.config import SimConfig, latency_mean_ms
+    from sim.config import latency_mean_ms, v0_config
 
     fg = scenario.trace_from_frame(frame, name, False).fg_bw_mbps
-    cfg = SimConfig()
+    cfg = v0_config()
     headroom = np.maximum(0.0, cfg.rho_max * contracts.BW_TOTAL_MBPS - fg)
     fractions = {}
     for action in contracts.ACTIONS_MBPS:

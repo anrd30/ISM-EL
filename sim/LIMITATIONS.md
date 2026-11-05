@@ -113,6 +113,11 @@ stress run measures loss under the filter's degradation rule, not how loss
 depends on the controller's choices. The multiplier is not derived from any
 fleet.
 
+`stress_config()` with no `base` stays pinned to the v0 hazard and its feature
+function (`sim.config.v0_config()`) on purpose, independent of the `SimConfig`
+default (now the fitted v1): the figures above were measured with v0, and the
+stress configuration is defined on that hazard.
+
 ## 9. Workload
 
 Foreground load is a synthetic aggregate from `workload.generate` (or a replay
@@ -124,7 +129,9 @@ start at a random trace row by default.
 The `peak` profile loads the budget heavily (mean foreground `rho` about 0.74,
 p95 about 0.80). With the defaults and a healthy fleet, the fraction of
 intervals violating the latency limit by constant action (mean over 20 seeds;
-simulated, uncalibrated) is:
+simulated, uncalibrated) is, as measured with the v0 hazard (pending
+regeneration under the v1 default with
+`python -m sim.measure_defaults`; `--hazard v0` reproduces this table):
 
 | Profile | 20 MB/s | 50 MB/s | 80 MB/s | 120 MB/s | Actions within the 5% budget |
 |---|---|---|---|---|---|
@@ -163,9 +170,19 @@ latency awareness below 0.87.
 
 - Drive features are fixed for the whole episode; a real drive's counters
   would change over the 28 to 167 hours of a rebuild.
-- The scenario generator emits only the five SMART features read by the v0
-  hazard model. A replacement risk model that reads other attributes would see
-  them as missing.
+- The default hazard model is the fitted v1 (`hazard/v1.py`), fed by an
+  empirical generator (`sim.scenario.v1_drive_features`) that draws a drive's
+  model name and its 28 SMART value columns from real training-split values
+  stored in `sim/fleet_features_v1.json`. The heuristic v0 remains available
+  and reproducible by passing it explicitly with its own feature function
+  (`sim.config.v0_config()`). The generator samples each column independently
+  from that column's real marginal distribution (healthy or failure-day
+  values, chosen with probability equal to the drive's degradation level), not
+  jointly, so it does not reproduce the correlation between a drive's columns
+  on the same day (for example between a level and its own 7- and 30-day
+  differences); a drawn feature vector need not match any real drive. The
+  model of each drive in a group is drawn independently, so a group mixes drive
+  models, which a real group usually does not.
 - Per-drive failures are independent given the features. Correlation enters
   only through the shared fleet degradation level that sets the features, so
   the contract's independence limitation (it makes the group look safer than

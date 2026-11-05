@@ -2,12 +2,14 @@
 
 Usage (from the repository root)::
 
-    python -m hazard.build_fleet_features
+    python -m hazard.build_fleet_features                 # train split -> OUT_PATH
+    python -m hazard.build_fleet_features --split test    # test split -> OUT_PATH_TEST
 
 Inputs are the ``hazard.fit_v1`` paths (``TIMELINES``, ``LABELS``,
-``DRIVE_SPLIT``). Rows are selected with ``hazard.fit_v1.select_rows`` for
-``TRAIN_SPLIT`` only (rows with ``label == -1`` dropped); no other split is
-read. Timelines and labels are read in lockstep with the key check of
+``DRIVE_SPLIT``). Rows are selected for one split (rows with ``label == -1``
+dropped): ``TRAIN_SPLIT`` by default, through ``hazard.fit_v1.select_rows``, or
+``TEST_SPLIT`` only when ``--split test`` / ``split=TEST_SPLIT`` is given,
+through the local ``_select_test_rows``; no other split is read. Timelines and labels are read in lockstep with the key check of
 ``hazard.fit_v1.paired_chunks``.
 
 Per drive model and per value column the output holds:
@@ -26,8 +28,9 @@ float32. Sampling keeps, per cell and column, the usable values whose row keys
 uniform sample without replacement. A cell with fewer usable values than
 ``MAX_PER_CELL`` holds all of them. Realized counts are printed per cell.
 
-Per model the file also holds ``train_drives`` and ``share``, the model's
-count and fraction of the drives of the training split in the drive-split table.
+Per model the file also holds ``drives``, ``share`` and ``rows``: the model's
+count and fraction of the drives of the selected split in the drive-split table,
+and its number of selected rows.
 
 Format: JSON. The file is a few megabytes (28 columns x 2 cells x 4 models x
 up to 2000 values), loads with the standard library and diffs readably in git.
@@ -35,6 +38,7 @@ up to 2000 values), loads with the standard library and diffs readably in git.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
@@ -49,6 +53,10 @@ from hazard import fit_v1
 
 REPO = Path(__file__).resolve().parents[1]
 OUT_PATH = REPO / "sim" / "fleet_features_v1.json"
+OUT_PATH_TEST = REPO / "sim" / "fleet_features_v1_test.json"
+
+#: Split name read only by ``--split test``; ``hazard.fit_v1`` does not define it.
+TEST_SPLIT = "test"
 
 #: Seed of the row keys that drive the sampling; used for nothing else.
 SAMPLING_SEED = 20220501
@@ -90,16 +98,34 @@ def _usable_values(column: pa.ChunkedArray) -> np.ndarray:
     return values
 
 
-def build(out_path: Path = OUT_PATH, max_per_cell: int = MAX_PER_CELL, seed: int = SAMPLING_SEED) -> dict:
-    """Read the training split, build the table, write it to ``out_path`` and return it."""
+def _select_test_rows(labels: pd.DataFrame, drive_split: pd.DataFrame) -> np.ndarray:
+    """Return the row mask for ``TEST_SPLIT``: drive in the split and ``label != -1``.
+
+    Same logic as ``fit_v1.select_rows`` (left merge on ``serial_number``, many-to-one),
+    kept local because ``fit_v1.select_rows`` accepts the train and validation splits only.
+    """
+    joined = labels[["serial_number", "label"]].merge(
+        drive_split[["serial_number", "split"]], on="serial_number", how="left", validate="many_to_one"
+    )
+    return ((joined["split"] == TEST_SPLIT) & (joined["label"] != fit_v1.CENSORED)).to_numpy()
+
+
+def build(
+    out_path: Path = OUT_PATH,
+    max_per_cell: int = MAX_PER_CELL,
+    seed: int = SAMPLING_SEED,
+    *,
+    split: str = fit_v1.TRAIN_SPLIT,
+) -> dict:
+    """Read the rows of ``split``, build the table, write it to ``out_path`` and return it."""
     started = time.time()
     drive_split = pd.read_parquet(fit_v1.DRIVE_SPLIT, columns=["serial_number", "model", "split"])
     if drive_split["serial_number"].duplicated().any():
         raise ValueError("drive split has more than one row for a drive")
-    drive_split = drive_split[drive_split["split"] == fit_v1.TRAIN_SPLIT].copy()
+    drive_split = drive_split[drive_split["split"] == split].copy()
     categories = sorted(drive_split[fit_v1.MODEL_COLUMN].unique().tolist())
-    train_drives = drive_split[fit_v1.MODEL_COLUMN].value_counts()
-    total_drives = int(train_drives.sum())
+    split_drives = drive_split[fit_v1.MODEL_COLUMN].value_counts()
+    total_drives = int(split_drives.sum())
     values, _ = fit_v1.feature_columns(pq.ParquetFile(fit_v1.TIMELINES).schema_arrow.names)
 
     pools = {m: {c: {cell: _Pool(max_per_cell) for cell in CELLS} for c in values} for m in categories}
@@ -110,7 +136,10 @@ def build(out_path: Path = OUT_PATH, max_per_cell: int = MAX_PER_CELL, seed: int
     read = [*fit_v1.KEY_COLUMNS, fit_v1.MODEL_COLUMN, *values]
     for left, right in fit_v1.paired_chunks(read):
         labels = right.select(["serial_number", "label"]).to_pandas()
-        mask = fit_v1.select_rows(labels, drive_split, fit_v1.TRAIN_SPLIT)
+        if split == TEST_SPLIT:
+            mask = _select_test_rows(labels, drive_split)
+        else:
+            mask = fit_v1.select_rows(labels, drive_split, split)
         keys = rng.random(left.num_rows)
         if not mask.any():
             continue
@@ -146,13 +175,13 @@ def build(out_path: Path = OUT_PATH, max_per_cell: int = MAX_PER_CELL, seed: int
                 f"healthy={len(columns[c]['healthy'])} failure={len(columns[c]['failure'])}"
             )
         models[model] = {
-            "train_drives": int(train_drives[model]),
-            "share": int(train_drives[model]) / total_drives,
-            "train_rows": rows[model],
+            "drives": int(split_drives[model]),
+            "share": int(split_drives[model]) / total_drives,
+            "rows": rows[model],
             "columns": columns,
         }
     table = {
-        "split": fit_v1.TRAIN_SPLIT,
+        "split": split,
         "sampling_seed": seed,
         "max_per_cell": max_per_cell,
         "structural_missing_fraction": STRUCTURAL_MISSING_FRACTION,
@@ -167,8 +196,12 @@ def build(out_path: Path = OUT_PATH, max_per_cell: int = MAX_PER_CELL, seed: int
     return table
 
 
-def main() -> int:
-    build()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--split", choices=("train", "test"), default="train")
+    args = parser.parse_args(argv)
+    split, out_path = (fit_v1.TRAIN_SPLIT, OUT_PATH) if args.split == "train" else (TEST_SPLIT, OUT_PATH_TEST)
+    build(out_path, split=split)
     return 0
 
 

@@ -17,16 +17,19 @@ import pytest
 from hazard.v0 import FEATURE_NAMES, HeuristicHazardV0
 from hazard.v1 import ARTIFACT_DIR as V1_ARTIFACT_DIR
 from hazard.v1 import FittedHazardV1, feature_columns
-from sim.config import SimConfig, v0_config
+from sim import scenario
+from sim.config import SimConfig, v0_config, v1_eval_config
 from sim.recovery_env import RecoveryEnv
 from sim.scenario import (
     FLEET_FEATURES_PATH,
+    FLEET_FEATURES_TEST_PATH,
     N_SURVIVORS,
     draw_v1_drive_features,
     load_fleet_table,
     sample_fleet,
     v0_drive_features,
     v1_drive_features,
+    v1_eval_drive_features,
 )
 from sim.stress import ScaledHazard, stress_config
 
@@ -190,6 +193,30 @@ def test_v1_generator_keys_match_the_model_inputs() -> None:
         assert drive["model"] in meta["model_categories"]
 
 
+def test_eval_generator_reads_the_test_table_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _tiny_table(tmp_path)
+    monkeypatch.setattr(scenario, "FLEET_FEATURES_TEST_PATH", path)
+    load_fleet_table.cache_clear()
+    try:
+        assert scenario.FLEET_FEATURES_TEST_PATH != FLEET_FEATURES_PATH
+        rng = np.random.default_rng(0)
+        for _ in range(100):
+            low = v1_eval_drive_features(rng, 0.0, 40_000.0, 0.3)
+            high = v1_eval_drive_features(rng, 1.0, 40_000.0, 0.3)
+            assert low["x"] < 100.0 and set(low) <= {"x", "y", "model"}
+            assert high["x"] > 100.0 if high["model"] == "A" else high["x"] == 4.0
+        first = [v1_eval_drive_features(np.random.default_rng(5), 0.5, 0.0, 0.0) for _ in range(3)]
+        again = [v1_eval_drive_features(np.random.default_rng(5), 0.5, 99.0, 0.9) for _ in range(3)]
+        assert first == again
+    finally:
+        load_fleet_table.cache_clear()
+
+
+def test_eval_generator_path_is_the_test_table() -> None:
+    assert FLEET_FEATURES_TEST_PATH.name == "fleet_features_v1_test.json"
+    assert FLEET_FEATURES_TEST_PATH.parent == FLEET_FEATURES_PATH.parent
+
+
 @pytest.mark.skipif(not (_TABLE_PRESENT and _V1_PRESENT), reason="fleet table or hazard/artifacts/v1 absent")
 def test_sample_fleet_with_v1_scores_every_drive() -> None:
     model = FittedHazardV1()
@@ -211,6 +238,14 @@ def test_v0_config_pairs_hazard_and_features() -> None:
     assert isinstance(cfg.hazard_model, HeuristicHazardV0)
     assert cfg.feature_fn is v0_drive_features
     assert cfg.fleet_degradation == 0.2
+
+
+def test_v1_eval_config_changes_only_the_feature_table() -> None:
+    cfg = v1_eval_config(fleet_degradation=0.2)
+    assert isinstance(cfg.hazard_model, FittedHazardV1)
+    assert cfg.feature_fn is v1_eval_drive_features
+    assert cfg.fleet_degradation == 0.2
+    assert SimConfig().feature_fn is v1_drive_features
 
 
 def test_stress_config_default_stays_on_v0() -> None:

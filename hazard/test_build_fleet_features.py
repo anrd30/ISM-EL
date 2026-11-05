@@ -131,10 +131,10 @@ def test_cap_and_realized_counts(fixture_tables: Path, capsys: pytest.CaptureFix
 
 def test_train_drive_counts_and_shares(fixture_tables: Path) -> None:
     table = bff.build(fixture_tables / "out.json", max_per_cell=50, seed=1)
-    assert table["models"]["A"]["train_drives"] == 3 and table["models"]["B"]["train_drives"] == 1
+    assert table["models"]["A"]["drives"] == 3 and table["models"]["B"]["drives"] == 1
     assert table["models"]["A"]["share"] == pytest.approx(0.75)
     assert sum(m["share"] for m in table["models"].values()) == pytest.approx(1.0)
-    assert table["models"]["A"]["train_rows"] == 20 and table["models"]["B"]["train_rows"] == 10
+    assert table["models"]["A"]["rows"] == 20 and table["models"]["B"]["rows"] == 10
 
 
 def test_same_seed_same_table_and_seed_changes_sample(fixture_tables: Path) -> None:
@@ -143,6 +143,58 @@ def test_same_seed_same_table_and_seed_changes_sample(fixture_tables: Path) -> N
     other = bff.build(fixture_tables / "c.json", max_per_cell=5, seed=8)
     assert first == again
     assert first["models"]["A"]["columns"]["x"]["healthy"] != other["models"]["A"]["columns"]["x"]["healthy"]
+
+
+def test_test_split_pools_come_only_from_the_test_drive(fixture_tables: Path) -> None:
+    out = fixture_tables / "test_out.json"
+    table = bff.build(out, max_per_cell=50, seed=1, split=bff.TEST_SPLIT)
+    assert table["split"] == bff.TEST_SPLIT == HELD_OUT
+    assert table["model_categories"] == ["B"] and set(table["models"]) == {"B"}
+    model = table["models"]["B"]
+    assert model["drives"] == 1 and model["rows"] == 10 and model["share"] == pytest.approx(1.0)
+    x = model["columns"]["x"]
+    assert x["healthy"] == [] and x["failure"] == [HELD_OUT_VALUE] * 10
+    assert model["columns"]["y"]["structurally_missing"] is True
+    assert sorted(model["columns"]["z"]["failure"]) == [7.0, 8.0, 9.0]
+    assert json.loads(out.read_text(encoding="utf-8")) == table
+
+
+def test_default_split_is_train_and_unaffected(fixture_tables: Path) -> None:
+    default = bff.build(fixture_tables / "a.json", max_per_cell=50, seed=1)
+    explicit = bff.build(fixture_tables / "b.json", max_per_cell=50, seed=1, split=fit_v1.TRAIN_SPLIT)
+    assert default == explicit
+    assert default["split"] == fit_v1.TRAIN_SPLIT
+    assert default["model_categories"] == ["A", "B"]
+    for model in default["models"].values():
+        for entry in model["columns"].values():
+            assert HELD_OUT_VALUE not in entry["healthy"] + entry["failure"]
+
+
+def test_select_test_rows_matches_fit_v1_select_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    labels = pd.DataFrame({"serial_number": ["a", "a", "b", "c", "d"], "label": [0, -1, 1, 0, 1]})
+    drive_split = pd.DataFrame(
+        {"serial_number": ["a", "b", "c"], "split": ["train", "train", "val"]}
+    )  # drive d is absent from the drive split
+    monkeypatch.setattr(bff, "TEST_SPLIT", "train")
+    assert np.array_equal(bff._select_test_rows(labels, drive_split), fit_v1.select_rows(labels, drive_split, "train"))
+    monkeypatch.setattr(bff, "TEST_SPLIT", "val")
+    assert np.array_equal(bff._select_test_rows(labels, drive_split), fit_v1.select_rows(labels, drive_split, "val"))
+
+
+def test_split_is_keyword_only(fixture_tables: Path) -> None:
+    with pytest.raises(TypeError):
+        bff.build(fixture_tables / "out.json", 50, 1, bff.TEST_SPLIT)  # type: ignore[misc]
+
+
+def test_cli_split_selects_split_and_output_path(fixture_tables: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setattr(bff, "build", lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert bff.main([]) == 0
+    assert bff.main(["--split", "train"]) == 0
+    assert bff.main(["--split", "test"]) == 0
+    assert calls[0] == calls[1] == ((bff.OUT_PATH,), {"split": fit_v1.TRAIN_SPLIT})
+    assert calls[2] == ((bff.OUT_PATH_TEST,), {"split": bff.TEST_SPLIT})
+    assert bff.OUT_PATH_TEST != bff.OUT_PATH
 
 
 def test_sampling_seed_is_not_a_fit_seed() -> None:

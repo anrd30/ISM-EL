@@ -131,12 +131,13 @@ from contracts.contracts import (
 )
 from hazard.v0 import HeuristicHazardV0
 from hazard.v1 import FittedHazardV1
-from sim.scenario import FleetFeatureFn, v0_drive_features, v1_drive_features
+from sim.scenario import FleetFeatureFn, v0_drive_features, v1_drive_features, v1_eval_drive_features
 from workload.generate import PROFILE_NAMES
 
 __all__ = [
     "SimConfig",
     "v0_config",
+    "v1_eval_config",
     "latency_mean_ms",
     "latency_percentiles_ms",
     "violation_rho_threshold",
@@ -276,6 +277,17 @@ def v0_config(**overrides: object) -> SimConfig:
     ``overrides`` are passed to ``SimConfig`` and may replace either of the two.
     """
     fields: dict[str, object] = {"hazard_model": HeuristicHazardV0(), "feature_fn": v0_drive_features}
+    fields.update(overrides)
+    return SimConfig(**fields)  # type: ignore[arg-type]
+
+
+def v1_eval_config(**overrides: object) -> SimConfig:
+    """Return a ``SimConfig`` with the default fitted v1 hazard and the held-out-split fleet generator.
+
+    Only the fleet-feature table differs from ``SimConfig()``; ``overrides`` are
+    passed to ``SimConfig`` and may replace either field.
+    """
+    fields: dict[str, object] = {"feature_fn": v1_eval_drive_features}
     fields.update(overrides)
     return SimConfig(**fields)  # type: ignore[arg-type]
 

@@ -200,6 +200,7 @@ shared 24 h window.
 - Sidecars: `profiles/profile_<name>.meta.json` (`profile`, `synthetic` = false, `source`, `n_disks`, window start, `label`, `disclosure`, `selection_rule`), the provenance record `sim.scenario.load_replay_csv` reads next to each CSV
 - p99/median of a profile is computed over its 288 window samples of total bandwidth (read + write); the synthetic generator's bursty profile gives 8.5-9.8 on the same definition
 - Files: `data/processed/tencent_profile_<name>.parquet` and `profiles/profile_<name>.csv` (identical rows); selected disks in `tencent_profile_disks.parquet`; candidate statistics (daily-cycle strength, window-local p99/median) in `tencent_profile_candidates.parquet`
+- Long window `diurnal_long` (additive; the four profiles are unchanged): the diurnal rule applied to a 14-day window (4032 samples). The window start is the timestamp covered by a gap-free run of that length in the largest number of volumes; those volumes are ranked, filtered and counted by the diurnal rule and N is tuned against the diurnal target p95, as for the 24 h profiles; the sum of the N volumes is the replay frame (six-column schema, `t_seconds` from 0, bandwidth in KB/s). Like the 24 h profiles it is an aggregate of selected volumes, a modelling assumption, not a sample of a typical storage group. No scaling factor is applied (`scaling_factor` = 1). Files: `data/processed/tencent_profile_diurnal_long.parquet`, `profiles/profile_diurnal_long.csv` (identical rows) and `profiles/profile_diurnal_long.meta.json`, which records the volume list, window start and end, row counts, aggregate p95 and mean and a suggested time-forward split (first 10 of 14 days of the rows, rounded down; metadata only, nothing reads it)
 - Visual check: `profiles/profile_comparison.png`, one panel per profile on a shared bandwidth axis and a shared 24 h time axis
 - Counts and measurements from the last run of `tencent/build_profiles.py`:
 
@@ -238,6 +239,10 @@ shared 24 h window.
 - `overlap_diurnal_bursty=1`
 - `overlap_diurnal_peak=0`
 - `overlap_bursty_peak=0`
+- `long_window=diurnal_long n_disks=44 start_ts=1594094400 start_utc=2020-07-07T04:00:00Z end_ts=1595303700 end_utc=2020-07-21T03:55:00Z rows=4032 requested_rows=4032`
+- `long_window=diurnal_long volumes_with_window=6469 ranked_candidates=6054 scaling_factor=1 target_p95_mbps=100 p95_mbps=99.79 mean_mbps=69.92 max_mbps=116.8`
+- `long_window=diurnal_long diurnal_24h_n_disks=37 diurnal_24h_mean_mbps=69.08 overlap_with_diurnal_24h_disks=36`
+- `long_window=diurnal_long suggested_split first_holdout_row=2880 first_holdout_t_seconds=864000 first_holdout_ts=1594958400 first_holdout_utc=2020-07-17T04:00:00Z train_rows=2880 holdout_rows=1152 nominal_train_days=10 nominal_holdout_days=4`
 - `output=data/processed/tencent_profile_idle.parquet rows=288 sha256=7cdc40d214a19bbfdaf981186fc1e7c21e34141c0aaf60910b697fb70cc302d1`
 - `output=profiles/profile_idle.csv rows=288 sha256=d27f918486aedc10b3a3f057f48f55e993a0e1bc1aa87aa59bf2fe7b18bfb163`
 - `output=profiles/profile_idle.meta.json sha256=bcb4e06ae536d116302d442450dab88fe6c5f7d8b007c188e2c62110f292fd00`
@@ -253,6 +258,9 @@ shared 24 h window.
 - `output=profiles/profile_comparison.png sha256=698913d665d6b472daf88d3d9f92d71dff4c73283d8aa4ea07ac9c78d1659d09`
 - `output=data/processed/tencent_profile_disks.parquet rows=689 sha256=fe8a5e5b26a683cd4893e980498aa436d663e74df6f8b8d7393d1abb87b12565`
 - `output=data/processed/tencent_profile_candidates.parquet rows=6817 sha256=811c04efd4c475ddafffb106b5b72e52dd8b1a52815fe0c22b9ab748ac433e86`
+- `output=data/processed/tencent_profile_diurnal_long.parquet rows=4032 sha256=24320474634b758922fadb3c833b6db27690298125ecbf98a885a231468a9e5a`
+- `output=profiles/profile_diurnal_long.csv rows=4032 sha256=4b0f6cf85fc4f88bf80ac23d44120c127c88e5ad41f46eb3cfc2fec576c74001`
+- `output=profiles/profile_diurnal_long.meta.json sha256=04be33b748daea85580b8dfe16620651807e0983956fd62a67d265bafca12ae9`
 
 ## B6 — This file / acceptance
 

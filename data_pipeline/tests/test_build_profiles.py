@@ -422,7 +422,7 @@ def test_report_lines(world):
                and l.endswith("ranking_statistic=window_p99_over_median selected_on_reported_statistic=True")
                for l in lines)
     assert any(l.startswith("overlap_idle_peak=") for l in lines)
-    assert sum(l.startswith("output=") for l in lines) == 4 + 4 + 4 + 2 + 1
+    assert sum(l.startswith("output=") for l in lines) == 4 + 4 + 4 + 3 + 2 + 1
     png_line = next(l for l in lines if l.startswith("output=profiles/profile_comparison.png"))
     assert " rows=" not in png_line and " sha256=" in png_line
 
@@ -819,3 +819,124 @@ def test_report_manifest_and_text_record_the_eligibility_rule(world):
         sidecar = json.loads((bp.PROFILES_DIR / f"profile_{name}.meta.json").read_text(encoding="utf-8"))
         assert sidecar["n_disks"] == manifest["profiles"][name]["n_disks"]
 
+
+
+
+# ---------------------------------------------------------------------------
+# Long window: diurnal rule over the 14-day window shared by the most volumes
+# ---------------------------------------------------------------------------
+
+LONG_ELIGIBLE = {"hi0", "hi1", "hi2", "hi3", "dn0", "dn1", "bu0", "bu1", "bu2", "bu3",
+                 "id0", "id1", "id2", "id3", "id4"}   # 16-day runs starting at T0; short and late are excluded
+
+
+def test_long_window_constants():
+    assert bp.LONG_WINDOW_ROWS == 4032 == 14 * bp.DAY_ROWS
+    assert bp.LONG_TRAIN_DAYS == 10
+
+
+def test_split_row_is_ten_fourteenths_rounded_down_and_strictly_inside():
+    assert bp.split_row(4032) == 2880
+    assert bp.split_row(1000) == 714
+    assert bp.split_row(2) == 1 and bp.split_row(3) == 2
+    for rows in (2, 3, 10, 288, 2881, 4032):
+        assert 0 < bp.split_row(rows) < rows
+    with pytest.raises(ValueError):
+        bp.split_row(1)
+
+
+def test_shared_window_stats_window_rows(world, tmp_path):
+    runs = pd.read_parquet(tmp_path / "pipe" / "data" / "processed" / "tencent_disk_runs.parquet")
+    assert el.shared_window_stats(runs) == el.shared_window_stats(runs, el.DAY_ROWS)
+    day = el.shared_window_stats(runs)
+    assert day["largest_group"] == 16 and day["disks_with_window"] == 17      # "short" has 3 days only
+    long = el.shared_window_stats(runs, bp.LONG_WINDOW_ROWS)
+    assert long["disks_with_window"] == 16 and long["largest_group"] == 15
+    assert long["largest_group_start_ts"] == T0
+
+
+def test_long_window_is_an_aggregate_over_the_shared_window(world):
+    r = bp.build()
+    w = r["long_window"]
+    assert w["rows"] == len(w["frame"]) == 4032 and w["start_ts"] == T0
+    assert w["end_ts"] == T0 + 4031 * 300
+    assert w["volumes_with_window"] == 15
+    assert set(w["uids"]) <= LONG_ELIGIBLE and w["uids"][0] == "dn0" and w["n"] == len(w["uids"]) >= 1
+    frame = w["frame"]
+    assert list(frame.columns) == list(contracts.REPLAY_COLUMNS)
+    assert frame["t_seconds"].iloc[0] == 0 and (np.diff(frame["t_seconds"].to_numpy()) == 300).all()
+    for col in el.VALUE_COLUMNS:
+        expected = sum(world[u][col].to_numpy()[:4032] for u in w["uids"])
+        assert np.array_equal(frame[col].to_numpy(), expected)
+    contracts.validate_replay_frame(frame)
+
+
+def test_long_window_n_follows_the_diurnal_rule_and_stats_match_the_frame(world):
+    w = bp.build()["long_window"]
+    total = (w["frame"]["read_bw_kbps"] + w["frame"]["write_bw_kbps"]).to_numpy(dtype="float64")
+    assert w["p95_mbps"] == pytest.approx(np.percentile(total, 95) / 1000.0)
+    assert w["mean_mbps"] == pytest.approx(total.mean() / 1000.0)
+    assert w["target_mbps"] == bp.DIURNAL_TARGET_MBPS
+    assert w["p95_mbps"] <= bp.DIURNAL_TARGET_MBPS * (1.0 + bp.CEILING_TOLERANCE) * (1.0 + bp.CEILING_EPS)
+    assert w["ranked_candidates"] <= w["volumes_with_window"]
+
+
+def test_long_window_n_is_the_largest_within_the_ceiling(world, monkeypatch):
+    specs = {k: dict(v) for k, v in bp.PROFILE_SPECS.items()}
+    specs["diurnal"]["target_mbps"] = 20.0         # fewer than all ranked volumes fit
+    monkeypatch.setattr(bp, "PROFILE_SPECS", specs)
+    w = bp.build()["long_window"]
+    assert 1 <= w["n"] < w["ranked_candidates"]
+    assert w["p95_mbps"] <= 20.0 * (1.0 + bp.CEILING_TOLERANCE) * (1.0 + bp.CEILING_EPS)
+    total = sum((world[u]["read_bw_kbps"] + world[u]["write_bw_kbps"]).to_numpy()[:4032] for u in w["uids"])
+    assert np.percentile(total, 95) / 1000.0 == pytest.approx(w["p95_mbps"])
+
+
+def test_long_window_split_lands_inside_the_range(world):
+    w = bp.build()["long_window"]
+    assert w["split_row"] == 2880 and w["split_t_seconds"] == 2880 * 300
+    assert w["start_ts"] < w["split_ts"] <= w["end_ts"]
+    assert w["split_ts"] == w["start_ts"] + w["split_t_seconds"]
+    assert 0 < w["split_t_seconds"] < w["frame"]["t_seconds"].iloc[-1]
+
+
+def test_long_window_without_a_shared_window_raises(world, monkeypatch):
+    monkeypatch.setattr(bp, "LONG_WINDOW_ROWS", 10 * ROWS)
+    with pytest.raises(ValueError, match="no gap-free window"):
+        bp.build()
+
+
+def test_long_window_outputs_sidecar_and_manifest(world):
+    assert bp.main(["build_profiles.py"]) == 0
+    parquet = pq.read_table(bp.PROCESSED / "tencent_profile_diurnal_long.parquet").to_pandas()
+    csv = pd.read_csv(bp.PROFILES_DIR / "profile_diurnal_long.csv")
+    pd.testing.assert_frame_equal(parquet, csv)
+    assert len(csv) == 4032 and csv["t_seconds"].iloc[0] == 0
+    meta = json.loads((bp.PROFILES_DIR / "profile_diurnal_long.meta.json").read_text(encoding="utf-8"))
+    assert meta["n_disks"] == len(meta["disk_uids"]) >= 1 and set(meta["disk_uids"]) <= LONG_ELIGIBLE
+    assert meta["scaling_factor"] == 1.0 and meta["synthetic"] is False
+    assert meta["rows"] == 4032 and meta["requested_rows"] == 4032
+    assert meta["window_start_ts"] == T0 and meta["window_end_ts"] == T0 + 4031 * 300
+    total = (csv["read_bw_kbps"] + csv["write_bw_kbps"]).to_numpy(dtype="float64")
+    assert meta["mean_mbps"] == pytest.approx(total.mean() / 1000.0)
+    assert meta["p95_mbps"] == pytest.approx(np.percentile(total, 95) / 1000.0)
+    assert meta["target_p95_mbps"] == bp.DIURNAL_TARGET_MBPS
+    split = meta["suggested_split"]
+    assert split["train_rows"] == 2880 and split["holdout_rows"] == 1152
+    assert meta["window_start_ts"] < split["first_holdout_ts"] <= meta["window_end_ts"]
+    files = {e["file"]: e for e in json.loads(bp.MANIFEST.read_text(encoding="utf-8"))["files"]}
+    assert files["profiles/profile_diurnal_long.csv"]["rows"] == 4032
+    assert files["profiles/profile_diurnal_long.meta.json"]["rows"] is None
+    prep = bp.PREPROCESSING.read_text(encoding="utf-8")
+    assert "long_window=diurnal_long n_disks=" in prep and "scaling_factor=1" in prep
+    assert "suggested_split" in prep and "overlap_with_diurnal_24h_disks=" in prep
+
+
+def test_long_window_does_not_change_the_existing_profiles(world, monkeypatch):
+    baseline = {p["name"]: p["frame"].copy() for p in bp.build()["profiles"]}
+    monkeypatch.setattr(bp, "LONG_WINDOW_ROWS", 600)
+    r = bp.build()
+    assert r["long_window"]["rows"] == 600
+    for p in r["profiles"]:
+        assert len(p["frame"]) == 288
+        pd.testing.assert_frame_equal(baseline[p["name"]], p["frame"])

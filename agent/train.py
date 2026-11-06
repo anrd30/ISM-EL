@@ -49,7 +49,7 @@ import numpy as np
 from agent.checkpoint import save_checkpoint
 from agent.ppo import PPOAgent, PPOConfig
 from agent.rollout import RolloutCollector
-from sim.config import SimConfig
+from sim.config import SimConfig, v1_eval_config
 from workload.generate import PROFILE_NAMES
 
 __all__ = ["DEFAULT_ROLLOUT_STEPS", "LOG_COLUMNS", "TrainConfig", "train", "main"]
@@ -114,6 +114,10 @@ class TrainConfig:
             shown and the hazard failures are drawn from. 0.0 means the
             estimate is exact, which makes the safety filter perfectly
             protective and the reliability constraint inert.
+        eval_fleet: Draw the fleet from the held-out-split feature table
+            (``v1_eval_config``) instead of the train-split table. A run whose
+            fleets come from drives the hazard model was fitted on is
+            contaminated on the fleet side independently of the workload.
         fleet_degradation: Pinned fleet degradation level, or ``None`` to sample.
         ablate_hazard: Mask observation fields 5 and 6.
         out_dir: Directory for ``log.csv`` and checkpoints.
@@ -127,6 +131,7 @@ class TrainConfig:
     profile: str | None = None
     workload_csv: str | None = None
     hazard_error_sigma: float = 0.0
+    eval_fleet: bool = False
     fleet_degradation: float | None = None
     ablate_hazard: bool = False
     out_dir: str = "runs/ppo"
@@ -147,6 +152,7 @@ def _checkpoint_payload(agent: PPOAgent, cfg: TrainConfig, iteration: int) -> di
             "profile": cfg.profile if cfg.profile is not None else "mixed",
             "workload_csv": cfg.workload_csv if cfg.workload_csv is not None else "",
             "hazard_error_sigma": cfg.hazard_error_sigma,
+            "eval_fleet": cfg.eval_fleet,
             "fleet_degradation": cfg.fleet_degradation if cfg.fleet_degradation is not None else -1.0,
             "ablate_hazard": cfg.ablate_hazard,
         },
@@ -165,12 +171,16 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
         raise ValueError("iterations, rollout_steps and checkpoint_every must be >= 1")
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    sim_cfg = SimConfig(
-        workload_profile=cfg.profile,
-        workload_csv=cfg.workload_csv,
-        hazard_error_sigma=cfg.hazard_error_sigma,
-        fleet_degradation=cfg.fleet_degradation,
-    )
+    fields: dict[str, object] = {
+        "workload_profile": cfg.profile,
+        "workload_csv": cfg.workload_csv,
+        "hazard_error_sigma": cfg.hazard_error_sigma,
+        "fleet_degradation": cfg.fleet_degradation,
+    }
+    if cfg.eval_fleet or cfg.hazard_error_sigma != 0.0:
+        fleet = "eval-fleet" if cfg.eval_fleet else "train-fleet"
+        fields["label"] = f"{fleet},sigma={cfg.hazard_error_sigma:g}"
+    sim_cfg = v1_eval_config(**fields) if cfg.eval_fleet else SimConfig(**fields)  # type: ignore[arg-type]
     agent = PPOAgent(cfg.ppo, seed=cfg.seed)
     collector = RolloutCollector(sim_cfg, seed=cfg.seed, ablate_hazard=cfg.ablate_hazard)
 
@@ -242,6 +252,11 @@ def _parser() -> argparse.ArgumentParser:
         help="replay CSV to drive foreground load; overrides --profile",
     )
     p.add_argument(
+        "--eval-fleet",
+        action="store_true",
+        help="draw the fleet from the held-out-split feature table instead of the train-split table",
+    )
+    p.add_argument(
         "--hazard-error-sigma",
         type=float,
         default=0.0,
@@ -286,6 +301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             profile=None if args.profile == "mixed" else args.profile,
             workload_csv=args.workload_csv,
             hazard_error_sigma=args.hazard_error_sigma,
+            eval_fleet=args.eval_fleet,
             fleet_degradation=args.fleet_degradation,
             ablate_hazard=args.ablate_hazard,
             out_dir=os.path.join(args.out, f"seed{seed}"),

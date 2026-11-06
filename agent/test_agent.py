@@ -33,9 +33,11 @@ from agent.ppo import (
     resolve_next_values,
 )
 from agent.rollout import EpisodeRecord, RolloutBatch, RolloutCollector
-from agent.train import DEFAULT_ROLLOUT_STEPS, LOG_COLUMNS, TrainConfig, train
+import agent.train as train_module
+from agent.train import DEFAULT_ROLLOUT_STEPS, LOG_COLUMNS, TrainConfig, train, _checkpoint_payload
 from baselines.evaluate import evaluate
 from baselines.policies import Policy
+from sim.scenario import v1_eval_drive_features
 from hazard.v1 import ARTIFACT_DIR as V1_ARTIFACT_DIR
 from contracts.contracts import (
     ACTIONS_MBPS,
@@ -321,6 +323,51 @@ def test_default_config_bounds_the_multipliers_and_reports_binding() -> None:
         agent.lambda_latency.n_capped,
         agent.lambda_latency.n_updates,
     )
+
+
+def _sim_config_built_by_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *flags: str):
+    """Run agent.train's CLI far enough to capture the SimConfig it builds, then stop.
+
+    The collector is replaced before it can touch the hazard model, so this works on a
+    checkout without hazard/artifacts/v1/: v1_eval_config() constructs lazily and only
+    loads the artifacts when the model is first called.
+    """
+    seen: dict[str, object] = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _capture(sim_cfg, **kwargs):
+        seen["config"] = sim_cfg
+        raise _Stop
+
+    monkeypatch.setattr(train_module, "RolloutCollector", _capture)
+    with pytest.raises(_Stop):
+        train_module.main(["--iterations", "1", "--out", str(tmp_path), *flags])
+    return seen["config"]
+
+
+def test_cli_eval_fleet_selects_the_held_out_feature_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = _sim_config_built_by_main(monkeypatch, tmp_path, "--eval-fleet", "--hazard-error-sigma", "0.25")
+    assert cfg.feature_fn is v1_eval_drive_features
+    assert cfg.hazard_error_sigma == 0.25
+    assert cfg.label == "eval-fleet,sigma=0.25"
+
+
+def test_cli_without_eval_fleet_keeps_the_train_split_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = _sim_config_built_by_main(monkeypatch, tmp_path, "--hazard-error-sigma", "0.5")
+    assert cfg.feature_fn is not v1_eval_drive_features
+    assert cfg.label == "train-fleet,sigma=0.5"
+
+
+def test_checkpoint_records_the_fleet_split_and_sigma() -> None:
+    meta = _checkpoint_payload(PPOAgent(seed=0), TrainConfig(eval_fleet=True, hazard_error_sigma=0.25), 1)["meta"]
+    assert meta["eval_fleet"] is True and meta["hazard_error_sigma"] == 0.25
+    assert _checkpoint_payload(PPOAgent(seed=0), TrainConfig(), 1)["meta"]["eval_fleet"] is False
 
 
 def test_default_rollout_spans_several_default_episodes() -> None:

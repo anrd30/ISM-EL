@@ -1,6 +1,6 @@
 # A4 decision record: v1 against v0 on the held-out split
 
-Status: proposed. Not yet reviewed by the other lanes.
+Status: accepted. Reviewed by T-lane (see agent/T_DECISION.md) and B-lane.
 
 The Evidence and Verdict blocks are written by `python -m hazard.evaluate_v1 --write-record`; they hold the printed numbers of that run and are replaced on every run.
 

@@ -1,6 +1,6 @@
 # A2 decision record: horizon labels and drive-level split
 
-Status: proposed. Not yet reviewed by the other lanes.
+Status: accepted. Reviewed by T-lane (see agent/T_DECISION.md) and B-lane.
 
 ## Decision
 

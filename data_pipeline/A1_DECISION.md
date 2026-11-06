@@ -1,6 +1,6 @@
 # A1 decision record: Backblaze data window, drive models, SMART columns
 
-Status: proposed. Not yet reviewed by the other lanes.
+Status: accepted. Reviewed by T-lane (see agent/T_DECISION.md) and B-lane.
 
 ## Decision
 

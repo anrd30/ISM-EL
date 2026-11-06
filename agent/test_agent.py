@@ -36,6 +36,7 @@ from agent.rollout import EpisodeRecord, RolloutBatch, RolloutCollector
 from agent.train import DEFAULT_ROLLOUT_STEPS, LOG_COLUMNS, TrainConfig, train
 from baselines.evaluate import evaluate
 from baselines.policies import Policy
+from hazard.v1 import ARTIFACT_DIR as V1_ARTIFACT_DIR
 from contracts.contracts import (
     ACTIONS_MBPS,
     N_ACTIONS,
@@ -50,6 +51,13 @@ from sim.recovery_env import RecoveryEnv
 
 IDLE = v0_config(workload_profile="idle")
 
+
+#: The default ``SimConfig`` uses the fitted v1 hazard, whose artifacts are
+#: gitignored (~218 MB, regenerate with ``python -m hazard.fit_v1``). Tests that
+#: go through the default config skip without them, as the hazard and scenario
+#: suites already do, rather than failing on a missing file.
+_V1_PRESENT = (V1_ARTIFACT_DIR / "meta.json").exists()
+_needs_v1 = pytest.mark.skipif(not _V1_PRESENT, reason="hazard/artifacts/v1 absent")
 
 def _flags(reason: TerminationReason) -> tuple[bool, bool]:
     return termination_flags(reason)
@@ -485,6 +493,7 @@ def test_adapter_applies_the_ablation_mask() -> None:
     assert ablated(base) == ablated(changed)
 
 
+@_needs_v1
 def test_adapter_runs_inside_the_paired_harness() -> None:
     policy = LearnedPolicy(Actor(), name="ppo_untrained")
     frame = evaluate(policy, profile="idle", seeds=[0, 1])
@@ -500,6 +509,7 @@ def test_adapter_runs_inside_the_paired_harness() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_needs_v1
 def test_smoke_training_runs_logs_and_does_not_degrade_catastrophically(tmp_path: Path) -> None:
     """A few iterations on ``idle``: the loop runs and the log is written.
 

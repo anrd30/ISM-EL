@@ -27,3 +27,7 @@ hazard/artifacts/
 .claude/
 graphify-out/
 _to_delete/
+
+# T7: default --out for agent.train. Checkpoints are ~MBs each and logs are
+# per-run; committed run evidence goes under agent/evidence/<run>/ instead.
+runs/

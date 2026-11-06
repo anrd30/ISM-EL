@@ -3,9 +3,9 @@
 Status: proposed. Not yet reviewed by the other lanes.
 
 This is T-lane's first decision record. It covers the three PPO defaults changed after
-the pilot runs, the choice of `hazard_error_sigma`, one training run that is explicitly
-**not reportable**, and a finding that invalidates the hazard-input ablation as
-originally specified.
+the pilot runs, the choice of `hazard_error_sigma`, the clean held-out training run and
+its result, the earlier contaminated run that is explicitly **not reportable**, and a
+finding that invalidates the hazard-input ablation as originally specified.
 
 ## Decision
 
@@ -84,7 +84,104 @@ it for a time. A-lane located it, re-ran it and committed both script and output
 #17). The re-run reproduces the two numbers this record depends on to five significant
 figures, so the derivation above now cites a file rather than a remembered value.
 
+### The clean held-out run: PPO loses by more than the whole available headroom
+
+This is the reportable result. It replaces the upper-bound run below, which predicted its
+direction and is kept only as that prediction.
+
+Setup, with each contamination source in the upper-bound run closed:
+
+- **Window.** Trained on `profile_diurnal_long_train.csv` (2,880 rows, 10 days), evaluated
+  on `profile_diurnal_long_holdout.csv` (1,152 rows, 4 days). One continuous 14-day
+  window cut forward in time, so the evaluation half is strictly after the training half
+  and neither is the 288-step tiled period of the original profiles.
+- **Fleet.** `--eval-fleet` on both sides, so drives are drawn from the held-out-split
+  feature table rather than the one v1 was fitted on.
+- **Estimation error.** `--hazard-error-sigma 0.25`, provenance in
+  `hazard/calibration_spread.json`.
+- **Budget.** 244 iterations x 8192 steps = 2.0M environment steps per seed, three seeds,
+  on current `main`. Chosen so the result cannot be dismissed as an undertrained agent.
+
+Evaluation is 20 paired scenario seeds, every policy on identical episodes, learned
+policies acting by their mode. Evidence in `agent/evidence/clean-holdout-2026-11-06/`;
+reproduce with:
+
+    python -m agent.evaluate_policy \
+        --checkpoint runs/ppo-clean/seed0/ckpt_final.pt \
+        --checkpoint runs/ppo-clean/seed1/ckpt_final.pt \
+        --checkpoint runs/ppo-clean/seed2/ckpt_final.pt \
+        --workload-csv data_pipeline/profiles/profile_diurnal_long_holdout.csv \
+        --eval-fleet --hazard-error-sigma 0.25 --seeds 20 --out runs/ppo-clean-eval
+
+| policy                              | reward    | completion (h) | delivered (MB/s) | lat_deg_mean | violation fraction |
+|-------------------------------------|-----------|----------------|------------------|--------------|--------------------|
+| ORACLE_lookahead (not deployable)   |  -318.345 | 36.86          | 90.95            | 0.2462       | 0.0468             |
+| risk_aware_rule_based               |  -330.196 | 43.60          | 77.33            | 0.2315       | 0.0444             |
+| workload_only_throttle              |  -330.196 | 43.60          | 77.33            | 0.2315       | 0.0444             |
+| fixed_50                            |  -348.271 | 63.08          | 54.12            | 0.1814       | 0.0352             |
+| ppo_lagrangian seed1                |  -348.171 | 63.00          | 54.29            | 0.1845       | 0.0358             |
+| ppo_lagrangian seed0                |  -349.431 | 64.05          | 53.44            | 0.1816       | 0.0352             |
+| ppo_lagrangian seed2                |  -353.059 | 64.46          | 53.80            | 0.1965       | 0.0381             |
+| fixed_20                            |  -446.361 | 144.80         | 26.90            | 0.1431       | 0.0277             |
+| fixed_80                            |  -498.635 | 40.82          | 82.00            | 0.2702       | 0.0730             |
+| fixed_120                           | -3630.000 | 29.27          | 114.00           | 3.4980       | 0.6726             |
+
+Paired against `risk_aware_rule_based`, 20 seeds, reward:
+
+| treatment                           | mean diff | sem   | as % of the rule |
+|-------------------------------------|-----------|-------|------------------|
+| ORACLE_lookahead (not deployable)   |   +11.850 | 1.496 | **+3.59%**       |
+| ppo_lagrangian seed1                |   -17.975 | 1.492 | -5.44%           |
+| fixed_50                            |   -18.075 | 1.459 | -5.47%           |
+| ppo_lagrangian seed0                |   -19.235 | 1.568 | -5.83%           |
+| ppo_lagrangian seed2                |   -22.863 | 2.201 | -6.92%           |
+
+**PPO loses to the rule by 5.4% to 6.9%, at 8 to 12 standard errors.** The entire
+anticipatory headroom on this window, measured by the oracle that reads the next
+interval's load from the trace, is +3.6%. PPO therefore sits below the rule by about 1.5
+to 1.9 times the whole gap any controller could win. The direction the upper-bound run
+predicted holds, with the margin slightly wider on clean data than on the contaminated
+window: -2% to -6% there, -5.4% to -6.9% here.
+
+**The learned policy is a constant-rate policy.** This is measured from its actions, not
+inferred from its reward. Over five holdout episodes per seed (~4,000 intervals each), the
+action it selects is 50 MB/s on 97.1% / 99.9% / 80.9% of intervals, out of the four
+available rates {20, 50, 80, 120}. Seed 1 uses only two distinct actions in 3,948 steps.
+Consistently, its reward is statistically indistinguishable from the `fixed_50` baseline:
+paired reward difference against `fixed_50` is +0.100 (sem 0.065) for seed 1, -1.160 (sem
+0.270) for seed 0, -4.788 (sem 2.159) for seed 2. The three seeds did not find three
+different policies; they found the same constant, twice exactly and once approximately.
+
+**Mechanism: the latency multiplier saturates.** `lambda_latency` reaches the
+`lambda_max = 2.0` bound in 25 / 30 / 41 of 244 iterations and averages 1.98 / 1.95 /
+1.98 over the final 50, while the terminal latency violation fraction is 0.051 to 0.066
+against a 0.05 budget. The constraint is not satisfied, so the multiplier grows until the
+bound stops it, and the best response to a latency price that large is the conservative
+constant rate. `lambda_risk` stays near zero throughout (maximum 0.049 to 0.118): the
+reliability budget is slack on this window and the safety filter handles it.
+
+Note which way the bound pushes. The multiplier is pressing *against* `lambda_max` from
+below, so removing the bound raises the latency price further and makes the policy more
+conservative, not less. The cap did not cause the collapse. But it is binding rather than
+slack, which the record previously only anticipated, so `lambda_max` is now a measured
+load-bearing choice and not a safe default. See Limits.
+
+**A caveat about what PPO lost to.** On this window `risk_aware_rule_based` and
+`workload_only_throttle` are identical on every reported metric, on all 20 seeds
+individually: same reward, completion, delivered bandwidth, latency degradation and
+exposure. They differ only in `clip_fraction` (0.0296 against 0.0645), meaning the rule's
+risk term anticipates the safety filter and so is clipped less often, but never changes
+the allocation that is actually applied. On the real held-out window the risk-aware
+baseline reduces to its workload throttle. The baseline PPO fails to beat is therefore a
+pure workload throttle, which strengthens the negative result and is the same degeneracy
+family as the dead `sigma` knob below: the reliability term is inert whenever the fleet is
+healthy enough that the budget is slack.
+
 ### An upper-bound training run, and why its numbers are not reportable
+
+**Superseded by the clean run above, and kept only as the prediction it made.** It called
+the direction and roughly the margin before held-out data existed; that is the only claim
+it supports.
 
 Three seeds, 1M environment steps each, `--workload-csv
 data_pipeline/profiles/profile_diurnal.csv --hazard-error-sigma 0.25`. Per-seed logs in
@@ -204,30 +301,61 @@ uses this file, not `profile_diurnal.csv`.
 ## Verdict
 
 Constrained PPO, as currently configured, does not beat a risk-aware rule-based baseline
-on the recovery-bandwidth problem, in a setting rigged in its favour.
+on the recovery-bandwidth problem. This is now measured on a held-out window with
+held-out fleets, not inferred from a setting rigged in its favour.
 
-How much headroom exists at all is now measured on a clean setup rather than inferred
-from the contaminated one. On `profile_diurnal_long` with held-out fleets, 20 paired
-seeds (`baselines/evidence/diurnal-long-sigma0.25/`), the lookahead oracle beats
-`risk_aware_rule_based` by 15.25 reward (sem 1.90) against the rule's -293.3, which is
-**5.2%**. An earlier measurement on the tiled 24-hour window gave about 10.4%; that
-window is contaminated by the 288-step period, so 5.2% supersedes it.
+Two numbers frame it, both on `--eval-fleet` with `sigma=0.25` and 20 paired seeds:
 
-So the entire anticipatory headroom available to any deployable controller is about 5%,
-and the oracle reaching it is not deployable. PPO came in 2% to 6% *worse* than the rule.
+- The **headroom**: the lookahead oracle beats `risk_aware_rule_based` by 3.59% on the
+  held-out half (+11.85, sem 1.50, against the rule's -330.2;
+  `agent/evidence/clean-holdout-2026-11-06/`) and by 5.2% on the full long profile
+  (+15.25, sem 1.90, against -293.3; `baselines/evidence/diurnal-long-sigma0.25/`).
+  These are two windows, not a contradiction: the 4-day holdout half is the harder of
+  the two for an anticipator. Either way the ceiling is single-digit percent, and the
+  oracle that reaches it reads the future and is not deployable. An earlier figure of
+  about 10.4% came from the tiled 24-hour window and is superseded by both.
+- The **result**: PPO comes in 5.4% to 6.9% *worse* than the rule, at 8 to 12 standard
+  errors, having converged to a near-constant 50 MB/s allocation indistinguishable from
+  the `fixed_50` baseline.
 
-This is reported as a finding, not a failure. It is not yet a general claim about PPO:
-hyperparameters are untuned, the budget was 1M steps, one architecture, one profile. But
-closing a 10% gap that the method currently moves the wrong way is a high bar, and the
-Phase-1 deck commits to reporting a falsification honestly if it occurs.
+So the method is below the baseline by more than the entire gap any controller could
+win, and the policy it learned is not a controller. On the real held-out window the
+baseline it fails to beat is itself only a workload throttle, since the rule's risk term
+never changes an applied allocation there.
 
-No number in this record may be published until the clean re-run on a held-out window
-with committed `sigma` provenance replaces the upper-bound run.
+This is reported as a finding, not a failure. It is not a general claim about PPO:
+hyperparameters are untuned, one architecture, one profile family, and the saturating
+latency multiplier identifies a specific fixable cause rather than an exhausted search.
+What it does establish is that the problem as specified has little room for learned
+anticipation and that a tuned constrained-RL controller has to clear a bar set by a
+throttle, which the Phase-1 deck commits to reporting honestly either way.
+
+Every number above comes from committed evidence under `agent/evidence/` and
+`baselines/evidence/` and is reproducible from the commands recorded beside it. The
+contaminated upper-bound run remains excluded.
 
 ## Limits
 
-- `lambda_max = 2.0` and `ent_coef_final = 0.01` are untuned single-seed choices. Both
-  are now CLI-exposed so they can be swept, and neither has been.
+- `lambda_max = 2.0` **binds in the clean run and is therefore load-bearing, not a safe
+  default.** It is reached in 25 / 30 / 41 of 244 iterations and `lambda_latency` averages
+  1.95 to 1.98 over the final 50, so for roughly the last third of training the latency
+  constraint is enforced by the bound rather than by the multiplier. The direction is
+  unfavourable to a rescue: the multiplier presses against the bound from below, so
+  raising or removing it makes the latency price larger and the policy more conservative.
+  The interesting sweep is therefore *downward*, and the honest reading is that the
+  reward's latency term and the 0.05 violation budget are jointly too expensive on this
+  window for any multiplier value to produce a non-degenerate policy. Untested.
+- `ent_coef_final = 0.01` is still an untuned single-seed choice. Terminal entropy is 0.85
+  to 0.94 nats against 1.386 for uniform, so the anneal is not what froze the policy: it
+  retains stochasticity and still chooses one action almost always, which locates the
+  cause in the value of the actions and not in exploration pressure. Both knobs are
+  CLI-exposed; neither has been swept.
+- **The result is one window and one action space.** `ACTIONS_MBPS` offers four rates and
+  the rule's mean delivered bandwidth is 77.3 MB/s, between 50 and 80, so the baseline
+  wins partly by alternating across a discretisation the policy collapsed inside. A finer
+  action space is an untested confound, not a dismissal: it would change the margin
+  without changing the direction, since the oracle on the same four actions only reaches
+  +3.6%.
 - `DEFAULT_ROLLOUT_STEPS = 8192` is a compromise, not an optimum: 16384 would hold about
   25 episodes at uniform-random allocation but halves the number of policy updates in a
   fixed step budget.

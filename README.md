@@ -294,13 +294,17 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-06, on `main`: 396 tests pass under `data_pipeline/tests`, which is
+As of 2026-11-07, on `main`: 396 tests pass under `data_pipeline/tests`, which is
 the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
 `hazard/` carry their own tests and run from the repo root. Across the whole
-repo, a full `python -m pytest -q` run on `main` (after PR #17's calibration
-bootstrap, PR #18's 14-day aggregate workload trace and PR #19's decision-doc
-sign-offs and xgboost-import fix) passed 1,695 tests with 16 pre-existing
-skips -- the current confirmed count. The acceptance checker
+repo, a full `python -m pytest -q` run passed **1,733 tests with 21 skips** --
+the current confirmed count, measured on a checkout that has the `hazard/v1`
+artifacts present. The previous pin of 1,695 / 16 predated the long-profile
+split, the `--eval-fleet` flags, `agent/evaluate_policy.py` and the skipif guard
+added to `hazard/test_v1.py`; it was also measured on a machine without the v1
+artifacts, which is why the 16 is lower rather than higher. The 21 skips are
+`ISM_ENV_FACTORY` unset, five tests behind `--runslow`, and the gitignored
+Backblaze processed tables, all expected outside a full local regeneration. The acceptance checker
 reports `RESULT: PASS` in
 `--committed-only` mode on a clean clone, and in full mode once the
 Backblaze/Tencent outputs have been regenerated locally (they are gitignored,

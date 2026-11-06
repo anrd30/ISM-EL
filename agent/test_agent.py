@@ -33,7 +33,7 @@ from agent.ppo import (
     resolve_next_values,
 )
 from agent.rollout import EpisodeRecord, RolloutBatch, RolloutCollector
-from agent.train import LOG_COLUMNS, TrainConfig, train
+from agent.train import DEFAULT_ROLLOUT_STEPS, LOG_COLUMNS, TrainConfig, train
 from baselines.evaluate import evaluate
 from baselines.policies import Policy
 from contracts.contracts import (
@@ -279,6 +279,45 @@ def test_no_finished_episode_leaves_multipliers_unchanged() -> None:
     agent.lambda_latency.value = 0.7
     out = agent.update_multipliers([])
     assert agent.lambda_latency.value == 0.7 and math.isnan(out["latency_violation_fraction"])
+
+
+def test_multiplier_bound_clips_and_records_each_binding_update() -> None:
+    lam = LagrangeMultiplier("latency", limit=0.05, lr=0.5, max_value=1.0)
+    assert lam.update(1.0) == pytest.approx(0.475) and not lam.last_capped
+    assert lam.update(1.0) == pytest.approx(0.95) and not lam.last_capped
+    assert lam.update(1.0) == 1.0 and lam.last_capped  # 0.95 + 0.475 > 1.0
+    assert lam.update(1.0) == 1.0 and lam.last_capped  # stays on the bound
+    lam.update(0.0)  # constraint satisfied: decays off the bound
+    assert lam.value < 1.0 and not lam.last_capped
+    assert lam.n_updates == 5 and lam.n_capped == 2
+
+
+def test_unbounded_multiplier_never_reports_binding() -> None:
+    lam = LagrangeMultiplier("latency", limit=0.05, lr=0.5)
+    for _ in range(50):
+        lam.update(1.0)
+    assert lam.n_capped == 0 and not lam.last_capped and lam.value > 20.0
+
+
+def test_default_config_bounds_the_multipliers_and_reports_binding() -> None:
+    agent = PPOAgent()
+    assert math.isfinite(agent.config.lambda_max)
+    always_violating = [EpisodeRecord(-5.0, 100, 1.0, 0.0, "recovery_complete", "peak")]
+    flags = [agent.update_multipliers(always_violating)["lambda_latency_capped"] for _ in range(20)]
+    assert agent.lambda_latency.value == agent.config.lambda_max
+    assert flags[0] == 0.0 and flags[-1] == 1.0
+    assert agent.update_multipliers([])["lambda_latency_capped"] == 0.0
+    clone = PPOAgent()
+    clone.load_state(agent.state())
+    assert (clone.lambda_latency.n_capped, clone.lambda_latency.n_updates) == (
+        agent.lambda_latency.n_capped,
+        agent.lambda_latency.n_updates,
+    )
+
+
+def test_default_rollout_spans_several_default_episodes() -> None:
+    # The shortest episode under any allocation is 334 steps (always the largest allocation).
+    assert DEFAULT_ROLLOUT_STEPS >= 8 * 334 and TrainConfig().rollout_steps == DEFAULT_ROLLOUT_STEPS
 
 
 def test_penalties_are_read_from_info_signals_not_the_reward() -> None:

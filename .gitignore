@@ -27,3 +27,6 @@ hazard/artifacts/
 .claude/
 graphify-out/
 _to_delete/
+
+# T-lane: PPO training run output (logs, checkpoints), regenerate with python -m agent.train
+runs/

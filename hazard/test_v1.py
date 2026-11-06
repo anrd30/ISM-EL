@@ -129,6 +129,12 @@ def check_contract_output(out: tuple) -> None:
 
 @pytest.mark.skipif(not _REAL_ARTIFACTS_PRESENT,
                      reason="hazard/artifacts/v1/ is gitignored; run `python -m hazard.fit_v1` to generate it")
+def test_split_batches_class_subclasses_the_xgboost_iterator_and_is_cached() -> None:
+    cls = fit_v1.split_batches_class()
+    assert issubclass(cls, xgb.DataIter) and cls.__name__ == "SplitBatches"
+    assert fit_v1.split_batches_class() is cls
+
+
 def test_loads_from_committed_artifacts_and_satisfies_protocol() -> None:
     assert isinstance(FittedHazardV1(), HazardModel)
     assert len(feature_columns()) == 57

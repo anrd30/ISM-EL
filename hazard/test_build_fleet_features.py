@@ -7,6 +7,9 @@ reads the real tables and is skipped when they are absent.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -19,6 +22,21 @@ from hazard import fit_v1
 
 _REAL_DATA_PRESENT = fit_v1.TIMELINES.exists() and fit_v1.LABELS.exists() and fit_v1.DRIVE_SPLIT.exists()
 _REAL_TABLE = bff.OUT_PATH
+
+_BLOCK_XGBOOST = (
+    "import sys\n"
+    "class _Block:\n"
+    "    def find_spec(self, name, path=None, target=None):\n"
+    "        if name == 'xgboost' or name.startswith('xgboost.'):\n"
+    "            raise ImportError('xgboost blocked')\n"
+    "sys.meta_path.insert(0, _Block())\n"
+)
+
+
+def _run_without_xgboost(code: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    return subprocess.run([sys.executable, "-c", _BLOCK_XGBOOST + code], capture_output=True, text=True, env=env)
+
 
 HELD_OUT = "te" + "st"  # fixture value of the third split; its rows must never reach the output
 HELD_OUT_VALUE = 999_999.0
@@ -195,6 +213,32 @@ def test_cli_split_selects_split_and_output_path(fixture_tables: Path, monkeypat
     assert calls[0] == calls[1] == ((bff.OUT_PATH,), {"split": fit_v1.TRAIN_SPLIT})
     assert calls[2] == ((bff.OUT_PATH_TEST,), {"split": bff.TEST_SPLIT})
     assert bff.OUT_PATH_TEST != bff.OUT_PATH
+
+
+def test_fit_v1_and_build_fleet_features_import_without_xgboost() -> None:
+    result = _run_without_xgboost(
+        "from hazard import fit_v1, build_fleet_features\n"
+        "assert 'xgboost' not in sys.modules\n"
+        "print('OK')\n"
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+
+def test_fit_v1_functions_that_need_xgboost_fail_clearly_without_it() -> None:
+    result = _run_without_xgboost(
+        "from hazard import fit_v1\n"
+        "for call in (fit_v1.select_device, fit_v1.split_batches_class, fit_v1.fit):\n"
+        "    try:\n"
+        "        call()\n"
+        "    except ImportError as exc:\n"
+        "        assert 'xgboost is required' in str(exc), str(exc)\n"
+        "    else:\n"
+        "        raise SystemExit('no ImportError from ' + call.__name__)\n"
+        "print('OK')\n"
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.stdout.strip() == "OK"
 
 
 def test_sampling_seed_is_not_a_fit_seed() -> None:

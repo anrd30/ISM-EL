@@ -38,13 +38,13 @@ import shutil
 import sys
 import time
 from collections.abc import Iterator, Sequence
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import xgboost as xgb
 from sklearn.isotonic import IsotonicRegression
 
 REPO = Path(__file__).resolve().parents[1]
@@ -151,58 +151,76 @@ def paired_chunks(
         yield left, right
 
 
-class SplitBatches(xgb.DataIter):
-    """XGBoost data iterator over the selected rows of one split.
+def _require_xgboost():
+    """Import and return the ``xgboost`` module; ImportError with install guidance when absent."""
+    try:
+        import xgboost
+    except ImportError as exc:
+        raise ImportError("xgboost is required to fit the v1 hazard model; install it "
+                          "(see hazard/requirements.txt)") from exc
+    return xgboost
 
-    Each batch holds float32 value columns, float32 0/1 flag columns and the
-    drive model as a categorical column with fixed categories.
-    """
 
-    def __init__(self, split_name: str, drive_split: pd.DataFrame, values: list[str],
-                 flags: list[str], categories: list[str]) -> None:
-        super().__init__(cache_prefix=None)
-        self.split_name = split_name
-        self.drive_split = drive_split
-        self.values = values
-        self.flags = flags
-        self.categories = categories
-        self.columns = [*values, *flags, MODEL_COLUMN]
-        self._source: Iterator | None = None
+@lru_cache(maxsize=None)
+def split_batches_class() -> type:
+    """Return the ``SplitBatches`` class, defined on first use because it subclasses ``xgboost.DataIter``."""
+    xgb = _require_xgboost()
 
-    def reset(self) -> None:
-        self._source = None
+    class SplitBatches(xgb.DataIter):
+        """XGBoost data iterator over the selected rows of one split.
 
-    def next(self, input_data) -> bool:
-        if self._source is None:
-            self._source = self._batches()
-        try:
-            frame, label = next(self._source)
-        except StopIteration:
-            return False
-        input_data(data=frame, label=label)
-        return True
+        Each batch holds float32 value columns, float32 0/1 flag columns and the
+        drive model as a categorical column with fixed categories.
+        """
 
-    def _batches(self) -> Iterator[tuple[pd.DataFrame, np.ndarray]]:
-        read = [*KEY_COLUMNS, MODEL_COLUMN, *self.values, *self.flags]
-        for left, right in paired_chunks(read):
-            labels = right.select(["serial_number", "label"]).to_pandas()
-            mask = select_rows(labels, self.drive_split, self.split_name)
-            if not mask.any():
-                continue
-            chosen = left.filter(pa.array(mask)).to_pandas()
-            frame = pd.DataFrame(index=chosen.index)
-            for name, flag in zip(self.values, self.flags):
-                value = chosen[name].to_numpy(dtype=np.float32)
-                if not np.array_equal(chosen[flag].to_numpy(dtype=bool), np.isnan(value)):
-                    raise ValueError(f"{flag} differs from the missing values of {name}")
-                frame[name] = value
-                frame[flag] = chosen[flag].to_numpy(dtype=np.float32)
-            frame[MODEL_COLUMN] = pd.Categorical(chosen[MODEL_COLUMN], categories=self.categories)
-            yield frame[self.columns], labels["label"].to_numpy()[mask].astype(np.float32)
+        def __init__(self, split_name: str, drive_split: pd.DataFrame, values: list[str],
+                     flags: list[str], categories: list[str]) -> None:
+            super().__init__(cache_prefix=None)
+            self.split_name = split_name
+            self.drive_split = drive_split
+            self.values = values
+            self.flags = flags
+            self.categories = categories
+            self.columns = [*values, *flags, MODEL_COLUMN]
+            self._source: Iterator | None = None
+
+        def reset(self) -> None:
+            self._source = None
+
+        def next(self, input_data) -> bool:
+            if self._source is None:
+                self._source = self._batches()
+            try:
+                frame, label = next(self._source)
+            except StopIteration:
+                return False
+            input_data(data=frame, label=label)
+            return True
+
+        def _batches(self) -> Iterator[tuple[pd.DataFrame, np.ndarray]]:
+            read = [*KEY_COLUMNS, MODEL_COLUMN, *self.values, *self.flags]
+            for left, right in paired_chunks(read):
+                labels = right.select(["serial_number", "label"]).to_pandas()
+                mask = select_rows(labels, self.drive_split, self.split_name)
+                if not mask.any():
+                    continue
+                chosen = left.filter(pa.array(mask)).to_pandas()
+                frame = pd.DataFrame(index=chosen.index)
+                for name, flag in zip(self.values, self.flags):
+                    value = chosen[name].to_numpy(dtype=np.float32)
+                    if not np.array_equal(chosen[flag].to_numpy(dtype=bool), np.isnan(value)):
+                        raise ValueError(f"{flag} differs from the missing values of {name}")
+                    frame[name] = value
+                    frame[flag] = chosen[flag].to_numpy(dtype=np.float32)
+                frame[MODEL_COLUMN] = pd.Categorical(chosen[MODEL_COLUMN], categories=self.categories)
+                yield frame[self.columns], labels["label"].to_numpy()[mask].astype(np.float32)
+
+    return SplitBatches
 
 
 def select_device() -> tuple[str, str]:
     """Return ``(device, note)``: ``cuda`` if a small CUDA fit succeeds, else ``cpu``."""
+    xgb = _require_xgboost()
     try:
         probe = xgb.DMatrix(np.array([[0.0], [1.0]], dtype=np.float32), label=[0, 1])
         xgb.train({"device": "cuda", "tree_method": "hist"}, probe, num_boost_round=1)
@@ -251,6 +269,8 @@ def brier(y: np.ndarray, p: np.ndarray) -> float:
 def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
     """Run the full selection, fit, calibration and save; return the metadata written."""
     started = time.time()
+    xgb = _require_xgboost()
+    SplitBatches = split_batches_class()
     device, note = select_device()
     print(f"device={note} xgboost={xgb.__version__} rounds_max={MAX_ROUNDS} "
           f"early_stopping_rounds={EARLY_STOPPING_ROUNDS}")

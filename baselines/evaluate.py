@@ -83,7 +83,7 @@ from contracts.contracts import (
     TerminationReason,
     latency_degradation,
 )
-from sim.config import SimConfig
+from sim.config import SimConfig, v1_eval_config
 from sim.recovery_env import RecoveryEnv
 from sim.scenario import load_replay_csv
 from workload.generate import PROFILE_NAMES
@@ -689,6 +689,20 @@ def _csv_workloads(parser: argparse.ArgumentParser, directory: Path | None, file
     return paths
 
 
+def _build_config(args: argparse.Namespace) -> SimConfig:
+    """Base config for the command line: train-split fleet, or the held-out-split fleet with ``--eval-fleet``.
+
+    The label is ``"<fleet>,sigma=<value>"``; it stays ``"default"`` when both flags are at their defaults.
+    """
+    fields: dict[str, Any] = {"hazard_error_sigma": args.hazard_error_sigma}
+    if args.eval_fleet or args.hazard_error_sigma != 0.0:
+        fleet = "eval-fleet" if args.eval_fleet else "train-fleet"
+        fields["label"] = f"{fleet},sigma={args.hazard_error_sigma:g}"
+    if args.eval_fleet:
+        return v1_eval_config(**fields)
+    return SimConfig(**fields)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point; returns the process exit status."""
     parser = argparse.ArgumentParser(
@@ -717,9 +731,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed-start", type=int, default=0, help="first seed")
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     parser.add_argument("--diagnostics", action="store_true", help="also run the diagnostic policies")
+    parser.add_argument(
+        "--hazard-error-sigma",
+        type=float,
+        default=0.0,
+        help="log-space sigma of the multiplicative error between reported and true per-drive hazard",
+    )
+    parser.add_argument(
+        "--eval-fleet",
+        action="store_true",
+        help="draw the simulated fleet from the held-out-split feature table instead of the train-split table",
+    )
     args = parser.parse_args(argv)
     if args.seeds < 1:
         parser.error("--seeds must be >= 1")
+    if not (math.isfinite(args.hazard_error_sigma) and args.hazard_error_sigma >= 0.0):
+        parser.error(f"--hazard-error-sigma must be a finite number >= 0, got {args.hazard_error_sigma!r}")
     csv_given = args.workload_dir is not None or bool(args.workload_csv)
     if csv_given and args.profiles is not None:
         parser.error("--profiles cannot be combined with --workload-dir or --workload-csv")
@@ -732,7 +759,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except argparse.ArgumentTypeError as exc:
             parser.error(str(exc))
 
-    config = SimConfig()
+    config = _build_config(args)
     policies: list[Policy] = baseline_policies(config)
     if args.diagnostics:
         policies += diagnostic_policies(config)

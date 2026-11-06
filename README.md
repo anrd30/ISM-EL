@@ -297,8 +297,9 @@ a clone without the bulk data present.
 As of 2026-11-06, on `main`: 396 tests pass under `data_pipeline/tests`, which is
 the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
 `hazard/` carry their own tests and run from the repo root. Across the whole
-repo, a full `python -m pytest -q` run on `main` (after PR #14's test-split
-fast-follow and PR #15's docs update) passed 1,682 tests with 16 pre-existing
+repo, a full `python -m pytest -q` run on `main` (after PR #17's calibration
+bootstrap, PR #18's 14-day aggregate workload trace and PR #19's decision-doc
+sign-offs and xgboost-import fix) passed 1,695 tests with 16 pre-existing
 skips -- the current confirmed count. The acceptance checker
 reports `RESULT: PASS` in
 `--committed-only` mode on a clean clone, and in full mode once the

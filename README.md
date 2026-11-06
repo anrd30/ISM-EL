@@ -90,10 +90,14 @@ One closed loop with three parts.
   environment.
 
 Built so far: the simulator, the safety filter, the non-learned controllers,
-and a fitted hazard model (`hazard/v1.py`, A3). `hazard/v0.py`'s unfitted
-placeholder is still the model the simulator actually calls; wiring the
-simulator to v1's feature set is A5, not yet done. The learned controller has
-no training script. Section 8 has the per-task status.
+a fitted hazard model (`hazard/v1.py`, A3) that A4 measured against the
+unfitted placeholder on the held-out test split, and a real-data-sampled
+fleet generator (A5) that lets the simulator feed v1 its 57 inputs instead of
+v0's 5. `sim.config.SimConfig()` now defaults to v1 and this generator;
+`sim.config.v0_config()` still returns the original v0 setup for anyone who
+needs it (tests, a clean checkout without the ~218 MB v1 artifacts). The
+learned controller has no training script. Section 8 has the per-task
+status.
 
 ## 4. Expected output
 
@@ -218,21 +222,31 @@ contracts/          Frozen interface: constants, observation/action shapes,
 sim/                The simulator (QUANTIFY). config.py holds the latency model
                     and every design constant; recovery_env.py is the episode;
                     safety_filter.py clips requests exceeding the exposure budget;
-                    scenario.py loads replay traces and samples fleets;
-                    stress.py builds stress scenarios. LIMITATIONS.md is
-                    required reading before quoting any simulator number.
+                    scenario.py loads replay traces and samples fleets, with
+                    two feature functions (v1_drive_features, the default,
+                    sampling real per-model/per-column pools from
+                    fleet_features_v1.json; v0_drive_features, the original
+                    Poisson-driven generator, used by v0_config()); stress.py
+                    builds stress scenarios. LIMITATIONS.md is required
+                    reading before quoting any simulator number.
 
 hazard/             The risk interface (PREDICT). v0.py is a constant annual
                     failure rate (2.11%) times a bounded SMART multiplier, not
-                    fitted to data; it is still the model the simulator
-                    actually calls. v1.py is the fitted alternative (A3): a
+                    fitted to data. v1.py is the fitted alternative (A3): a
                     25-model XGBoost bootstrap ensemble with isotonic
                     calibration, built by fit_v1.py from A2's train/val split
-                    and tested by test_v1.py. v1's artifacts
-                    (artifacts/v1/, about 218 MB) are gitignored like
-                    data_pipeline's generated outputs; manifest.json
-                    hash-pins them and A3_DECISION.md records the fit's
-                    evidence and limits.
+                    and tested by test_v1.py; A4 (evaluate_v1.py) showed it
+                    beats v0 on PR-AUC and Brier pooled and on Seagate, though
+                    not on every per-model cell, and A5 made it the
+                    simulator's default. xgboost is imported lazily, inside
+                    v1.py's own artifact loader, so importing the module (and
+                    anything that only imports sim.config) does not require
+                    it. v1's artifacts (artifacts/v1/, about 218 MB) are
+                    gitignored like data_pipeline's generated outputs;
+                    manifest.json hash-pins them, A3_DECISION.md records the
+                    fit's evidence and limits, A4_DECISION.md the comparison
+                    against v0, and A5_DECISION.md the fleet-feature
+                    generator built from the same train split.
 
 baselines/          Non-learned controllers to compare against: the four fixed
                     rates, a risk-blind workload throttle, a risk-aware rule, and
@@ -280,11 +294,13 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-04, on `main`: 396 tests pass under `data_pipeline/tests`, which is
+As of 2026-11-06, on `main`: 396 tests pass under `data_pipeline/tests`, which is
 the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
 `hazard/` carry their own tests and run from the repo root. Across the whole
-repo, `python -m pytest -q` passes 1,535 tests with 16 pre-existing skips
-unrelated to the hazard lane. The acceptance checker reports `RESULT: PASS` in
+repo, a full `python -m pytest -q` run on `main` (after PR #14's test-split
+fast-follow and PR #15's docs update) passed 1,682 tests with 16 pre-existing
+skips -- the current confirmed count. The acceptance checker
+reports `RESULT: PASS` in
 `--committed-only` mode on a clean clone, and in full mode once the
 Backblaze/Tencent outputs have been regenerated locally (they are gitignored,
 so a clean clone's full-mode run reports `INCOMPLETE` until then, not `PASS`).
@@ -297,8 +313,8 @@ real fitted model, until `python -m hazard.fit_v1` is run locally.
 | Interface | Frozen contract v1.4.0 | Done |
 | Simulator | Episode, latency model, safety filter, scenarios, stress | Done |
 | Baselines | Fixed-rate and heuristic controllers, evaluation harness | Done |
-| Risk (placeholder) | `hazard/v0.py` constant-rate + SMART multiplier | Done, still the model the simulator calls |
-| Risk (fitted) | `hazard/v1.py` -- 25-model XGBoost bootstrap ensemble, isotonic calibration | Done, PR #11; not yet wired into the simulator |
+| Risk (placeholder) | `hazard/v0.py` constant-rate + SMART multiplier | Done; reachable via `sim.config.v0_config()`, no longer the simulator's default |
+| Risk (fitted) | `hazard/v1.py` -- 25-model XGBoost bootstrap ensemble, isotonic calibration | Done, PR #11; wired into the simulator as the default (A5) |
 | Data B0 | Repo scaffold, ignore rules, schema inspection | Done |
 | Data B1 | Backblaze extract, 4 models, 2022 | Done |
 | Data B2 | Per-drive timelines, drive index, leakage test | Done |
@@ -309,13 +325,13 @@ real fitted model, until `python -m hazard.fit_v1` is run locally.
 | Risk A1 | Data window, drive models, SMART columns | Done, PR #7 |
 | Risk A2 | 30-day labels, drive-level train/val/test split | Done, PR #8 |
 | Risk A3 | Fit the hazard model on the training split | Done, PR #11 |
-| Risk A4 | Evaluate: calibration, PR-AUC, recall vs `hazard/v0.py` | Not started |
-| Risk A5 | Replace `hazard/v0.py` with the fitted model | Not started |
+| Risk A4 | Evaluate: calibration, PR-AUC, recall vs `hazard/v0.py` | Done, PR #12 |
+| Risk A5 | Replace `hazard/v0.py` with the fitted model | Done, PR #13 |
 | Risk A6 | Risk-model slides | Not started |
-| Control | RL controller training | No training script in the repo yet |
+| Control | RL controller training | `agent/train.py` (PPO, checkpointing, ablation flag) built; no full training run yet, only a smoke run; `hazard_error_sigma` still at its `0.0` default, which leaves the reliability constraint inert (`sim/LIMITATIONS.md` section 15) |
 | Report | Literature review, figures, report, deck | Tracked outside this repo |
 
-### What A1, A2 and A3 produced
+### What A1 through A5 produced
 
 | Output | Rows | Grain |
 | --- | --- | --- |
@@ -339,8 +355,27 @@ split (21,291,333 rows, 36,871 positive) and calibrated on val (4,567,066
 rows, 7,762 positive). Ensemble validation log-loss 0.010024, Brier 0.001585 --
 a real improvement over a constant-at-base-rate prediction (log-loss 0.01254,
 Brier 0.001697), but a modest one; these are sanity checks, not evidence of
-real-world quality, since val was also used for calibration. Whether v1
-actually beats `hazard/v0.py` on the untouched test split is A4's question.
+real-world quality, since val was also used for calibration.
+
+**What A4 found.** On the 4,564,332-row held-out test split, pooled v1 beats
+v0 on both PR-AUC (difference +0.0792, interval [+0.0488, +0.1186]) and Brier
+(-1.201e-4, interval [-1.578e-4, -8.341e-5]); recall at 1%/0.1% FPR is 40.9%
+vs 36.8% and 22.7% vs 12.4%. Seagate alone shows the same pattern. Toshiba and
+two of the three Seagate models (ST12000NM0008, ST8000NM0055) do not clear
+the two-metric bar for "v1 better" -- v1 does not win on every cell, only
+pooled and on Seagate as a whole.
+
+**What A5 built.** `sim.scenario.v1_drive_features`, now `SimConfig()`'s
+default feature function, draws each of v1's 28 value columns per drive from
+per-(model, column) pools of up to 2,000 real train-split values
+(`sim/fleet_features_v1.json`), mixing from the failure pool or the healthy
+pool with probability equal to the drive's degradation level.
+`v0_drive_features` (the original Poisson generator) is unchanged and is what
+`v0_config()` uses instead. Columns are sampled independently per column, not
+jointly, so a generated drive does not reproduce the real same-day
+correlations between its own columns; `hazard/A5_DECISION.md` has the full
+limits, including a group-hazard-spread check showing v1 fleets spread far
+more widely at a given level than v0's did.
 
 ## 9. Known limitations and open items
 
@@ -353,9 +388,9 @@ actually beats `hazard/v0.py` on the untouched test split is A4's question.
 - Per-model failed-drive counts in val and test are 52 to 95, so per-model
   metrics will be noisy and need error bars.
 - `hazard/v0.py` still carries the Q1-2022 annual rate (2.11%) while the current
-  extract's pooled rate is 1.95%. Its baseline was also set from data that
-  includes the test drives, so A4 must either re-derive it from training drives
-  or disclose the head start.
+  extract's pooled rate is 1.95%, and that rate was fit on data including the
+  test drives A4 scores it against; A4 disclosed this rather than re-deriving
+  it, and scores v0 exactly as it stands.
 - 414 of the 6,817 Tencent candidate volumes (6.1%) report a median below 512
   bytes per I/O, which is not physically plausible. The cause is unresolved; those
   volumes are excluded from profile selection. The share is of the candidates that
@@ -372,10 +407,26 @@ actually beats `hazard/v0.py` on the untouched test split is A4's question.
   space: an all-zero input and an input with one SMART raw count set as high
   as 50,000 (the rest absent) calibrate to the identical output, because both
   raw scores fall under isotonic's lowest step.
-- `sim/scenario.py` still only generates the 5 synthetic features of
-  `hazard.v0.FEATURE_NAMES`, so v1's 57 inputs cannot be fed by the simulator
-  yet; that wiring is A5.
-- `A1_DECISION.md`, `A2_DECISION.md` and `A3_DECISION.md` all still read
+- A4 found v1 does not beat v0 everywhere: Toshiba and two of the three
+  Seagate models (ST12000NM0008, ST8000NM0055) do not clear its two-metric
+  bar, even though the pooled and Seagate-wide numbers favor v1 clearly.
+- A5's fleet generator samples each of v1's 28 columns independently from
+  real per-(model, column) pools; a generated drive does not reproduce the
+  real correlations between a drive's own columns on the same day, and group
+  hazard spreads far more widely at a given level under v1 than it did under
+  v0 (`hazard/A5_DECISION.md`).
+- `sim/LIMITATIONS.md` section 9 (the violation-fraction-by-action table) is
+  now regenerated under the v1 default (`python -m sim.measure_defaults`):
+  the mean table barely moves, but under v1 the safety filter occasionally
+  clips even the lowest action, which pushes `peak`'s worst-seed violation to
+  5.3%, over the 5% budget on that one seed (3.8% under v0). The section 5.3
+  ladder above needs no such regeneration: `build_profiles.latency_ladder`
+  only reads the latency-model constants from `v0_config()`, never the
+  hazard model, so it was never generator-dependent.
+- `sim/fleet_features_v1.json` is only as current as the A1 window, the A2
+  split and the value columns it was built from; `python -m
+  hazard.build_fleet_features` has to be rerun after any of those change.
+- `A1_DECISION.md` through `A5_DECISION.md` all still read
   "Status: proposed".
 
 ## 10. Getting started
@@ -434,6 +485,11 @@ none is found. Writes `hazard/artifacts/v1/` (gitignored, about 218 MB) and
 regenerates `hazard/manifest.json`. Without this, `hazard`'s own tests still
 pass against a small synthetic fixture built in-process.
 
+**Since A5.** `sim.config.SimConfig()` constructs `FittedHazardV1` by
+default, so any script that builds a bare `SimConfig()` needs the artifacts
+above; `sim.config.v0_config()` returns a config built from `hazard/v0.py`
+and the original synthetic fleet generator instead, and needs nothing fit.
+
 **Run everything:**
 
 ```
@@ -469,6 +525,8 @@ python -m pytest -q
 | `data_pipeline/A1_DECISION.md` | Which Backblaze data, and the evidence for it |
 | `data_pipeline/A2_DECISION.md` | The label rule and the split, with per-split counts |
 | `hazard/A3_DECISION.md` | What model was fit, how, and its real evidence and limits |
+| `hazard/A4_DECISION.md` | Whether v1 beats v0 on the held-out test split, and where it does not |
+| `hazard/A5_DECISION.md` | How the simulator's fleet generator feeds v1, and its real limits |
 | `CLAUDE.md` | Lane ownership, conventions, code standards, A-lane notes |
 
 ## 13. Data attribution

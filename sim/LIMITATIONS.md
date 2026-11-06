@@ -115,6 +115,11 @@ stress run measures loss under the filter's degradation rule, not how loss
 depends on the controller's choices. The multiplier is not derived from any
 fleet.
 
+`stress_config()` with no `base` stays pinned to the v0 hazard and its feature
+function (`sim.config.v0_config()`) on purpose, independent of the `SimConfig`
+default (now the fitted v1): the figures above were measured with v0, and the
+stress configuration is defined on that hazard.
+
 ## 9. Workload
 
 Foreground load is a synthetic aggregate from `workload.generate` (or a replay
@@ -126,21 +131,34 @@ start at a random trace row by default.
 The `peak` profile loads the budget heavily (mean foreground `rho` about 0.74,
 p95 about 0.80). With the defaults and a healthy fleet, the fraction of
 intervals violating the latency limit by constant action (mean over 20 seeds;
-simulated, uncalibrated) is:
+simulated, uncalibrated), measured under the v1 default
+(`python -m sim.measure_defaults`; `--hazard v0` reproduces the figures this
+table replaces):
 
 | Profile | 20 MB/s | 50 MB/s | 80 MB/s | 120 MB/s | Actions within the 5% budget |
 |---|---|---|---|---|---|
 | idle | 0.000 | 0.000 | 0.000 | 0.000 | 4 |
 | diurnal | 0.000 | 0.000 | 0.024 | 0.497 | 3 |
 | bursty | 0.004 | 0.026 | 0.084 | 0.123 | 2 |
-| peak | 0.026 | 0.966 | 1.000 | 1.000 | 1 |
+| peak | 0.027 | 0.966 | 1.000 | 1.000 | 1 |
+
+The mean table is almost unchanged from v0 (only `peak` at 20 MB/s moves,
+0.026 to 0.027): this measurement forces a constant action, and the latency
+model itself never reads the hazard model. The worst seed does move: `peak`
+at 20 MB/s reaches 5.3% under v1, over the 5% budget on that one seed (3.8%
+under v0); `bursty` at 50 MB/s stays 4.4% under either. The cause is the
+safety filter, not the latency model -- under v1 it clips 0.1% to 0.2% of
+steps at 20 MB/s on every profile (v0 clips none at these seeds), raising the
+delivered allocation above the nominally requested one on the affected
+episodes, consistent with v1's generated fleets spreading wider in hazard
+than v0's did at the same level (`hazard/A5_DECISION.md`).
 
 Every profile admits at least one action inside
-`LATENCY_VIOLATION_FRACTION_MAX = 0.05`, and the count falls as workload
-intensity rises. The margins are not large: `peak` at 20 MB/s reaches 3.8% on
-its worst seed and `bursty` at 50 MB/s 4.4%, so the latency budget is
-sensitive to `latency_target_ms` and to the profile shapes, which are
-synthetic and whose p95 is set by scaling.
+`LATENCY_VIOLATION_FRACTION_MAX = 0.05` on the mean, and the count falls as
+workload intensity rises. The margins are not large, and are tighter under
+v1 specifically on `peak`'s worst seed, so the latency budget is sensitive to
+`latency_target_ms`, to the profile shapes (synthetic, p95 set by scaling),
+and now also to which hazard model is in use.
 
 The table and the "actions within the budget" column describe a **healthy
 fleet**. They do not hold under the default randomised-fleet configuration; see
@@ -183,9 +201,19 @@ latency awareness below 0.87.
 
 - Drive features are fixed for the whole episode; a real drive's counters
   would change over the 28 to 167 hours of a rebuild.
-- The scenario generator emits only the five SMART features read by the v0
-  hazard model. A replacement risk model that reads other attributes would see
-  them as missing.
+- The default hazard model is the fitted v1 (`hazard/v1.py`), fed by an
+  empirical generator (`sim.scenario.v1_drive_features`) that draws a drive's
+  model name and its 28 SMART value columns from real training-split values
+  stored in `sim/fleet_features_v1.json`. The heuristic v0 remains available
+  and reproducible by passing it explicitly with its own feature function
+  (`sim.config.v0_config()`). The generator samples each column independently
+  from that column's real marginal distribution (healthy or failure-day
+  values, chosen with probability equal to the drive's degradation level), not
+  jointly, so it does not reproduce the correlation between a drive's columns
+  on the same day (for example between a level and its own 7- and 30-day
+  differences); a drawn feature vector need not match any real drive. The
+  model of each drive in a group is drawn independently, so a group mixes drive
+  models, which a real group usually does not.
 - Per-drive failures are independent given the features. Correlation enters
   only through the shared fleet degradation level that sets the features, so
   the contract's independence limitation (it makes the group look safer than

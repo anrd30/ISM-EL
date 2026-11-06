@@ -35,13 +35,26 @@ failure within an enclosure (shared batch, temperature, vibration, age) that
 the contract's independence assumption leaves out; this generator exercises
 the regime in which that assumption is weakest.
 
-Drive features are drawn as follows. For a drive at level ``l``, each error
+Two feature generators are provided and are selected with ``feature_fn``.
+
+``v0_drive_features`` (the ``sample_fleet`` default) draws the five features the
+v0 hazard model reads, as follows. For a drive at level ``l``, each error
 counter is Poisson with mean ``expm1(l * log1p(C))`` where ``C`` is the mean
 count at ``l = 1`` (``_MEAN_COUNT_AT_FULL_DEGRADATION``). That mean is zero at
 ``l = 0`` and grows geometrically, so the first errors are rare and later ones
 accumulate quickly. Power-on hours share one batch age per episode with a small
 per-drive spread. All of these shapes and constants are design decisions of
 this generator, not fitted to any fleet.
+
+``v1_drive_features`` draws the inputs of the v1 hazard model from
+``sim/fleet_features_v1.json`` (built by ``hazard/build_fleet_features.py`` from
+the training split). A drive's model is drawn once with the training-split
+drive shares as weights. For each value column that is not structurally missing
+for that model, with probability equal to the drive's level the value is drawn
+uniformly from the model's failure-day values of that column, otherwise from
+its healthy values. Structurally missing columns are omitted from the dict.
+Values are drawn independently per column, so the joint structure of a real
+drive's columns is not reproduced.
 
 Limitation. Features are fixed for the whole episode; a real drive's counters
 would change over the roughly 28 to 167 hours of a rebuild. This and the other
@@ -83,8 +96,9 @@ from __future__ import annotations
 import json
 import math
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +125,22 @@ __all__ = [
     "sample_fleet",
     "sample_hazard_multipliers",
     "HAZARD_ERROR_STREAM",
+    "FleetFeatureFn",
+    "FLEET_FEATURES_PATH",
+    "FLEET_FEATURES_TEST_PATH",
+    "FleetTable",
+    "v0_drive_features",
+    "v1_drive_features",
+    "v1_eval_drive_features",
+    "load_fleet_table",
+    "draw_v1_drive_features",
 ]
+
+#: Path of the empirical feature table used by the v1 generator.
+FLEET_FEATURES_PATH: Path = Path(__file__).resolve().parent / "fleet_features_v1.json"
+
+#: Path of the empirical feature table built from the held-out split, used by the evaluation generator.
+FLEET_FEATURES_TEST_PATH: Path = Path(__file__).resolve().parent / "fleet_features_v1_test.json"
 
 #: Surviving drives at episode start: one drive of the group has already failed.
 N_SURVIVORS: int = GROUP_SIZE - 1
@@ -245,7 +274,7 @@ class Fleet:
     """
 
     level: float
-    features: tuple[dict[str, float], ...]
+    features: tuple[dict[str, Any], ...]
     pairs: np.ndarray
     interval_fail_prob: np.ndarray
     estimated_hazard_per_hour: np.ndarray
@@ -270,6 +299,105 @@ def sample_hazard_multipliers(rng: np.random.Generator, sigma: float, n: int = N
     return np.exp(rng.normal(-0.5 * sigma * sigma, sigma, size=n))
 
 
+#: One drive's feature builder: ``(rng, drive_level, batch_age_hours, age_noise)``
+#: to the feature mapping passed to the hazard model. ``drive_level`` is in
+#: ``[0, 1]``; ``batch_age_hours`` is the episode's batch age and ``age_noise``
+#: the drive's standard-normal draw for the age spread.
+FleetFeatureFn = Callable[[np.random.Generator, float, float, float], dict[str, Any]]
+
+
+def v0_drive_features(
+    rng: np.random.Generator, level: float, batch_age_hours: float, age_noise: float
+) -> dict[str, Any]:
+    """Return one drive's features for the v0 hazard model (see the module docstring)."""
+    drive: dict[str, Any] = {}
+    for name in FEATURE_NAMES:
+        if name == "smart_9_raw":
+            drive[name] = max(0.0, batch_age_hours * (1.0 + _AGE_SPREAD * float(age_noise)))
+        else:
+            mean = math.expm1(float(level) * math.log1p(_MEAN_COUNT_AT_FULL_DEGRADATION[name]))
+            drive[name] = float(rng.poisson(mean))
+    return drive
+
+
+@dataclass(frozen=True)
+class FleetTable:
+    """Empirical feature pools loaded from the table written by ``hazard/build_fleet_features.py``.
+
+    Attributes:
+        value_columns: Value columns of the hazard model, in table order.
+        categories: Drive model names, in table order.
+        shares: Training-split drive share of each category, same order.
+        pools: ``pools[model][column]`` is ``(healthy, failure)`` float arrays,
+            or ``None`` when the column is structurally missing for the model.
+    """
+
+    value_columns: tuple[str, ...]
+    categories: tuple[str, ...]
+    shares: np.ndarray
+    pools: dict[str, dict[str, tuple[np.ndarray, np.ndarray] | None]]
+
+
+@lru_cache(maxsize=None)
+def load_fleet_table(path: Path = FLEET_FEATURES_PATH) -> FleetTable:
+    """Load and cache the empirical feature table at ``path``."""
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    categories = tuple(raw["model_categories"])
+    shares = np.array([raw["models"][m]["share"] for m in categories], dtype=np.float64)
+    pools: dict[str, dict[str, tuple[np.ndarray, np.ndarray] | None]] = {}
+    for model in categories:
+        pools[model] = {}
+        for column, entry in raw["models"][model]["columns"].items():
+            if entry["structurally_missing"]:
+                pools[model][column] = None
+            else:
+                pools[model][column] = (
+                    np.array(entry["healthy"], dtype=np.float64),
+                    np.array(entry["failure"], dtype=np.float64),
+                )
+    return FleetTable(tuple(raw["value_columns"]), categories, shares / shares.sum(), pools)
+
+
+def draw_v1_drive_features(table: FleetTable, rng: np.random.Generator, level: float) -> dict[str, Any]:
+    """Return one drive's inputs for the v1 hazard model drawn from ``table``.
+
+    The drive's model is drawn with the table's shares. Each column that is not
+    structurally missing for that model takes a value from the model's failure
+    pool with probability ``level`` and from its healthy pool otherwise; an
+    empty pool is replaced by the other one. Structurally missing columns are
+    omitted. The ``model`` key holds the drawn model name.
+    """
+    model = table.categories[int(rng.choice(len(table.categories), p=table.shares))]
+    drive: dict[str, Any] = {}
+    for column in table.value_columns:
+        pool = table.pools[model].get(column)
+        if pool is None:
+            continue
+        healthy, failure = pool
+        values = failure if rng.random() < level else healthy
+        if values.shape[0] == 0:
+            values = healthy if values is failure else failure
+        if values.shape[0] == 0:
+            continue
+        drive[column] = float(values[int(rng.integers(0, values.shape[0]))])
+    drive["model"] = model
+    return drive
+
+
+def v1_drive_features(
+    rng: np.random.Generator, level: float, batch_age_hours: float, age_noise: float
+) -> dict[str, Any]:
+    """Return one drive's v1 inputs from ``FLEET_FEATURES_PATH`` (batch age and noise are unused)."""
+    return draw_v1_drive_features(load_fleet_table(FLEET_FEATURES_PATH), rng, level)
+
+
+def v1_eval_drive_features(
+    rng: np.random.Generator, level: float, batch_age_hours: float, age_noise: float
+) -> dict[str, Any]:
+    """Return one drive's v1 inputs from ``FLEET_FEATURES_TEST_PATH`` (batch age and noise are unused)."""
+    return draw_v1_drive_features(load_fleet_table(FLEET_FEATURES_TEST_PATH), rng, level)
+
+
 def sample_fleet(
     rng: np.random.Generator,
     model: HazardModel,
@@ -277,6 +405,7 @@ def sample_fleet(
     drive_spread_sd: float = 0.15,
     hazard_error_sigma: float = 0.0,
     error_rng: np.random.Generator | None = None,
+    feature_fn: FleetFeatureFn = v0_drive_features,
 ) -> Fleet:
     """Sample a correlated fleet of surviving drives and score it.
 
@@ -294,6 +423,9 @@ def sample_fleet(
         error_rng: Source of the error multipliers, kept separate from ``rng``
             so the fleet is identical with and without error. Required when
             ``hazard_error_sigma > 0``.
+        feature_fn: Per-drive feature builder, called once per drive with
+            ``(rng, drive_level, batch_age_hours, age_noise)``. It must match
+            ``model``: the default builds the v0 model's inputs.
 
     Each drive's failure probability per control interval is
     ``1 - (1 - h) ** (CONTROL_INTERVAL_S / 3600)`` with ``h`` the drive's
@@ -319,19 +451,13 @@ def sample_fleet(
     drive_levels = np.clip(fleet_level + drive_spread_sd * rng.standard_normal(N_SURVIVORS), 0.0, 1.0)
     age_noise = rng.standard_normal(N_SURVIVORS)
 
-    features: list[dict[str, float]] = []
+    features: list[dict[str, Any]] = []
     pairs = np.empty((N_SURVIVORS, 2), dtype=np.float64)
     fail_prob = np.empty(N_SURVIVORS, dtype=np.float64)
     estimated_hazard = np.empty(N_SURVIVORS, dtype=np.float64)
     true_hazard = np.empty(N_SURVIVORS, dtype=np.float64)
     for i in range(N_SURVIVORS):
-        drive: dict[str, float] = {}
-        for name in FEATURE_NAMES:
-            if name == "smart_9_raw":
-                drive[name] = max(0.0, batch_age_hours * (1.0 + _AGE_SPREAD * float(age_noise[i])))
-            else:
-                mean = math.expm1(float(drive_levels[i]) * math.log1p(_MEAN_COUNT_AT_FULL_DEGRADATION[name]))
-                drive[name] = float(rng.poisson(mean))
+        drive = feature_fn(rng, float(drive_levels[i]), batch_age_hours, float(age_noise[i]))
         features.append(drive)
         p_horizon, uncertainty = model(drive, HORIZON_HOURS)
         pairs[i] = (p_horizon, uncertainty)

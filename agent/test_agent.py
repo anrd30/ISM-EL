@@ -45,10 +45,10 @@ from contracts.contracts import (
     action_to_mbps,
     termination_flags,
 )
-from sim.config import SimConfig
+from sim.config import v0_config
 from sim.recovery_env import RecoveryEnv
 
-IDLE = SimConfig(workload_profile="idle")
+IDLE = v0_config(workload_profile="idle")
 
 
 def _flags(reason: TerminationReason) -> tuple[bool, bool]:
@@ -145,7 +145,7 @@ def test_real_rollout_truncation_is_bootstrapped_from_critic(monkeypatch: pytest
     """End to end: a horizon-truncated episode from the environment gets V(s') in its advantage."""
     monkeypatch.setattr(recovery_env_module, "MAX_EPISODE_STEPS", 6)
     agent = PPOAgent(seed=0)
-    collector = RolloutCollector(SimConfig(workload_profile="idle", fleet_degradation=0.0), seed=0)
+    collector = RolloutCollector(v0_config(workload_profile="idle", fleet_degradation=0.0), seed=0)
     batch = collector.collect(agent, 6)
     assert batch.truncated[-1] and not batch.terminated[-1], "horizon expiry must be truncation"
     assert batch.episodes[-1].reason == TerminationReason.HORIZON_EXPIRED.value

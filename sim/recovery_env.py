@@ -179,6 +179,7 @@ class RecoveryEnv:
             self.config.hazard_model,
             level=self.config.fleet_degradation,
             drive_spread_sd=self.config.drive_spread_sd,
+            feature_fn=self.config.feature_fn,
             hazard_error_sigma=float(self.config.hazard_error_sigma),
             error_rng=error_rng,
         )

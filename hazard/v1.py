@@ -42,7 +42,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 
 from contracts.contracts import (
     HORIZON_HOURS,
@@ -67,18 +66,47 @@ class _Ensemble:
     thresholds: tuple[tuple[np.ndarray, np.ndarray], ...]
 
 
+def _unusable(directory: Path, detail: str) -> str:
+    return (
+        f"{directory} is missing or incomplete ({detail}). "
+        "Regenerate it with `python -m hazard.fit_v1`, or use "
+        "sim.config.v0_config() to run without the v1 artifacts."
+    )
+
+
 @lru_cache(maxsize=None)
 def _load(directory: Path) -> _Ensemble:
-    """Load and cache the boosters, calibrator thresholds and metadata of ``directory``."""
-    meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
-    boosters = []
-    for name in meta["boosters"]:
-        booster = xgb.Booster()
-        booster.load_model(directory / name)
-        booster.set_param({"device": "cpu"})
-        boosters.append(booster)
-    arrays = np.load(directory / meta["calibrators"])
-    thresholds = tuple((arrays[f"x_{i:02d}"], arrays[f"y_{i:02d}"]) for i in range(len(boosters)))
+    """Load and cache the boosters, calibrator thresholds and metadata of ``directory``.
+
+    ``xgboost`` is imported here, on first use, so importing this module does
+    not require it.
+    """
+    global xgb
+    try:
+        import xgboost as xgb
+    except ImportError as exc:
+        raise ImportError(
+            "xgboost is required to use the fitted v1 hazard model. "
+            "Install it (see hazard/requirements.txt), or use "
+            "sim.config.v0_config() to run without it."
+        ) from exc
+    try:
+        meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(_unusable(directory, "no meta.json")) from exc
+    try:
+        boosters = []
+        for name in meta["boosters"]:
+            booster = xgb.Booster()
+            booster.load_model(directory / name)
+            booster.set_param({"device": "cpu"})
+            boosters.append(booster)
+        arrays = np.load(directory / meta["calibrators"])
+        thresholds = tuple((arrays[f"x_{i:02d}"], arrays[f"y_{i:02d}"]) for i in range(len(boosters)))
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(_unusable(directory, f"file not found: {exc.filename}")) from exc
+    except (OSError, xgb.core.XGBoostError) as exc:
+        raise OSError(_unusable(directory, f"unreadable file: {exc}")) from exc
     return _Ensemble(meta=meta, boosters=tuple(boosters), thresholds=thresholds)
 
 
@@ -135,9 +163,6 @@ class FittedHazardV1:
     """
 
     directory: Path = ARTIFACT_DIR
-
-    def __post_init__(self) -> None:
-        _load(self.directory)
 
     def __call__(
         self, features: Mapping[str, float], horizon_hours: float = HORIZON_HOURS

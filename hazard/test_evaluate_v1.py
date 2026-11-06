@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+
+pytest.importorskip("xgboost")
 from sklearn.metrics import average_precision_score
 
 from hazard import evaluate_v1 as ev

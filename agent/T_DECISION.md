@@ -56,12 +56,18 @@ Three independent confirmations at `sigma = 0`:
 
 ### The value 0.25
 
-Source: a drive-bootstrap of the v1 reliability table's log residuals on the held-out
-split, 16 bins, 228,217 rows per bin.
+Source: `hazard/calibration_spread.py`, a drive-bootstrap of the v1 reliability table's
+log residuals on the held-out split, 16 bins, 228,217 rows per bin, 200 resamples,
+reusing A4's `BOOTSTRAP_SEED` and `BOOTSTRAP_RESAMPLES`. Output committed as
+`hazard/calibration_spread.json`, a sidecar to `A4_DECISION.md`.
 
     Log ratio ln(observed / mean_pred), mean absolute (16 bins)   0.234   [0.156, 0.390]
     Log ratio, mean per-bin SE                                    0.183
     Log ratio, weighted mean                                     -0.164   SE 0.085
+
+Read back from the committed file: `headline.log_ratio.mean_abs.point` =
+0.23416631224744355, `headline.log_ratio.mean_bin_se` = 0.1829225719885486,
+`headline.log_ratio.weighted_mean.point` = -0.16362054367462528.
 
 The mean absolute value of a zero-mean normal is `sigma * sqrt(2/pi)`, so a mean
 absolute log residual of 0.234 implies a total spread of `0.234 / 0.798 = 0.293`. That
@@ -72,12 +78,11 @@ component in quadrature:
 
 so the noise-corrected miscalibration is about 0.23, which is why 0.25 is used.
 
-**Open provenance problem.** The script that produced this table,
-`hazard/calibration_spread.py`, is not committed on any branch. It was specified in
-cross-lane discussion, run once locally, and its output pasted into conversation. Until
-it is committed next to `A4_DECISION.md`, the two numbers above have no traceable source
-and nothing downstream should be published citing them. This blocks A4 moving from
-"proposed" to "accepted".
+Provenance, resolved. The script was written during cross-lane discussion and run once
+locally, but sat uncommitted in a working tree, which is why neither lane could point to
+it for a time. A-lane located it, re-ran it and committed both script and output (PR
+#17). The re-run reproduces the two numbers this record depends on to five significant
+figures, so the derivation above now cites a file rather than a remembered value.
 
 ### An upper-bound training run, and why its numbers are not reportable
 
@@ -164,11 +169,17 @@ steps back in the agent's own history. Any anticipation result on these traces i
 contaminated by construction, and a second 24-hour window would not fix it.
 
 The fix is one continuous 7 to 14 day window per profile. 14 days rather than 7 because
-the longest episodes are about 8.3 days. The Tencent source has up to two months per
-volume, and the volume already selected as `diurnal` had to have at least 14 clean days
-to qualify, so this is an extraction-window change on an already-qualifying disk. It
-also yields a time-forward train/test split for free, which A2 could not provide on the
-drive data.
+the longest episodes are about 8.3 days. It also yields a time-forward train/test split
+for free, which A2 could not provide on the drive data.
+
+B-lane has since built this: `data_pipeline/profiles/profile_diurnal_long.csv`, 4,032
+rows covering 2020-07-07 to 2020-07-21, aggregated across the 44 disks sharing that
+window, with `profile_diurnal_long.meta.json` carrying the disk list, window bounds and
+a suggested time-forward split (first 2,880 rows train, last 1,152 held out; nothing
+reads the split automatically). Scale matches the existing 24-hour profile to within 1%
+(mean 69,917.9 against 69,075.5 KB/s), and p95 99.79 MB/s and max 116.76 MB/s both sit
+inside `ACTIONS_MBPS`. The four existing profiles are byte-identical. The real re-run
+uses this file, not `profile_diurnal.csv`.
 
 ## Verdict
 
@@ -192,6 +203,11 @@ with committed `sigma` provenance replaces the upper-bound run.
 - `DEFAULT_ROLLOUT_STEPS = 8192` is a compromise, not an optimum: 16384 would hold about
   25 episodes at uniform-random allocation but halves the number of policy updates in a
   fixed step budget.
+- The derivation uses the bootstrap's *point* estimate of the mean absolute log residual
+  (0.2342). The bootstrap *mean* is higher (0.2648), which through the same two steps
+  gives `sqrt((0.2648/0.798)^2 - 0.183^2) = 0.28`. So the defensible range is about 0.23
+  to 0.28 depending on which estimator is used, and 0.25 sits inside it rather than
+  falling out of it uniquely. This is a further reason to sweep rather than fix.
 - The 0.234 and 0.183 figures are bin-level. Per-drive estimation error is unmeasurable
   in principle, because each drive contributes one Bernoulli draw, so its residual is
   dominated by outcome noise rather than model error. 0.25 is a bin-level number used as

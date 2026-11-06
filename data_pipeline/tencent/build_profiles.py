@@ -47,6 +47,17 @@ p99/median reported for its aggregate are the same statistic, so that value is
 high partly by construction. Total bandwidth is read plus write in KB/s; MB/s
 divides by 1000.
 
+Long window (`diurnal_long`, additive; the four profiles above are unchanged):
+the diurnal rule applied to a 14-day window (LONG_WINDOW_ROWS samples) instead of
+24 h. The start is the timestamp covered by a gap-free run of that length in the
+largest number of volumes; candidates are those volumes, ranked, filtered and
+counted with the diurnal rule (`collect`, `build_profile`), N tuned against
+DIURNAL_TARGET_MBPS, and the sum of the N volumes is the replay frame, six-column
+schema, `t_seconds` from 0. No scaling factor is applied (recorded as 1). The
+sidecar records the volumes, window, row counts, aggregate p95 and mean, and a
+time-forward split point (first LONG_TRAIN_DAYS of LONG_WINDOW_DAYS of the rows,
+rounded down); no code reads the split.
+
 `latency_ladder` gives, per rebuild allocation in ACTIONS_MBPS, the share of the
 288 intervals that violate the latency limit under the simulator's own queue
 model, and `safe_actions`, the number of allocations whose share is at most
@@ -61,6 +72,9 @@ Outputs:
     data/processed/tencent_profile_<name>.parquet
     profiles/profile_<name>.csv
     profiles/profile_<name>.meta.json
+    data/processed/tencent_profile_diurnal_long.parquet
+    profiles/profile_diurnal_long.csv
+    profiles/profile_diurnal_long.meta.json
     data/processed/tencent_profile_disks.parquet
     data/processed/tencent_profile_candidates.parquet
     profiles/profile_comparison.png
@@ -108,7 +122,11 @@ READ_BW, WRITE_BW = VALUE_COLUMNS.index("read_bw_kbps"), VALUE_COLUMNS.index("wr
 KBPS_PER_MBPS = 1000.0
 SECONDS_PER_DAY = 86400
 MIN_DAYS = 14
-PEAK_TARGET_MBPS = 160.0     # 0.8 x BW_TOTAL_MBPS, contract section 10 decision 5
+LONG_NAME = "diurnal_long"
+LONG_WINDOW_DAYS = 14
+LONG_WINDOW_ROWS = LONG_WINDOW_DAYS * DAY_ROWS
+LONG_TRAIN_DAYS = 10
+PEAK_TARGET_MBPS = 160.0    # 0.8 x BW_TOTAL_MBPS, contract section 10 decision 5
 DIURNAL_TARGET_MBPS = 100.0
 BURSTY_TARGET_MBPS = 120.0   # 0.6 x BW_TOTAL_MBPS
 IDLE_TARGET_MBPS = 20.0
@@ -152,9 +170,9 @@ def sha256_of(path: Path) -> str:
         return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
-def eligible_disks(runs: pd.DataFrame, window_start: int) -> list[str]:
-    """Disks with one gap-free run covering all 288 samples from window_start."""
-    window_end = window_start + (DAY_ROWS - 1) * STEP_S
+def eligible_disks(runs: pd.DataFrame, window_start: int, rows: int = DAY_ROWS) -> list[str]:
+    """Disks with one gap-free run covering all ``rows`` samples from window_start."""
+    window_end = window_start + (rows - 1) * STEP_S
     run_end = runs["run_start_ts"] + (runs["run_rows"] - 1) * STEP_S
     covering = runs[(runs["run_start_ts"] <= window_start) & (run_end >= window_end)]
     return sorted(covering["disk_uid"].unique())
@@ -204,19 +222,19 @@ def daily_stats(ts: np.ndarray, total_bw: np.ndarray) -> dict:
 
 
 def collect(pf: pq.ParquetFile, groups: dict[str, int], uids: list[str],
-            window_start: int) -> tuple[np.ndarray, pd.DataFrame]:
-    """Window samples (n, 288, 5), daily-cycle stats, the window-local p99/median of
+            window_start: int, window_rows: int = DAY_ROWS) -> tuple[np.ndarray, pd.DataFrame]:
+    """Window samples (n, window_rows, 5), daily-cycle stats, the window-local p99/median of
     total bandwidth (NaN when the window median is 0) and the median read and write
     bytes per I/O of the whole clean trace (NaN when a direction has no IOPS > 0 row)
     for each candidate disk."""
-    grid = window_start + np.arange(DAY_ROWS, dtype="int64") * STEP_S
-    windows = np.zeros((len(uids), DAY_ROWS, len(VALUE_COLUMNS)), dtype="int64")
+    grid = window_start + np.arange(window_rows, dtype="int64") * STEP_S
+    windows = np.zeros((len(uids), window_rows, len(VALUE_COLUMNS)), dtype="int64")
     rows = []
     for k, uid in enumerate(uids):
         d = read_disk(pf, groups[uid], uid)
         ts = d["timestamp"].to_numpy()
         lo = int(np.searchsorted(ts, window_start))
-        seg = d.iloc[lo:lo + DAY_ROWS]
+        seg = d.iloc[lo:lo + window_rows]
         if not np.array_equal(seg["timestamp"].to_numpy(), grid):
             raise ValueError(f"{uid}: no complete window at {window_start}")
         windows[k] = seg[VALUE_COLUMNS].to_numpy()
@@ -287,7 +305,7 @@ def total_bw_stats(total_kbps: np.ndarray) -> dict:
 
 
 def build_profile(name: str, spec: dict, cand: pd.DataFrame, windows: np.ndarray,
-                  position: dict[str, int], window_start: int) -> dict:
+                  position: dict[str, int], window_start: int, rows: int = DAY_ROWS) -> dict:
     order = rank_uids(cand[~cand["implausible_io"]], spec["key"], spec["ascending"])
     if not order:
         raise ValueError(f"{name}: no ranked candidates")
@@ -304,7 +322,7 @@ def build_profile(name: str, spec: dict, cand: pd.DataFrame, windows: np.ndarray
     start_n = spec["start_n"]
 
     agg = pd.DataFrame(windows[idx[:n]].sum(axis=0), columns=VALUE_COLUMNS)
-    agg.insert(0, "timestamp", window_start + np.arange(DAY_ROWS, dtype="int64") * STEP_S)
+    agg.insert(0, "timestamp", window_start + np.arange(rows, dtype="int64") * STEP_S)
     replay = contracts.to_replay_frame(agg)
     contracts.validate_replay_frame(replay)
     total = (replay["read_bw_kbps"] + replay["write_bw_kbps"]).to_numpy(dtype="float64")
@@ -316,6 +334,129 @@ def build_profile(name: str, spec: dict, cand: pd.DataFrame, windows: np.ndarray
         "p95_at_start_n": float(curve[start_n - 1]) if start_n and start_n <= len(curve) else None,
         "candidates": len(order), **total_bw_stats(total),
     }
+
+
+def split_row(rows: int) -> int:
+    """Index of the first held-out row: LONG_TRAIN_DAYS of LONG_WINDOW_DAYS of ``rows``, rounded
+    down, kept strictly inside [1, rows - 1]."""
+    if rows < 2:
+        raise ValueError(f"a split needs at least 2 rows, got {rows}")
+    return min(max(rows * LONG_TRAIN_DAYS // LONG_WINDOW_DAYS, 1), rows - 1)
+
+
+def build_long_window(pf: pq.ParquetFile, groups: dict[str, int], runs: pd.DataFrame,
+                      summary: pd.DataFrame, diurnal: dict) -> dict:
+    """Diurnal aggregate over the 14-day window shared by the most volumes.
+
+    The window start is the timestamp covered by a gap-free run of LONG_WINDOW_ROWS
+    samples in the largest number of volumes (`extract_load.shared_window_stats`).
+    Volumes are ranked, filtered and counted with the diurnal rule of PROFILE_SPECS
+    through `collect` and `build_profile`; the sum of the N selected volumes is the
+    replay frame. ``diurnal`` is the 24 h diurnal profile, compared by volume overlap.
+    """
+    shared = el.shared_window_stats(runs, LONG_WINDOW_ROWS)
+    start = shared["largest_group_start_ts"]
+    if start is None:
+        raise ValueError(f"no gap-free window of {LONG_WINDOW_ROWS} samples shared by any volume")
+    uids = eligible_disks(runs, start, LONG_WINDOW_ROWS)
+    windows, periodicity = collect(pf, groups, uids, start, LONG_WINDOW_ROWS)
+    cand = candidate_frame(summary, periodicity)
+    p = build_profile("diurnal", PROFILE_SPECS["diurnal"], cand, windows,
+                      {u: i for i, u in enumerate(uids)}, start, LONG_WINDOW_ROWS)
+    del windows
+    rows = len(p["frame"])
+    split = split_row(rows)
+    return {
+        "name": LONG_NAME, "uids": p["uids"], "n": p["n"], "frame": p["frame"], "start_ts": start,
+        "end_ts": start + (rows - 1) * STEP_S, "rows": rows, "requested_rows": LONG_WINDOW_ROWS,
+        "volumes_with_window": len(uids), "ranked_candidates": p["candidates"],
+        "p95_mbps": p["p95_mbps"], "mean_mbps": p["mean_mbps"], "max_mbps": p["max_mbps"],
+        "target_mbps": p["target_mbps"], "overlap_with_diurnal_24h": len(set(p["uids"]) & set(diurnal["uids"])),
+        "diurnal_24h_n": diurnal["n"], "diurnal_24h_mean_mbps": diurnal["mean_mbps"],
+        "split_row": split, "split_t_seconds": split * STEP_S, "split_ts": start + split * STEP_S,
+    }
+
+
+def utc(ts: int) -> str:
+    return f"{pd.Timestamp(ts, unit='s', tz='UTC'):%Y-%m-%dT%H:%M:%SZ}"
+
+
+def long_sidecar(w: dict) -> dict:
+    """Provenance record written next to the long-window CSV."""
+    return {
+        "profile": w["name"],
+        "synthetic": False,
+        "source": SOURCE_NAME,
+        "n_disks": w["n"],
+        "disk_uids": w["uids"],
+        "window_start_ts": w["start_ts"],
+        "window_start_utc": utc(w["start_ts"]),
+        "window_end_ts": w["end_ts"],
+        "window_end_utc": utc(w["end_ts"]),
+        "rows": w["rows"],
+        "requested_rows": w["requested_rows"],
+        "volumes_with_window": w["volumes_with_window"],
+        "ranked_candidates": w["ranked_candidates"],
+        "target_p95_mbps": w["target_mbps"],
+        "p95_mbps": w["p95_mbps"],
+        "mean_mbps": w["mean_mbps"],
+        "max_mbps": w["max_mbps"],
+        "scaling_factor": 1.0,
+        "label": f"aggregate of {w['n']} {PROFILE_SPECS['diurnal']['label']} volumes over a shared "
+                 f"{LONG_WINDOW_DAYS}-day window ({DISCLOSURE})",
+        "disclosure": DISCLOSURE,
+        "selection_rule": PROFILE_SPECS["diurnal"]["rule"],
+        "suggested_split": {
+            "train_days_nominal": LONG_TRAIN_DAYS,
+            "holdout_days_nominal": LONG_WINDOW_DAYS - LONG_TRAIN_DAYS,
+            "train_rows": w["split_row"],
+            "holdout_rows": w["rows"] - w["split_row"],
+            "first_holdout_row": w["split_row"],
+            "first_holdout_t_seconds": w["split_t_seconds"],
+            "first_holdout_ts": w["split_ts"],
+            "first_holdout_utc": utc(w["split_ts"]),
+        },
+    }
+
+
+def write_long_outputs(w: dict) -> list[dict]:
+    """Write the long-window parquet, CSV and sidecar; return their manifest entries."""
+    PROCESSED.mkdir(parents=True, exist_ok=True)
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    entries = []
+    parquet = PROCESSED / f"tencent_profile_{w['name']}.parquet"
+    tmp = parquet.with_suffix(".parquet.tmp")
+    pq.write_table(pa.Table.from_pandas(w["frame"], preserve_index=False), tmp)
+    tmp.replace(parquet)
+    entries.append({"file": parquet.relative_to(ROOT).as_posix(), "rows": len(w["frame"]),
+                    "sha256": sha256_of(parquet)})
+    csv = PROFILES_DIR / f"profile_{w['name']}.csv"
+    w["frame"].to_csv(csv, index=False, lineterminator="\n")
+    entries.append({"file": csv.relative_to(ROOT).as_posix(), "rows": len(w["frame"]), "sha256": sha256_of(csv)})
+    sidecar = PROFILES_DIR / f"profile_{w['name']}.meta.json"
+    write_json(sidecar, long_sidecar(w))
+    entries.append({"file": sidecar.relative_to(ROOT).as_posix(), "rows": None, "sha256": sha256_of(sidecar)})
+    return entries
+
+
+def long_report_lines(w: dict) -> list[str]:
+    return [
+        f"long_window={w['name']} n_disks={w['n']} start_ts={w['start_ts']} "
+        f"start_utc={utc(w['start_ts'])} end_ts={w['end_ts']} end_utc={utc(w['end_ts'])} rows={w['rows']} "
+        f"requested_rows={w['requested_rows']}",
+        f"long_window={w['name']} volumes_with_window={w['volumes_with_window']} "
+        f"ranked_candidates={w['ranked_candidates']} scaling_factor=1 "
+        f"target_p95_mbps={fmt(w['target_mbps'])} p95_mbps={fmt(w['p95_mbps'])} "
+        f"mean_mbps={fmt(w['mean_mbps'])} max_mbps={fmt(w['max_mbps'])}",
+        f"long_window={w['name']} diurnal_24h_n_disks={w['diurnal_24h_n']} "
+        f"diurnal_24h_mean_mbps={fmt(w['diurnal_24h_mean_mbps'])} "
+        f"overlap_with_diurnal_24h_disks={w['overlap_with_diurnal_24h']}",
+        f"long_window={w['name']} suggested_split first_holdout_row={w['split_row']} "
+        f"first_holdout_t_seconds={w['split_t_seconds']} first_holdout_ts={w['split_ts']} "
+        f"first_holdout_utc={utc(w['split_ts'])} train_rows={w['split_row']} "
+        f"holdout_rows={w['rows'] - w['split_row']} nominal_train_days={LONG_TRAIN_DAYS} "
+        f"nominal_holdout_days={LONG_WINDOW_DAYS - LONG_TRAIN_DAYS}",
+    ]
 
 
 def latency_ladder(frame: pd.DataFrame, name: str = "profile") -> dict:
@@ -549,6 +690,7 @@ def report_lines(r: dict) -> list[str]:
                  f"below_reference={below} ranking_statistic=window_p99_over_median "
                  f"selected_on_reported_statistic=True")
     lines += overlaps(r["profiles"])
+    lines += long_report_lines(r["long_window"])
     for e in r["entries"]:
         rows = "" if e["rows"] is None else f" rows={e['rows']}"
         lines.append(f"output={e['file']}{rows} sha256={e['sha256']}")
@@ -612,6 +754,19 @@ def update_preprocessing(lines: list[str]) -> None:
         "`profiles/profile_<name>.csv` (identical rows); selected disks in "
         "`tencent_profile_disks.parquet`; candidate statistics (daily-cycle strength, "
         "window-local p99/median) in `tencent_profile_candidates.parquet`\n"
+        f"- Long window `{LONG_NAME}` (additive; the four profiles are unchanged): the diurnal "
+        f"rule applied to a {LONG_WINDOW_DAYS}-day window ({LONG_WINDOW_ROWS} samples). The window "
+        "start is the timestamp covered by a gap-free run of that length in the largest number of "
+        "volumes; those volumes are ranked, filtered and counted by the diurnal rule and N is tuned "
+        "against the diurnal target p95, as for the 24 h profiles; the sum of the N volumes is the "
+        "replay frame (six-column schema, `t_seconds` from 0, bandwidth in KB/s). Like the 24 h "
+        "profiles it is an aggregate of selected volumes, a modelling assumption, not a sample of "
+        "a typical storage group. No scaling factor is applied (`scaling_factor` = 1). Files: "
+        f"`data/processed/tencent_profile_{LONG_NAME}.parquet`, `profiles/profile_{LONG_NAME}.csv` "
+        f"(identical rows) and `profiles/profile_{LONG_NAME}.meta.json`, which records the "
+        "volume list, window start and end, row counts, aggregate p95 and mean and a suggested "
+        f"time-forward split (first {LONG_TRAIN_DAYS} of {LONG_WINDOW_DAYS} days of the rows, "
+        "rounded down; metadata only, nothing reads it)\n"
         "- Visual check: `profiles/profile_comparison.png`, one panel per profile on a shared "
         "bandwidth axis and a shared 24 h time axis\n"
         "- Counts and measurements from the last run of `tencent/build_profiles.py`:\n\n"
@@ -680,8 +835,12 @@ def build() -> dict:
         p["zero_bw_disks"] = int((zero == 1.0).sum())
         profiles.append(p)
     entries = write_outputs(profiles, cand, window_start)
+    diurnal = next(p for p in profiles if p["name"] == "diurnal")
+    del windows
+    long_window = build_long_window(pf, groups, runs, summary, diurnal)
+    entries += write_long_outputs(long_window)
     eligible = cand[~cand["implausible_io"]]
-    return {"window_start": window_start, "candidates": len(uids),
+    return {"window_start": window_start, "candidates": len(uids), "long_window": long_window,
             "excluded": int(cand["implausible_io"].sum()),
             "diurnal_candidates": int(eligible["daily_strength"].notna().sum()),
             "profiles": profiles, "entries": entries}

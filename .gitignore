@@ -28,6 +28,6 @@ hazard/artifacts/
 graphify-out/
 _to_delete/
 
-# T7: default --out for agent.train. Checkpoints are ~MBs each and logs are
-# per-run; committed run evidence goes under agent/evidence/<run>/ instead.
+# T-lane: PPO training run output (logs, checkpoints), regenerate with python -m agent.train.
+# Committed run evidence goes under agent/evidence/<run>/ instead.
 runs/

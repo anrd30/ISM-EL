@@ -397,14 +397,14 @@ def conflict_lines(c: dict | None, disks_with_out_of_order: int = 0) -> list[str
     ]
 
 
-def shared_window_stats(runs: pd.DataFrame) -> dict:
-    """Disks that share a complete 24 h window (288 consecutive samples).
+def shared_window_stats(runs: pd.DataFrame, window_rows: int = DAY_ROWS) -> dict:
+    """Disks that share a complete window of ``window_rows`` consecutive samples (default 24 h, 288).
 
     A disk offers a window starting at t when one of its runs covers
-    [t, t + 287 steps]. Windows are compared per sampling offset
+    [t, t + (window_rows - 1) steps]. Windows are compared per sampling offset
     (start_ts mod 300), since only identical timestamps can be summed.
     """
-    full = runs[runs["run_rows"] >= DAY_ROWS]
+    full = runs[runs["run_rows"] >= window_rows]
     out = {"disks_with_window": int(full["disk_uid"].nunique()), "offset_classes": 0,
            "shared_disks": 0, "largest_group": 0, "largest_group_start_ts": None}
     if full.empty:
@@ -415,7 +415,7 @@ def shared_window_stats(runs: pd.DataFrame) -> dict:
     for cls in np.unique(offset):
         part = full[offset == cls]
         lo = ((part["run_start_ts"].to_numpy() - cls) // STEP_S).astype("int64")
-        hi = lo + (part["run_rows"].to_numpy() - DAY_ROWS)
+        hi = lo + (part["run_rows"].to_numpy() - window_rows)
         points = np.unique(np.concatenate((lo, hi + 1)))
         delta = np.zeros(len(points), dtype="int64")
         np.add.at(delta, np.searchsorted(points, lo), 1)

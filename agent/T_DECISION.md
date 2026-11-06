@@ -147,6 +147,26 @@ The filter override is the dominant mechanism, not failure rarity: at `sigma = 0
 filter already clipped the risk-blind policy on 4.5% to 28.5% of steps with identical
 outcomes. Unlike rarity, the override does not weaken as `sigma` grows.
 
+A-lane's baseline sweep (`baselines/evidence/`, four runs over `sigma` in
+{0, 0.25, 0.5, 1.0} on `profile_diurnal_long` with held-out fleets) establishes this more
+strongly than the argument above, on a clean setup and across the whole range rather than
+at one value: `episodes.csv` is identical at full floating-point precision across all
+four, for every policy and every seed. Their code trace names the reason exactly.
+`sim/scenario.py` computes `true_hazard_per_hour = estimated_hazard_per_hour *
+multiplier`, and `multiplier` is the only place `hazard_error_sigma` enters.
+`true_hazard_per_hour` then feeds exactly one consumer, the per-interval stochastic
+failure draw. Observation building (`sim/recovery_env.py::_observation`) and the filter's
+exposure and clip computation (`sim/safety_filter.py`) both read
+`estimated_hazard_per_hour`. So no policy and no filter can observe the noise at all, and
+the single remaining channel, a failure actually firing, produced `terminal_failure = 0`
+in every one of the four sweeps.
+
+This means the degeneracy is stronger than "the ablation shows nothing": `sigma` is
+currently unobservable through the entire pipeline by construction, not merely
+underpowered. The one paired difference that survives is `clip_fraction`
+(-0.0456, sem 0.023): the risk-aware policy does request differently, and the filter
+erases the difference before it reaches any outcome.
+
 So an input-side ablation cannot measure what it was specified to measure, for any
 `sigma`. Replacement, in priority order:
 
@@ -184,9 +204,17 @@ uses this file, not `profile_diurnal.csv`.
 ## Verdict
 
 Constrained PPO, as currently configured, does not beat a risk-aware rule-based baseline
-on the recovery-bandwidth problem, in a setting rigged in its favour. A lookahead oracle
-measured earlier on this profile beats the rule by about 10.4%, so roughly 10% of
-headroom existed and the method captured none of it.
+on the recovery-bandwidth problem, in a setting rigged in its favour.
+
+How much headroom exists at all is now measured on a clean setup rather than inferred
+from the contaminated one. On `profile_diurnal_long` with held-out fleets, 20 paired
+seeds (`baselines/evidence/diurnal-long-sigma0.25/`), the lookahead oracle beats
+`risk_aware_rule_based` by 15.25 reward (sem 1.90) against the rule's -293.3, which is
+**5.2%**. An earlier measurement on the tiled 24-hour window gave about 10.4%; that
+window is contaminated by the 288-step period, so 5.2% supersedes it.
+
+So the entire anticipatory headroom available to any deployable controller is about 5%,
+and the oracle reaching it is not deployable. PPO came in 2% to 6% *worse* than the rule.
 
 This is reported as a finding, not a failure. It is not yet a general claim about PPO:
 hyperparameters are untuned, the budget was 1M steps, one architecture, one profile. But

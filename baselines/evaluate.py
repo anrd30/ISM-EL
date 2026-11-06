@@ -690,10 +690,17 @@ def _csv_workloads(parser: argparse.ArgumentParser, directory: Path | None, file
 
 
 def _build_config(args: argparse.Namespace) -> SimConfig:
-    """Base config for the command line: train-split fleet, or the held-out-split fleet with ``--eval-fleet``."""
+    """Base config for the command line: train-split fleet, or the held-out-split fleet with ``--eval-fleet``.
+
+    The label is ``"<fleet>,sigma=<value>"``; it stays ``"default"`` when both flags are at their defaults.
+    """
+    fields: dict[str, Any] = {"hazard_error_sigma": args.hazard_error_sigma}
+    if args.eval_fleet or args.hazard_error_sigma != 0.0:
+        fleet = "eval-fleet" if args.eval_fleet else "train-fleet"
+        fields["label"] = f"{fleet},sigma={args.hazard_error_sigma:g}"
     if args.eval_fleet:
-        return v1_eval_config(hazard_error_sigma=args.hazard_error_sigma)
-    return SimConfig(hazard_error_sigma=args.hazard_error_sigma)
+        return v1_eval_config(**fields)
+    return SimConfig(**fields)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

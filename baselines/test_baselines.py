@@ -664,6 +664,18 @@ def test_cli_eval_fleet_selects_the_held_out_feature_table(monkeypatch: pytest.M
     assert config.hazard_error_sigma == 0.2
 
 
+def test_cli_label_identifies_the_flag_combination(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    both = _config_seen_by_main(monkeypatch, tmp_path, "--eval-fleet", "--hazard-error-sigma", "0.25")
+    assert both.label == "eval-fleet,sigma=0.25"
+    assert _config_seen_by_main(monkeypatch, tmp_path, "--hazard-error-sigma", "0.5").label == "train-fleet,sigma=0.5"
+    assert _config_seen_by_main(monkeypatch, tmp_path, "--eval-fleet").label == "eval-fleet,sigma=0"
+
+
+def test_cli_label_is_default_without_flags(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert _config_seen_by_main(monkeypatch, tmp_path).label == "default"
+    assert _config_seen_by_main(monkeypatch, tmp_path, "--hazard-error-sigma", "0").label == "default"
+
+
 def test_cli_flags_default_to_the_previous_behaviour(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config_seen_by_main(monkeypatch, tmp_path)
     assert config.hazard_error_sigma == 0.0

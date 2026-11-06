@@ -1,6 +1,6 @@
 # A5 decision record: fitted hazard model (v1) as the simulator default
 
-Status: proposed. Not yet reviewed by the other lanes.
+Status: accepted. Reviewed by T-lane (see agent/T_DECISION.md) and B-lane.
 
 ## Decision
 

@@ -41,6 +41,19 @@ the reliability multiplier is therefore expected to be inactive most of the
 time. That is a property of the simulator's filter, not evidence about the
 policy.
 
+Bounded multipliers. Both multipliers are projected onto ``[0, lambda_max]``.
+The latency constraint is not satisfiable everywhere: on the ``peak`` profile
+under a degraded fleet no allocation keeps the violation fraction under the
+limit (``sim/LIMITATIONS.md`` sections 13 and 14); with the default profile
+mix, a quarter of the episodes are ``peak``, and the lowest fixed allocation
+already violates on about a third of ``peak`` steps. An unbounded multiplier on an unsatisfiable constraint grows for as long
+as training runs, and once large it dominates the reward on the profiles where
+the constraint is satisfiable, pushing the policy to the slowest allocation
+there too. The bound makes the penalty finite. Where it binds, the constraint
+is no longer enforced by the multiplier: the penalty is a constant, and the
+measured violation fraction must be read from the logs (``lambda_*_capped``
+marks every iteration on which an update was clipped).
+
 Penalised reward. Each step contributes
 ``reward_scale * reward - lambda_latency * cost_latency - lambda_risk * cost_risk``
 to a single GAE and a single critic. The critic's target therefore drifts as the
@@ -103,6 +116,18 @@ class PPOConfig:
         vf_coef: Value-loss coefficient.
         ent_coef: Entropy bonus at the start of training.
         ent_coef_final: Entropy bonus at the end; linear in training progress.
+            Equal to ``ent_coef`` by default, which disables the anneal. With
+            advantages normalised to unit scale, a bonus that decays to 0.001
+            is small next to the policy gradient, and on the default profile
+            mix the policy reached about 0.15 nats (uniform over four actions
+            is 1.386) within 100 iterations of 2048 steps, concentrating on
+            the smallest allocation. The same collapse occurred with the
+            latency penalty switched off, so it is not caused by the
+            multiplier: on three of the four profiles one of the two smallest
+            allocations has the best fixed-allocation return, so the gradient
+            points the same way in most states. A constant 0.01 held the entropy
+            between about 0.75 and 1.06 nats over 60 iterations of 8192 steps
+            in a single-seed comparison. Untuned.
         lr: Adam step size for actor and critic.
         epochs: Passes over each batch.
         minibatch_size: Minibatch size within an epoch.
@@ -115,7 +140,14 @@ class PPOConfig:
         lr_lambda_latency: Step size of the latency multiplier.
         lr_lambda_risk: Step size of the reliability multiplier (acting on the
             violation divided by ``risk_limit``).
-        lambda_max: Upper bound on either multiplier (infinite means none).
+        lambda_max: Upper bound on either multiplier (infinite means none), in
+            units of the scaled reward. With ``reward_scale = 0.1`` a fully
+            violating step on the ``diurnal`` and ``peak`` profiles carries an
+            environment reward term of the order of one scaled unit, so 2.0
+            lets the latency penalty reach a small multiple of what the reward
+            already charges for a violation but not exceed it by an order of
+            magnitude. The value is an untuned design choice; the rationale
+            for bounding at all is in :class:`LagrangeMultiplier`.
         risk_cost_cap: Cap on the per-step normalised exposure exceedance.
         latency_limit: Allowed mean fraction of violating steps per episode.
         risk_limit: Allowed episode exposure (the budget ``eps``).
@@ -126,7 +158,7 @@ class PPOConfig:
     clip_ratio: float = 0.2
     vf_coef: float = 0.5
     ent_coef: float = 0.01
-    ent_coef_final: float = 0.001
+    ent_coef_final: float = 0.01
     lr: float = 3e-4
     epochs: int = 4
     minibatch_size: int = 256
@@ -135,7 +167,7 @@ class PPOConfig:
     reward_scale: float = 0.1
     lr_lambda_latency: float = 0.5
     lr_lambda_risk: float = 0.05
-    lambda_max: float = math.inf
+    lambda_max: float = 2.0
     risk_cost_cap: float = 10.0
     latency_limit: float = LATENCY_VIOLATION_FRACTION_MAX
     risk_limit: float = RISK_BUDGET_EPS
@@ -149,6 +181,14 @@ class LagrangeMultiplier:
     and decays towards zero while ``measured < limit``; it stays exactly flat
     only when ``measured == limit`` or when it is pinned at zero by a
     satisfied constraint.
+
+    The upper bound is a projection, not a feasibility argument: when a
+    constraint cannot be met, the unbounded multiplier grows without limit and
+    the penalty term eventually outweighs the reward term for every state. The
+    bound stops that growth. An update *binds* when the unclipped step exceeds
+    ``max_value``; ``last_capped``, ``n_capped`` and ``n_updates`` record this
+    so that a multiplier sitting on its bound is distinguishable from one that
+    settled there because the constraint held.
 
     Args:
         name: Label used in logs.
@@ -176,12 +216,22 @@ class LagrangeMultiplier:
         self.scale: float = float(scale)
         self.max_value: float = float(max_value)
         self.value: float = float(initial)
+        self.last_capped: bool = False
+        self.n_capped: int = 0
+        self.n_updates: int = 0
 
     def update(self, measured: float) -> float:
-        """Apply one ascent step and return the new value."""
+        """Apply one ascent step and return the new value.
+
+        Sets ``last_capped`` to whether the unclipped step exceeded
+        ``max_value`` and advances the ``n_capped`` / ``n_updates`` counters.
+        """
         if not math.isfinite(measured):
             raise ValueError(f"measured constraint value for {self.name!r} is not finite: {measured!r}")
         stepped = self.value + self.lr * (measured - self.limit) / self.scale
+        self.last_capped = stepped > self.max_value
+        self.n_updates += 1
+        self.n_capped += int(self.last_capped)
         self.value = min(self.max_value, max(0.0, stepped))
         return self.value
 
@@ -455,7 +505,10 @@ class PPOAgent:
         Measurements: mean over episodes of the latency violation fraction, and
         mean over episodes of the maximum exposure. With no finished episode
         there is no measurement and neither multiplier moves (the returned
-        measurements are NaN).
+        measurements are NaN). ``lambda_latency_capped`` and
+        ``lambda_risk_capped`` are 1.0 when this iteration's update was
+        clipped by ``lambda_max`` and 0.0 otherwise (including when no update
+        happened).
         """
         if not episodes:
             nan = float("nan")
@@ -464,6 +517,8 @@ class PPOAgent:
                 "max_exposure": nan,
                 "lambda_latency": self.lambda_latency.value,
                 "lambda_risk": self.lambda_risk.value,
+                "lambda_latency_capped": 0.0,
+                "lambda_risk_capped": 0.0,
             }
         latency = float(np.mean([e.latency_violation_fraction for e in episodes]))
         exposure = float(np.mean([e.max_exposure for e in episodes]))
@@ -472,6 +527,8 @@ class PPOAgent:
             "max_exposure": exposure,
             "lambda_latency": self.lambda_latency.update(latency),
             "lambda_risk": self.lambda_risk.update(exposure),
+            "lambda_latency_capped": float(self.lambda_latency.last_capped),
+            "lambda_risk_capped": float(self.lambda_risk.last_capped),
         }
 
     # ------------------------------------------------------------------
@@ -486,6 +543,10 @@ class PPOAgent:
             "optimizer": self.optimizer.state_dict(),
             "lambda_latency": self.lambda_latency.value,
             "lambda_risk": self.lambda_risk.value,
+            "cap_counts": {
+                "latency": [self.lambda_latency.n_capped, self.lambda_latency.n_updates],
+                "risk": [self.lambda_risk.n_capped, self.lambda_risk.n_updates],
+            },
             "ppo_config": asdict(self.config),
         }
 
@@ -497,3 +558,7 @@ class PPOAgent:
             self.optimizer.load_state_dict(state["optimizer"])
         self.lambda_latency.value = float(state["lambda_latency"])
         self.lambda_risk.value = float(state["lambda_risk"])
+        counts = state.get("cap_counts")
+        if counts is not None:
+            self.lambda_latency.n_capped, self.lambda_latency.n_updates = (int(v) for v in counts["latency"])
+            self.lambda_risk.n_capped, self.lambda_risk.n_updates = (int(v) for v in counts["risk"])

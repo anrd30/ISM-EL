@@ -28,5 +28,6 @@ hazard/artifacts/
 graphify-out/
 _to_delete/
 
-# T-lane: PPO training run output (logs, checkpoints), regenerate with python -m agent.train
+# T-lane: PPO training run output (logs, checkpoints), regenerate with python -m agent.train.
+# Committed run evidence goes under agent/evidence/<run>/ instead.
 runs/

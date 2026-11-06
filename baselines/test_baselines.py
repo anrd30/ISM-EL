@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from baselines import evaluate as evaluate_module
 from baselines.evaluate import (
     EPISODE_COLUMNS,
     check_pairing,
@@ -57,7 +58,7 @@ from contracts.contracts import (
     latency_degradation,
     latency_violation,
 )
-from sim.config import SimConfig, v0_config
+from sim.config import SimConfig, v0_config, v1_eval_drive_features
 from sim.recovery_env import RecoveryEnv
 from sim.safety_filter import exposure_probability
 from workload.generate import PROFILE_NAMES, generate_profile
@@ -628,6 +629,48 @@ def test_cli_rejects_unknown_profiles(tmp_path: Path) -> None:
         main(["--profiles", "nonsense", "--seeds", "1", "--out", str(tmp_path)])
     with pytest.raises(SystemExit):
         main(["--profiles", "idle", "--seeds", "0", "--out", str(tmp_path)])
+
+
+def _config_seen_by_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *flags: str) -> SimConfig:
+    """Run ``main`` with ``compare`` replaced by a recorder; returns the config ``main`` built."""
+    seen: list[SimConfig] = []
+
+    def record(*args: Any, config: SimConfig, **kwargs: Any) -> None:
+        seen.append(config)
+        raise ValueError("recorded")
+
+    monkeypatch.setattr(evaluate_module, "compare", record)
+    with pytest.raises(SystemExit):
+        main(["--profiles", "idle", "--seeds", "1", "--out", str(tmp_path), *flags])
+    return seen[0]
+
+
+@pytest.mark.parametrize("value", ["-0.1", "nan", "inf"])
+def test_cli_rejects_invalid_hazard_error_sigma(tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--profiles", "idle", "--seeds", "1", "--out", str(tmp_path), f"--hazard-error-sigma={value}"])
+    assert excinfo.value.code == 2
+    assert "--hazard-error-sigma must be a finite number >= 0" in capsys.readouterr().err
+
+
+def test_cli_hazard_error_sigma_reaches_the_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config = _config_seen_by_main(monkeypatch, tmp_path, "--hazard-error-sigma", "0.4")
+    assert config.hazard_error_sigma == 0.4
+
+
+def test_cli_eval_fleet_selects_the_held_out_feature_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config = _config_seen_by_main(monkeypatch, tmp_path, "--eval-fleet", "--hazard-error-sigma", "0.2")
+    assert config.feature_fn is v1_eval_drive_features
+    assert config.hazard_error_sigma == 0.2
+
+
+def test_cli_flags_default_to_the_previous_behaviour(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config = _config_seen_by_main(monkeypatch, tmp_path)
+    assert config.hazard_error_sigma == 0.0
+    default = evaluate_module.SimConfig()  # the autouse fixture in conftest.py maps this name to v0_config
+    assert config.feature_fn is default.feature_fn
+    assert config.feature_fn is not v1_eval_drive_features
+    assert type(config.hazard_model) is type(default.hazard_model)
 
 
 # --------------------------------------------------------------------------

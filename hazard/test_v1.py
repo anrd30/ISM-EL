@@ -135,6 +135,8 @@ def test_split_batches_class_subclasses_the_xgboost_iterator_and_is_cached() -> 
     assert fit_v1.split_batches_class() is cls
 
 
+@pytest.mark.skipif(not _REAL_ARTIFACTS_PRESENT,
+                     reason="hazard/artifacts/v1/ is gitignored; run `python -m hazard.fit_v1` to generate it")
 def test_loads_from_committed_artifacts_and_satisfies_protocol() -> None:
     assert isinstance(FittedHazardV1(), HazardModel)
     assert len(feature_columns()) == 57

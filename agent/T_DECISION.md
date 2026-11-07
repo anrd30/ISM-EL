@@ -160,6 +160,37 @@ bound stops it, and the best response to a latency price that large is the conse
 constant rate. `lambda_risk` stays near zero throughout (maximum 0.049 to 0.118): the
 reliability budget is slack on this window and the safety filter handles it.
 
+**Why the constraint is not satisfiable: the violations are exogenous.** The same 3 of
+20 evaluation episodes (seeds 9, 17, 19) fail the latency budget under *every* policy:
+`fixed_20` at 26.9 MB/s, which is the slowest rate available, the risk-aware rule, the
+lookahead oracle, and all three PPO seeds. The failing sets are identical, not merely
+the same size. `latency_budget_met` is 0.85 for every policy in the table except
+`fixed_120`. So on those episodes the foreground load alone exhausts the latency budget
+and no action in `ACTIONS_MBPS` changes the outcome.
+
+This is what the multiplier cannot see. The dual update observes violation > 0 and
+raises the price, with no way to separate "violating because the allocation is too fast"
+from "violating because the foreground load leaves no headroom". The agent's only lever
+against a rising latency price is to slow down, so it slows down permanently and pays
+about 20 hours of completion time and 24 MB/s of throughput for violations it was not
+causing. That is the -18 reward almost exactly.
+
+A correction, since an earlier draft of this record's commit message got it wrong:
+**there is no latency-infeasibility flag in the simulator.**
+`initial_budget_infeasible`, which `baselines/evaluate.py` records per episode, comes
+from `violated_risk_budget`, defined at `sim/recovery_env.py:206` as
+`not p_best < RISK_BUDGET_EPS`. That is the *reliability* budget being unreachable at
+the slowest allocation the filter can reach, a different quantity. Seeds 9 and 17 carry
+it and seed 19 does not, so its agreement with the latency failures is a coincidence
+across 20 episodes. The exogeneity argument above does not depend on it: every policy
+failing the identical episodes is sufficient on its own.
+
+The consequence for the fix is that a feasibility-aware multiplier cannot be built by
+reading an existing field. A latency-feasibility signal has to be computed, roughly
+"is the budget reachable at the slowest allocation given this interval's foreground
+load", which is the latency-model analogue of `safety_filter`'s `p_best`. That is new
+simulator surface and is being agreed with A-lane before it is written.
+
 Note which way the bound pushes. The multiplier is pressing *against* `lambda_max` from
 below, so removing the bound raises the latency price further and makes the policy more
 conservative, not less. The cap did not cause the collapse. But it is binding rather than

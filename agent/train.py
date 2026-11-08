@@ -49,10 +49,11 @@ import numpy as np
 from agent.checkpoint import save_checkpoint
 from agent.ppo import PPOAgent, PPOConfig
 from agent.rollout import RolloutCollector
-from sim.config import SimConfig
+from contracts.contracts import ACTIONS_MBPS, RewardConfig
+from sim.config import SimConfig, v1_eval_config
 from workload.generate import PROFILE_NAMES
 
-__all__ = ["DEFAULT_ROLLOUT_STEPS", "LOG_COLUMNS", "TrainConfig", "train", "main"]
+__all__ = ["DEFAULT_ROLLOUT_STEPS", "EPISODE_COLUMNS", "LOG_COLUMNS", "TrainConfig", "train", "main"]
 
 #: Control intervals per rollout. Both the multiplier update and the episodic
 #: part of the advantage estimate see only episodes that finish inside a
@@ -73,6 +74,19 @@ __all__ = ["DEFAULT_ROLLOUT_STEPS", "LOG_COLUMNS", "TrainConfig", "train", "main
 #: the running episode into the next batch.
 DEFAULT_ROLLOUT_STEPS: int = 8192
 
+EPISODE_COLUMNS: tuple[str, ...] = (
+    "iteration",
+    "finished",
+    "reason",
+    "profile",
+    "length",
+    "latency_violations",
+    "latency_violation_fraction",
+    "mean_delivered_mbps",
+    "episode_return",
+    "infeasible",
+)
+
 LOG_COLUMNS: tuple[str, ...] = (
     "iteration",
     "env_steps",
@@ -80,6 +94,7 @@ LOG_COLUMNS: tuple[str, ...] = (
     "mean_return",
     "mean_episode_length",
     "latency_violation_fraction",
+    "episode_violation_fraction",
     "max_exposure",
     "lambda_latency",
     "lambda_risk",
@@ -93,6 +108,11 @@ LOG_COLUMNS: tuple[str, ...] = (
     "n_recovery_complete",
     "n_terminal_failure",
     "n_horizon_expired",
+    "n_infeasible_episodes",
+    *(f"action_frac_{int(a)}" for a in ACTIONS_MBPS),
+    "step_violation_fraction",
+    "action_prob_floor",
+    *(f"violation_rate_{int(a)}" for a in ACTIONS_MBPS),
 )
 
 
@@ -114,10 +134,17 @@ class TrainConfig:
             shown and the hazard failures are drawn from. 0.0 means the
             estimate is exact, which makes the safety filter perfectly
             protective and the reliability constraint inert.
+        eval_fleet: Draw the fleet from the held-out-split feature table
+            (``v1_eval_config``) instead of the train-split table. A run whose
+            fleets come from drives the hazard model was fitted on is
+            contaminated on the fleet side independently of the workload.
         fleet_degradation: Pinned fleet degradation level, or ``None`` to sample.
         ablate_hazard: Mask observation fields 5 and 6.
         out_dir: Directory for ``log.csv`` and checkpoints.
         checkpoint_every: Write ``ckpt_latest.pt`` every this many iterations.
+        reward: Reward coefficients passed to the simulator. Evaluation uses
+            the contract defaults, so a checkpoint trained with other weights
+            is scored on the default reward.
         ppo: PPO hyperparameters.
     """
 
@@ -127,10 +154,12 @@ class TrainConfig:
     profile: str | None = None
     workload_csv: str | None = None
     hazard_error_sigma: float = 0.0
+    eval_fleet: bool = False
     fleet_degradation: float | None = None
     ablate_hazard: bool = False
     out_dir: str = "runs/ppo"
     checkpoint_every: int = 10
+    reward: RewardConfig = field(default_factory=RewardConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
 
 
@@ -147,8 +176,10 @@ def _checkpoint_payload(agent: PPOAgent, cfg: TrainConfig, iteration: int) -> di
             "profile": cfg.profile if cfg.profile is not None else "mixed",
             "workload_csv": cfg.workload_csv if cfg.workload_csv is not None else "",
             "hazard_error_sigma": cfg.hazard_error_sigma,
+            "eval_fleet": cfg.eval_fleet,
             "fleet_degradation": cfg.fleet_degradation if cfg.fleet_degradation is not None else -1.0,
             "ablate_hazard": cfg.ablate_hazard,
+            "reward": dataclasses.asdict(cfg.reward),
         },
     }
 
@@ -165,25 +196,35 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
         raise ValueError("iterations, rollout_steps and checkpoint_every must be >= 1")
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    sim_cfg = SimConfig(
-        workload_profile=cfg.profile,
-        workload_csv=cfg.workload_csv,
-        hazard_error_sigma=cfg.hazard_error_sigma,
-        fleet_degradation=cfg.fleet_degradation,
-    )
+    fields: dict[str, object] = {
+        "workload_profile": cfg.profile,
+        "workload_csv": cfg.workload_csv,
+        "hazard_error_sigma": cfg.hazard_error_sigma,
+        "fleet_degradation": cfg.fleet_degradation,
+        "reward": cfg.reward,
+    }
+    if cfg.eval_fleet or cfg.hazard_error_sigma != 0.0:
+        fleet = "eval-fleet" if cfg.eval_fleet else "train-fleet"
+        fields["label"] = f"{fleet},sigma={cfg.hazard_error_sigma:g}"
+    sim_cfg = v1_eval_config(**fields) if cfg.eval_fleet else SimConfig(**fields)  # type: ignore[arg-type]
     agent = PPOAgent(cfg.ppo, seed=cfg.seed)
     collector = RolloutCollector(sim_cfg, seed=cfg.seed, ablate_hazard=cfg.ablate_hazard)
 
     env_steps = 0
     started = time.monotonic()
-    with open(out / "log.csv", "w", newline="", encoding="utf-8") as handle:
+    with open(out / "log.csv", "w", newline="", encoding="utf-8") as handle, open(
+        out / "episodes.csv", "w", newline="", encoding="utf-8"
+    ) as episode_handle:
         writer = csv.DictWriter(handle, fieldnames=list(LOG_COLUMNS))
         writer.writeheader()
+        episode_writer = csv.DictWriter(episode_handle, fieldnames=list(EPISODE_COLUMNS))
+        episode_writer.writeheader()
         for iteration in range(1, cfg.iterations + 1):
+            agent.action_prob_floor = agent.floor_at(iteration)
             batch = collector.collect(agent, cfg.rollout_steps)
             env_steps += len(batch)
             stats = agent.update(batch, progress=(iteration - 1) / max(1, cfg.iterations - 1))
-            constraint = agent.update_multipliers(batch.episodes)
+            constraint = agent.update_multipliers(batch.episodes, batch)
             counts = batch.termination_counts()
             row = {
                 "iteration": iteration,
@@ -192,6 +233,7 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
                 "mean_return": _nan_if_empty([e.episode_return for e in batch.episodes]),
                 "mean_episode_length": _nan_if_empty([e.length for e in batch.episodes]),
                 "latency_violation_fraction": constraint["latency_violation_fraction"],
+                "episode_violation_fraction": constraint["episode_violation_fraction"],
                 "max_exposure": constraint["max_exposure"],
                 "lambda_latency": constraint["lambda_latency"],
                 "lambda_risk": constraint["lambda_risk"],
@@ -205,9 +247,35 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
                 "n_recovery_complete": counts["recovery_complete"],
                 "n_terminal_failure": counts["terminal_failure"],
                 "n_horizon_expired": counts["horizon_expired"],
+                "n_infeasible_episodes": constraint["n_infeasible_episodes"],
             }
+            action_counts = np.bincount(batch.actions, minlength=len(ACTIONS_MBPS))
+            for index, mbps in enumerate(ACTIONS_MBPS):
+                row[f"action_frac_{int(mbps)}"] = float(action_counts[index]) / len(batch)
+                taken = batch.actions == index
+                row[f"violation_rate_{int(mbps)}"] = (
+                    float(batch.latency_violated[taken].mean()) if taken.any() else float("nan")
+                )
+            row["step_violation_fraction"] = float(batch.latency_violated.mean())
+            row["action_prob_floor"] = agent.action_prob_floor
             writer.writerow(row)
             handle.flush()
+            for record in (*batch.episodes, *([batch.in_progress] if batch.in_progress is not None else [])):
+                episode_writer.writerow(
+                    {
+                        "iteration": iteration,
+                        "finished": int(record.finished),
+                        "reason": record.reason,
+                        "profile": record.profile,
+                        "length": record.length,
+                        "latency_violations": record.latency_violations,
+                        "latency_violation_fraction": record.latency_violation_fraction,
+                        "mean_delivered_mbps": record.mean_delivered_mbps,
+                        "episode_return": record.episode_return,
+                        "infeasible": int(record.infeasible),
+                    }
+                )
+            episode_handle.flush()
             if echo:
                 print(
                     f"seed={cfg.seed} iter={iteration}/{cfg.iterations} steps={env_steps} "
@@ -242,6 +310,11 @@ def _parser() -> argparse.ArgumentParser:
         help="replay CSV to drive foreground load; overrides --profile",
     )
     p.add_argument(
+        "--eval-fleet",
+        action="store_true",
+        help="draw the fleet from the held-out-split feature table instead of the train-split table",
+    )
+    p.add_argument(
         "--hazard-error-sigma",
         type=float,
         default=0.0,
@@ -260,6 +333,45 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--lambda-max", type=float, default=PPOConfig.lambda_max, help="upper bound on both multipliers")
     p.add_argument("--ent-coef", type=float, default=PPOConfig.ent_coef)
     p.add_argument("--ent-coef-final", type=float, default=PPOConfig.ent_coef_final)
+    p.add_argument("--reward-alpha", type=float, default=RewardConfig.alpha, help="reward weight on latency degradation")
+    p.add_argument("--reward-beta", type=float, default=RewardConfig.beta, help="reward weight on degraded-state cost")
+    p.add_argument("--reward-gamma", type=float, default=RewardConfig.gamma, help="reward weight on the violation term")
+    p.add_argument(
+        "--no-mask-infeasible",
+        action="store_true",
+        help="count latency-infeasible episodes in the latency multiplier and per-step cost",
+    )
+    p.add_argument(
+        "--latency-limit",
+        type=float,
+        default=PPOConfig.latency_limit,
+        help="experimental, default is the contract constant: latency violation fraction the training-time multiplier regulates to; "
+        "the contract constant used by evaluation is unchanged",
+    )
+    p.add_argument(
+        "--latency-window",
+        type=int,
+        default=PPOConfig.latency_window,
+        help="iterations averaged for the latency multiplier measurement (1 = current iteration only)",
+    )
+    p.add_argument(
+        "--action-prob-floor",
+        type=float,
+        default=PPOConfig.action_prob_floor,
+        help="experimental, default off: minimum probability of every action in the sampling and loss distribution (0 = plain softmax)",
+    )
+    p.add_argument(
+        "--action-prob-floor-hold",
+        type=int,
+        default=PPOConfig.action_prob_floor_hold,
+        help="experimental: leading iterations at the initial floor before the decay starts",
+    )
+    p.add_argument(
+        "--action-prob-floor-end",
+        type=int,
+        default=PPOConfig.action_prob_floor_end,
+        help="experimental: iteration at which the floor reaches 0 (0 = constant floor)",
+    )
     return p
 
 
@@ -277,7 +389,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         lambda_max=args.lambda_max,
         ent_coef=args.ent_coef,
         ent_coef_final=args.ent_coef_final,
+        mask_infeasible_cost=not args.no_mask_infeasible,
+        latency_window=args.latency_window,
+        latency_limit=args.latency_limit,
+        action_prob_floor=args.action_prob_floor,
+        action_prob_floor_hold=args.action_prob_floor_hold,
+        action_prob_floor_end=args.action_prob_floor_end,
     )
+    reward = RewardConfig(alpha=args.reward_alpha, beta=args.reward_beta, gamma=args.reward_gamma)
     for seed in args.seeds:
         cfg = TrainConfig(
             iterations=args.iterations,
@@ -286,10 +405,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             profile=None if args.profile == "mixed" else args.profile,
             workload_csv=args.workload_csv,
             hazard_error_sigma=args.hazard_error_sigma,
+            eval_fleet=args.eval_fleet,
             fleet_degradation=args.fleet_degradation,
             ablate_hazard=args.ablate_hazard,
             out_dir=os.path.join(args.out, f"seed{seed}"),
             checkpoint_every=args.checkpoint_every,
+            reward=reward,
             ppo=ppo,
         )
         run_dir = train(cfg)

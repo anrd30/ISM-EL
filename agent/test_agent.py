@@ -33,15 +33,18 @@ from agent.ppo import (
     resolve_next_values,
 )
 from agent.rollout import EpisodeRecord, RolloutBatch, RolloutCollector
-from agent.train import DEFAULT_ROLLOUT_STEPS, LOG_COLUMNS, TrainConfig, train
+import agent.train as train_module
+from agent.train import DEFAULT_ROLLOUT_STEPS, LOG_COLUMNS, TrainConfig, train, _checkpoint_payload
 from baselines.evaluate import evaluate
 from baselines.policies import Policy
+from sim.scenario import v1_eval_drive_features
 from hazard.v1 import ARTIFACT_DIR as V1_ARTIFACT_DIR
 from contracts.contracts import (
     ACTIONS_MBPS,
     N_ACTIONS,
     OBS_DIM,
     RISK_BUDGET_EPS,
+    RewardConfig,
     TerminationReason,
     action_to_mbps,
     termination_flags,
@@ -323,6 +326,51 @@ def test_default_config_bounds_the_multipliers_and_reports_binding() -> None:
     )
 
 
+def _sim_config_built_by_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *flags: str):
+    """Run agent.train's CLI far enough to capture the SimConfig it builds, then stop.
+
+    The collector is replaced before it can touch the hazard model, so this works on a
+    checkout without hazard/artifacts/v1/: v1_eval_config() constructs lazily and only
+    loads the artifacts when the model is first called.
+    """
+    seen: dict[str, object] = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _capture(sim_cfg, **kwargs):
+        seen["config"] = sim_cfg
+        raise _Stop
+
+    monkeypatch.setattr(train_module, "RolloutCollector", _capture)
+    with pytest.raises(_Stop):
+        train_module.main(["--iterations", "1", "--out", str(tmp_path), *flags])
+    return seen["config"]
+
+
+def test_cli_eval_fleet_selects_the_held_out_feature_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = _sim_config_built_by_main(monkeypatch, tmp_path, "--eval-fleet", "--hazard-error-sigma", "0.25")
+    assert cfg.feature_fn is v1_eval_drive_features
+    assert cfg.hazard_error_sigma == 0.25
+    assert cfg.label == "eval-fleet,sigma=0.25"
+
+
+def test_cli_without_eval_fleet_keeps_the_train_split_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = _sim_config_built_by_main(monkeypatch, tmp_path, "--hazard-error-sigma", "0.5")
+    assert cfg.feature_fn is not v1_eval_drive_features
+    assert cfg.label == "train-fleet,sigma=0.5"
+
+
+def test_checkpoint_records_the_fleet_split_and_sigma() -> None:
+    meta = _checkpoint_payload(PPOAgent(seed=0), TrainConfig(eval_fleet=True, hazard_error_sigma=0.25), 1)["meta"]
+    assert meta["eval_fleet"] is True and meta["hazard_error_sigma"] == 0.25
+    assert _checkpoint_payload(PPOAgent(seed=0), TrainConfig(), 1)["meta"]["eval_fleet"] is False
+
+
 def test_default_rollout_spans_several_default_episodes() -> None:
     # The shortest episode under any allocation is 334 steps (always the largest allocation).
     assert DEFAULT_ROLLOUT_STEPS >= 8 * 334 and TrainConfig().rollout_steps == DEFAULT_ROLLOUT_STEPS
@@ -539,3 +587,335 @@ def test_smoke_training_runs_logs_and_does_not_degrade_catastrophically(tmp_path
     restored = LearnedPolicy.from_checkpoint(tmp_path / "ckpt_final.pt")
     assert restored.ablate_hazard is False and restored.name == "ppo_lagrangian"
     assert 0 <= restored(np.zeros(OBS_DIM, dtype=np.float32)) < N_ACTIONS
+
+
+# ---------------------------------------------------------------------------
+# Latency-infeasible episodes
+# ---------------------------------------------------------------------------
+
+
+class _StubEnv:
+    """Environment whose reset ``violated_latency`` follows a per-episode schedule."""
+
+    def __init__(self, reset_violations: list[bool], steps_per_episode: int = 3) -> None:
+        self.reset_violations = reset_violations
+        self.steps_per_episode = steps_per_episode
+        self.resets = 0
+        self._t = 0
+
+    def reset(self, seed: int | None = None):
+        flag = self.reset_violations[self.resets % len(self.reset_violations)]
+        self.resets += 1
+        self._t = 0
+        return np.zeros(OBS_DIM, np.float32), {"workload_profile": "stub", "violated_latency": flag}
+
+    def step(self, action: int):
+        self._t += 1
+        done = self._t >= self.steps_per_episode
+        info = {
+            "violated_latency": True,
+            "alloc_effective_mbps": 10.0 * action,
+            "p_failure_before_complete": 0.0,
+            "termination_reason": TerminationReason.RECOVERY_COMPLETE.value,
+        }
+        return np.zeros(OBS_DIM, np.float32), -1.0, done, False, info
+
+
+def _stub_collector(schedule: list[bool]) -> RolloutCollector:
+    collector = RolloutCollector(IDLE, seed=0)
+    collector.env = _StubEnv(schedule)  # type: ignore[assignment]
+    return collector
+
+
+def test_collector_flags_episodes_infeasible_at_reset() -> None:
+    batch = _stub_collector([True, False]).collect(PPOAgent(seed=0), 12)
+    assert [e.infeasible for e in batch.episodes] == [True, False, True, False]
+    assert batch.infeasible is not None
+    assert batch.infeasible.tolist() == [True] * 3 + [False] * 3 + [True] * 3 + [False] * 3
+
+
+def test_infeasible_flag_carries_over_a_batch_boundary() -> None:
+    collector = _stub_collector([True])
+    first = collector.collect(PPOAgent(seed=0), 2)
+    second = collector.collect(PPOAgent(seed=0), 2)
+    assert first.infeasible.tolist() == [True, True] and second.infeasible.tolist() == [True, True]
+    assert [e.infeasible for e in second.episodes] == [True]
+
+
+def test_infeasible_defaults_to_false_on_episode_records() -> None:
+    assert EpisodeRecord(0.0, 10, 0.0, 0.0, "recovery_complete", "idle").infeasible is False
+
+
+def test_latency_multiplier_ignores_infeasible_episodes() -> None:
+    feasible = EpisodeRecord(-1.0, 10, 0.0, 0.0, "recovery_complete", "idle")
+    infeasible = EpisodeRecord(-1.0, 10, 1.0, 0.0, "recovery_complete", "peak", infeasible=True)
+    agent = PPOAgent()
+    out = agent.update_multipliers([feasible, infeasible])
+    assert out["latency_violation_fraction"] == 0.0 and out["lambda_latency"] == 0.0
+    assert out["n_infeasible_episodes"] == 1
+    unmasked = PPOAgent(PPOConfig(mask_infeasible_cost=False)).update_multipliers([feasible, infeasible])
+    assert unmasked["latency_violation_fraction"] == 0.5 and unmasked["lambda_latency"] > 0.0
+
+
+def test_only_infeasible_episodes_leave_the_latency_multiplier_but_not_the_risk_one() -> None:
+    episode = EpisodeRecord(-1.0, 10, 1.0, 2 * RISK_BUDGET_EPS, "recovery_complete", "peak", infeasible=True)
+    agent = PPOAgent()
+    agent.lambda_latency.value = 0.7
+    out = agent.update_multipliers([episode])
+    assert math.isnan(out["latency_violation_fraction"]) and out["lambda_latency"] == 0.7
+    assert out["lambda_latency_capped"] == 0.0 and agent.lambda_latency.n_updates == 0
+    assert out["lambda_risk"] > 0.0 and out["max_exposure"] == 2 * RISK_BUDGET_EPS
+
+
+def test_latency_step_cost_is_zero_in_infeasible_episodes() -> None:
+    n = 4
+    batch = RolloutBatch(
+        obs=np.zeros((n, OBS_DIM), np.float32),
+        next_obs=np.zeros((n, OBS_DIM), np.float32),
+        actions=np.zeros(n, np.int64),
+        log_probs=np.zeros(n, np.float32),
+        values=np.zeros(n, np.float32),
+        rewards=np.zeros(n),
+        terminated=np.zeros(n, bool),
+        truncated=np.zeros(n, bool),
+        latency_violated=np.ones(n, np.float32),
+        exposure=np.zeros(n, np.float32),
+        infeasible=np.array([True, True, False, False]),
+    )
+    assert PPOAgent().step_costs(batch)[0].tolist() == [0.0, 0.0, 1.0, 1.0]
+    assert PPOAgent(PPOConfig(mask_infeasible_cost=False)).step_costs(batch)[0].tolist() == [1.0] * 4
+    batch.infeasible = None
+    assert PPOAgent().step_costs(batch)[0].tolist() == [1.0] * 4
+
+
+# ---------------------------------------------------------------------------
+# Reward-weight, masking and log surface of the training CLI
+# ---------------------------------------------------------------------------
+
+
+def _train_config_built_by_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *flags: str) -> TrainConfig:
+    seen: list[TrainConfig] = []
+
+    def capture(cfg: TrainConfig, echo: bool = True) -> Path:
+        seen.append(cfg)
+        return tmp_path
+
+    monkeypatch.setattr(train_module, "train", capture)
+    assert train_module.main(["--iterations", "1", "--out", str(tmp_path), *flags]) == 0
+    return seen[0]
+
+
+def test_cli_reward_weights_default_to_the_contract_values(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = _train_config_built_by_main(monkeypatch, tmp_path)
+    assert cfg.reward == RewardConfig()
+    assert cfg.ppo.mask_infeasible_cost is True
+
+
+def test_cli_reward_weights_and_entropy_reach_the_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = _train_config_built_by_main(
+        monkeypatch, tmp_path, "--reward-gamma", "2.0", "--reward-alpha", "1.5", "--reward-beta", "0.2",
+        "--ent-coef", "0.05", "--ent-coef-final", "0.05", "--no-mask-infeasible",
+    )
+    assert cfg.reward == RewardConfig(alpha=1.5, beta=0.2, gamma=2.0)
+    assert cfg.ppo.ent_coef == cfg.ppo.ent_coef_final == 0.05
+    assert cfg.ppo.mask_infeasible_cost is False
+    assert cfg.ppo.gamma == PPOConfig().gamma  # --reward-gamma does not touch the discount
+
+
+def test_reward_weights_reach_the_simulator_and_checkpoint_meta(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sim_cfg = _sim_config_built_by_main(monkeypatch, tmp_path, "--reward-gamma", "1.0")
+    assert sim_cfg.reward == RewardConfig(gamma=1.0)
+    meta = _checkpoint_payload(PPOAgent(seed=0), TrainConfig(reward=RewardConfig(gamma=1.0)), 1)["meta"]
+    assert meta["reward"] == {"alpha": 1.0, "beta": 0.1, "gamma": 1.0}
+
+
+def test_log_columns_carry_infeasible_count_and_action_fractions() -> None:
+    assert "n_infeasible_episodes" in LOG_COLUMNS
+    assert [c for c in LOG_COLUMNS if c.startswith("action_frac_")] == [f"action_frac_{int(a)}" for a in ACTIONS_MBPS]
+
+
+def test_log_columns_carry_per_action_violation_rates() -> None:
+    assert "step_violation_fraction" in LOG_COLUMNS
+    assert [c for c in LOG_COLUMNS if c.startswith("violation_rate_")] == [
+        f"violation_rate_{int(a)}" for a in ACTIONS_MBPS
+    ]
+
+
+def test_episode_records_carry_violation_count_and_delivered_bandwidth() -> None:
+    batch = _stub_collector([False]).collect(PPOAgent(seed=0), 6)
+    assert len(batch.episodes) == 2
+    for record in batch.episodes:
+        assert record.finished and record.length == 3 and record.latency_violations == 3
+        assert record.latency_violation_fraction == 1.0
+        assert record.mean_delivered_mbps >= 0.0
+
+
+def test_in_progress_episode_is_reported_with_its_measurements_so_far() -> None:
+    collector = _stub_collector([True])
+    batch = collector.collect(PPOAgent(seed=0), 4)  # one finished episode (3 steps) and 1 step of the next
+    assert [e.length for e in batch.episodes] == [3]
+    part = batch.in_progress
+    assert part is not None and not part.finished and part.reason == "in_progress"
+    assert part.length == 1 and part.latency_violations == 1 and part.infeasible is True
+    assert part.mean_delivered_mbps == pytest.approx(10.0 * batch.actions[-1])
+    nxt = collector.collect(PPOAgent(seed=0), 2)  # the running episode finishes in the next batch
+    assert nxt.episodes[0].length == 3 and nxt.episodes[0].finished
+
+
+def test_no_in_progress_record_when_the_batch_ends_on_an_episode_boundary() -> None:
+    assert _stub_collector([False]).collect(PPOAgent(seed=0), 6).in_progress is None
+
+
+def test_episode_log_columns_cover_the_record_fields() -> None:
+    from agent.train import EPISODE_COLUMNS
+
+    assert {"finished", "length", "latency_violations", "latency_violation_fraction", "mean_delivered_mbps"} <= set(
+        EPISODE_COLUMNS
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step-pooled latency measurement
+# ---------------------------------------------------------------------------
+
+
+def _violation_batch(violated: list[float], infeasible: list[bool] | None = None) -> RolloutBatch:
+    n = len(violated)
+    return RolloutBatch(
+        obs=np.zeros((n, OBS_DIM), np.float32),
+        next_obs=np.zeros((n, OBS_DIM), np.float32),
+        actions=np.zeros(n, np.int64),
+        log_probs=np.zeros(n, np.float32),
+        values=np.zeros(n, np.float32),
+        rewards=np.zeros(n),
+        terminated=np.zeros(n, bool),
+        truncated=np.zeros(n, bool),
+        latency_violated=np.array(violated, np.float32),
+        exposure=np.zeros(n, np.float32),
+        infeasible=None if infeasible is None else np.array(infeasible),
+    )
+
+
+def test_latency_measurement_is_pooled_over_steps_not_averaged_over_episodes() -> None:
+    short = EpisodeRecord(0.0, 10, 0.5, 0.0, "recovery_complete", "idle", latency_violations=5)
+    long = EpisodeRecord(0.0, 90, 0.0, 0.0, "recovery_complete", "idle", latency_violations=0)
+    batch = _violation_batch([1.0] * 5 + [0.0] * 95)
+    agent = PPOAgent()
+    out = agent.update_multipliers([short, long], batch)
+    assert out["latency_violation_fraction"] == pytest.approx(0.05)  # 5 violating steps of 100
+    assert out["episode_violation_fraction"] == pytest.approx(0.25)  # unweighted mean of 0.5 and 0.0
+    assert agent.lambda_latency.value == pytest.approx(0.0)  # exactly at the limit
+    legacy = PPOAgent().update_multipliers([short, long])
+    assert legacy["latency_violation_fraction"] == pytest.approx(0.25)
+
+
+def test_pooled_measurement_exists_when_no_episode_finished() -> None:
+    agent = PPOAgent()
+    agent.lambda_risk.value = 0.4
+    out = agent.update_multipliers([], _violation_batch([1.0] * 10))
+    assert out["latency_violation_fraction"] == 1.0 and out["lambda_latency"] > 0.0
+    assert math.isnan(out["max_exposure"]) and agent.lambda_risk.value == 0.4 and agent.lambda_risk.n_updates == 0
+
+
+def test_pooled_measurement_excludes_infeasible_steps() -> None:
+    batch = _violation_batch([1.0, 1.0, 0.0, 0.0], infeasible=[True, True, False, False])
+    assert PPOAgent().update_multipliers([], batch)["latency_violation_fraction"] == 0.0
+    unmasked = PPOAgent(PPOConfig(mask_infeasible_cost=False)).update_multipliers([], batch)
+    assert unmasked["latency_violation_fraction"] == 0.5
+    only_infeasible = _violation_batch([1.0, 1.0], infeasible=[True, True])
+    out = PPOAgent().update_multipliers([], only_infeasible)
+    assert math.isnan(out["latency_violation_fraction"]) and out["lambda_latency"] == 0.0
+
+
+def test_latency_window_averages_recent_iteration_measurements() -> None:
+    agent = PPOAgent(PPOConfig(latency_window=3))
+    fed = [agent.update_multipliers([], _violation_batch([1.0] * k + [0.0] * (10 - k)))["latency_violation_fraction"]
+           for k in (0, 3, 6, 9)]
+    assert fed == pytest.approx([0.0, 0.15, 0.3, 0.6])  # mean of the last three of 0.0, 0.3, 0.6, 0.9
+    assert PPOAgent().config.latency_window == 1
+
+
+def test_cli_latency_window_reaches_the_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert _train_config_built_by_main(monkeypatch, tmp_path).ppo.latency_window == 1
+    assert _train_config_built_by_main(monkeypatch, tmp_path, "--latency-window", "10").ppo.latency_window == 10
+
+
+def test_action_prob_floor_bounds_sampled_frequencies_and_matches_stored_log_probs() -> None:
+    floor = 0.02
+    agent = PPOAgent(PPOConfig(action_prob_floor=floor), seed=0)
+    with torch.no_grad():
+        agent.actor.net[-1].bias.copy_(torch.tensor([20.0, -20.0, -20.0, -20.0]))
+    obs = np.full(12, 0.3, dtype=np.float32)
+    raw = torch.softmax(agent.actor(torch.as_tensor(obs).unsqueeze(0)), dim=-1)[0].detach().numpy()
+    assert raw.min() < 1e-6  # the network output alone would starve three actions
+    expected = floor + (1.0 - 4 * floor) * raw
+    gen = torch.Generator().manual_seed(1)
+    n = 40000
+    draws = [agent.act(obs, gen) for _ in range(n)]
+    freq = np.bincount([d[0] for d in draws], minlength=4) / n
+    assert (freq >= floor - 4 * math.sqrt(floor * (1 - floor) / n)).all()
+    assert np.allclose(freq, expected, atol=0.01)
+    for action, log_prob, _ in draws[:50]:
+        assert log_prob == pytest.approx(math.log(expected[action]), abs=1e-5)
+        assert log_prob != pytest.approx(math.log(raw[action]), abs=1e-3) or raw[action] > 0.5
+    greedy = agent.act(obs, deterministic=True)
+    assert greedy[0] == 0 and greedy[1] == pytest.approx(math.log(expected[0]), abs=1e-5)
+
+
+def test_action_prob_floor_is_used_by_the_loss_distribution() -> None:
+    cfg = PPOConfig(action_prob_floor=0.05, epochs=1, minibatch_size=64)
+    agent = PPOAgent(cfg, seed=0)
+    logits = torch.tensor([[30.0, -30.0, -30.0, -30.0]])
+    lp = agent._floored_log_probs(logits)
+    assert torch.allclose(lp.exp().sum(), torch.tensor(1.0))
+    assert lp.exp().min().item() >= 0.05 - 1e-7
+
+
+def test_action_prob_floor_schedule_holds_then_decays_linearly_to_zero() -> None:
+    agent = PPOAgent(PPOConfig(action_prob_floor=0.08, action_prob_floor_hold=20, action_prob_floor_end=60))
+    assert agent.floor_at(1) == 0.08 and agent.floor_at(20) == 0.08
+    assert agent.floor_at(40) == pytest.approx(0.04)
+    assert agent.floor_at(60) == 0.0 and agent.floor_at(244) == 0.0
+    assert PPOAgent(PPOConfig(action_prob_floor=0.02)).floor_at(244) == 0.02
+
+
+def test_action_prob_floor_in_force_is_shared_by_sampling_and_loss() -> None:
+    agent = PPOAgent(PPOConfig(action_prob_floor=0.08, action_prob_floor_hold=1, action_prob_floor_end=3), seed=0)
+    logits = torch.tensor([[30.0, -30.0, -30.0, -30.0]])
+    agent.action_prob_floor = agent.floor_at(2)
+    assert agent._floored_log_probs(logits).exp().min().item() == pytest.approx(0.04, abs=1e-6)
+    agent.action_prob_floor = agent.floor_at(3)
+    assert torch.equal(agent._floored_log_probs(logits), torch.log_softmax(logits, dim=-1))
+
+
+def test_action_prob_floor_zero_is_plain_softmax() -> None:
+    agent = PPOAgent(seed=0)
+    logits = torch.randn(5, 4)
+    assert torch.equal(agent._floored_log_probs(logits), torch.log_softmax(logits, dim=-1))
+
+
+def test_cli_action_prob_floor_reaches_the_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert _train_config_built_by_main(monkeypatch, tmp_path).ppo.action_prob_floor == 0.0
+    assert _train_config_built_by_main(monkeypatch, tmp_path, "--action-prob-floor", "0.02").ppo.action_prob_floor == 0.02
+
+
+def test_cli_action_prob_floor_schedule_reaches_the_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = _train_config_built_by_main(
+        monkeypatch, tmp_path, "--action-prob-floor", "0.08", "--action-prob-floor-hold", "20", "--action-prob-floor-end", "60"
+    )
+    assert (cfg.ppo.action_prob_floor, cfg.ppo.action_prob_floor_hold, cfg.ppo.action_prob_floor_end) == (0.08, 20, 60)
+    assert _train_config_built_by_main(monkeypatch, tmp_path).ppo.action_prob_floor_end == 0
+
+
+def test_log_columns_carry_the_episode_weighted_violation_fraction() -> None:
+    assert "episode_violation_fraction" in LOG_COLUMNS
+
+
+def test_cli_latency_limit_overrides_only_the_training_multiplier(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from contracts.contracts import LATENCY_VIOLATION_FRACTION_MAX
+
+    assert _train_config_built_by_main(monkeypatch, tmp_path).ppo.latency_limit == LATENCY_VIOLATION_FRACTION_MAX
+    cfg = _train_config_built_by_main(monkeypatch, tmp_path, "--latency-limit", "0.1")
+    assert cfg.ppo.latency_limit == 0.1
+    assert PPOAgent(cfg.ppo).lambda_latency.limit == 0.1
+    assert LATENCY_VIOLATION_FRACTION_MAX == 0.05  # the evaluation constant is not touched

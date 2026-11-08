@@ -1,0 +1,7 @@
+# Root dependency list, used by CI and by `python -m pytest -q` run from the
+# repo root (see README.md). Pulls in each lane's own requirements file,
+# plus the one dependency used in the repo that isn't declared in any
+# per-lane file yet.
+-r data_pipeline/requirements.txt
+-r hazard/requirements.txt
+torch>=2.2   # agent-lane: PPO networks (agent/networks.py, agent/ppo.py, agent/rollout.py)

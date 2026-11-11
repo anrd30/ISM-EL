@@ -1,6 +1,8 @@
 # T-lane decision record: a learned controller that beats the rule, and why it is not a network
 
-Status: proposed. Not yet reviewed by the other lanes.
+Status: proposed. Not yet reviewed by the other lanes. The adopted controller is now the PPO
+agent in `agent/FORECAST_PPO_DECISION.md`, which beats this controller; this record stays as
+the finding that the daily forecast is the exploitable signal, and as its comparator.
 
 Follows `agent/PPO_COLLAPSE_DECISION.md`, which concluded that constrained PPO trails
 `risk_aware_rule_based` by more than the headroom on offer. Evidence:

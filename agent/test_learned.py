@@ -1,4 +1,4 @@
-"""Tests for the learned controllers: the seasonal-rule policy search, the residual network, and evaluation guards.
+"""Tests for the learned controllers: the forecast PPO agent, the seasonal-rule policy search, the residual network, and evaluation guards.
 
 Every test uses ``v0_config`` so none needs ``hazard/artifacts/v1/``.
 """
@@ -305,3 +305,51 @@ def test_cached_hazard_returns_identical_outputs() -> None:
     second = cached(features, 720.0)
     assert first == second == model(features, 720.0)
     assert cached.hits == 1 and cached.misses == 1
+
+
+def test_forecast_features_are_causal_and_masked() -> None:
+    from agent.forecast_ppo import FEATURE_DIM, ForecastActor, ForecastFeatures
+
+    seq = _episode_obs(SEASONAL_START + 30)
+    cut = SEASONAL_START + 5
+    altered = [o.copy() for o in seq]
+    for o in altered[cut + 1 :]:
+        o[2] = 1.0 - o[2]
+    fa, fb = ForecastFeatures(), ForecastFeatures()
+    fa.reset()
+    fb.reset()
+    actor = ForecastActor()
+    for t in range(len(seq)):
+        xa, floor = fa.update(seq[t])
+        xb, _ = fb.update(altered[t])
+        assert xa.shape == (FEATURE_DIM,) and np.all(np.isfinite(xa))
+        if t <= cut:
+            np.testing.assert_array_equal(xa, xb)
+        logits = actor(torch.as_tensor(xa).unsqueeze(0))
+        assert int(logits.argmax(dim=-1).item()) >= floor
+        assert bool(torch.all(logits[0, :floor] < -1e8))
+
+
+def test_forecast_ppo_trains_and_evaluates(tmp_path: Path) -> None:
+    from agent.forecast_ppo import ForecastPPOConfig, train as train_ppo
+
+    outs = {}
+    for init in ("bc", "scratch"):
+        cfg = ForecastPPOConfig(init=init, workload_csv=str(PROFILE), hazard="v0", out_dir=str(tmp_path / init),
+                                iterations=1, n_envs=2, steps_per_env=16, pool_size=3, bc_episodes=1, bc_epochs=1,
+                                val_every=1, val_days=0, val_seeds=1, minibatch_size=16)
+        outs[init] = train_ppo(cfg, echo=False)
+        for name in ("ckpt_init.pt", "ckpt_best.pt", "ckpt_final.pt", "log.csv"):
+            assert (outs[init] / name).is_file()
+    code = evaluate_main(["--ppo-checkpoint", str(outs["bc"] / "ckpt_best.pt"), str(outs["bc"] / "ckpt_init.pt"),
+                          "--workload-csv", str(PROFILE), "--no-strict-holdout", "--hazard", "v0", "--seeds", "1",
+                          "--out", str(tmp_path / "eval")])
+    assert code == 0
+    text = (tmp_path / "eval" / "summary.md").read_text(encoding="utf-8")
+    assert "forecast_ppo_bc seed0" in text and "forecast_bc_only seed0" in text
+    with pytest.raises(SystemExit):
+        evaluate_main(["--ppo-checkpoint", str(outs["scratch"] / "ckpt_init.pt"), "--workload-csv", str(PROFILE),
+                       "--no-strict-holdout", "--hazard", "v0", "--seeds", "1", "--out", str(tmp_path / "e2")])
+    with pytest.raises(SystemExit):
+        evaluate_main(["--ppo-checkpoint", str(outs["bc"] / "ckpt_best.pt"), "--workload-csv", str(PROFILE),
+                       "--hazard", "v0", "--seeds", "1", "--out", str(tmp_path / "e3")])

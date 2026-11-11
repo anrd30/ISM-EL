@@ -7,9 +7,11 @@ Usage::
         --workload-csv data_pipeline/profiles/profile_diurnal_long_holdout.csv \\
         --seeds 20 --eval-fleet --hazard-error-sigma 0.25 --diagnostics --out runs/eval_search
 
-``--search-result`` takes ``search.json`` files from ``agent.search_seasonal``;
-``--checkpoint`` takes ``.pt`` files from ``agent.train_residual``. Either or
-both may be given.
+``--ppo-checkpoint`` takes ``.pt`` files from ``agent.forecast_ppo``
+(``ckpt_best.pt`` is labelled ``forecast_ppo_<init>``, ``ckpt_init.pt`` of a
+``bc`` run ``forecast_bc_only``); ``--search-result`` takes ``search.json``
+files from ``agent.search_seasonal``; ``--checkpoint`` takes ``.pt`` files
+from ``agent.train_residual``. Any combination may be given.
 
 Every policy runs on the identical scenarios through
 ``baselines.evaluate.compare``, which checks the pairing. Writes
@@ -40,9 +42,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+import torch
 import pandas as pd
 
 from agent.seasonal_rule import SeasonalForecastRule
+from agent.forecast_ppo import ForecastPPOPolicy
 from agent.residual_policy import ResidualPolicy, load_residual_checkpoint
 from agent.search_seasonal import make_policy
 from agent.train_residual import build_sim_config
@@ -103,6 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m agent.evaluate_learned", description=__doc__.split("\n\n")[0])
     p.add_argument("--checkpoint", type=Path, nargs="*", default=[])
     p.add_argument("--search-result", type=Path, nargs="*", default=[])
+    p.add_argument("--ppo-checkpoint", type=Path, nargs="*", default=[])
     p.add_argument("--workload-csv", type=Path, required=True)
     p.add_argument("--seeds", type=int, default=20)
     p.add_argument("--seed-start", type=int, default=0)
@@ -169,16 +174,48 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "params": ", ".join(f"{k}={v:.3f}" for k, v in meta["params"].items()),
             }
         )
-    if not residuals and not searched:
-        p.error("give at least one --checkpoint or --search-result")
-    names = [r.name for r in residuals] + [q.name for q in searched]
+    ppo_policies = []
+    for path in args.ppo_checkpoint:
+        meta = torch.load(path, map_location="cpu", weights_only=True)["meta"]
+        if meta["trained_on_sha256"] == eval_sha and not args.no_strict_holdout:
+            p.error(f"{path} was trained on the evaluation workload (sha256 {eval_sha[:12]}); see --no-strict-holdout")
+        if meta["hazard"] != args.hazard:
+            p.error(f"{path} was trained with hazard={meta['hazard']}, evaluation uses {args.hazard}")
+        if float(meta["hazard_error_sigma"]) != args.hazard_error_sigma:
+            p.error(f"{path} was trained with sigma={meta['hazard_error_sigma']}, evaluation uses {args.hazard_error_sigma}")
+        if path.name == "ckpt_init.pt":
+            if meta["init"] != "bc":
+                p.error(f"{path} is an untrained network")
+            label = f"forecast_bc_only seed{int(meta['seed'])}"
+        else:
+            label = f"forecast_ppo_{meta['init']} seed{int(meta['seed'])}"
+        policy = ForecastPPOPolicy.from_checkpoint(path, config, label)
+        ppo_policies.append(policy)
+        ckpt_rows.append(
+            {
+                "checkpoint": path.as_posix(),
+                "policy": label,
+                "iteration": meta["iteration"],
+                "trained_on": meta["trained_on"],
+                "hazard": meta["hazard"],
+                "train_fleet": "train-fleet",
+                "sigma": meta["hazard_error_sigma"],
+                "val_gap": round(float(meta["val_gap"]), 3),
+                "val_gap_sem": round(float(meta["val_gap_sem"]), 3),
+                "val_seeds": meta["val_seeds"],
+                "params": f"bc_accuracy={float(meta['bc_accuracy']):.3f}" if meta["init"] == "bc" else "",
+            }
+        )
+    if not residuals and not searched and not ppo_policies:
+        p.error("give at least one --ppo-checkpoint, --checkpoint or --search-result")
+    names = [r.name for r in residuals] + [q.name for q in searched] + [q.name for q in ppo_policies]
     if len(set(names)) != len(names):
         p.error(f"duplicate policy names {names}; checkpoints must come from different seeds")
 
     policies = list(baseline_policies(config))
     if args.diagnostics:
         policies.append(SeasonalForecastRule(config))
-    policies += residuals + searched
+    policies += residuals + searched + ppo_policies
     seeds = list(range(args.seed_start, args.seed_start + args.seeds))
     episodes = compare(policies, profiles=[args.workload_csv], seeds=seeds, config=config)
     summary = summarise(episodes)
@@ -221,6 +258,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         for q in searched
         if q.name.startswith("seasonal_search") and q.name.replace("seasonal_search", "rule_progress_search") in names
     ]
+    ppo_pairs = [
+        (q.name, q.name.replace("forecast_ppo_bc", "forecast_bc_only"))
+        for q in ppo_policies
+        if q.name.startswith("forecast_ppo_bc") and q.name.replace("forecast_ppo_bc", "forecast_bc_only") in names
+    ]
+    if ppo_pairs:
+        rows = []
+        for treatment, comparator in ppo_pairs:
+            d = paired_delta(episodes, treatment, comparator, metrics=["total_reward"]).iloc[0]
+            rows.append({"treatment": treatment, "comparator": comparator, "n": int(d["n"]),
+                         "gap": float(d["mean_diff"]), "sem": float(d["sem"])})
+        parts += [
+            "",
+            "## PPO-trained policy against its own imitation-only starting point",
+            "",
+            "Same network before and after PPO, so this gap is what PPO training added.",
+            "",
+            to_markdown(pd.DataFrame(rows)),
+        ]
     if pairs:
         rows = []
         for treatment, comparator in pairs:

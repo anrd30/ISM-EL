@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -92,7 +93,16 @@ def test_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 @needs_source
 def test_regenerating_is_byte_identical(tmp_path: Path) -> None:
-    """The split is a pure function of the source, so rerunning it changes nothing."""
-    original = {h: (sp.PROFILES / f"{sp.SOURCE_STEM}_{h}.csv").read_bytes() for h in HALVES}
-    sp.split()
-    assert {h: (sp.PROFILES / f"{sp.SOURCE_STEM}_{h}.csv").read_bytes() for h in HALVES} == original
+    """The split is a pure function of the source: running it on a copy reproduces the tracked files byte for byte.
+
+    The tracked files are only read; the split writes next to the copied source in ``tmp_path``.
+    """
+    sidecar = SOURCE.with_suffix(".meta.json")
+    shutil.copyfile(SOURCE, tmp_path / SOURCE.name)
+    shutil.copyfile(sidecar, tmp_path / sidecar.name)
+    written = sp.split(tmp_path / SOURCE.name)
+    for half in HALVES:
+        tracked = sp.PROFILES / f"{sp.SOURCE_STEM}_{half}.csv"
+        assert written[half].parent == tmp_path
+        assert written[half].read_bytes() == tracked.read_bytes()
+        assert written[half].with_suffix(".meta.json").read_bytes() == tracked.with_suffix(".meta.json").read_bytes()

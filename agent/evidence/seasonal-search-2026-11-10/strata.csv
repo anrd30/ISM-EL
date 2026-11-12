@@ -1,0 +1,36 @@
+policy,stratum,n,gap,sem,n_better,n_worse
+rule_seasonal_forecast (hand-built),all,20,3.6849936145174325,0.27580927869948124,20,0
+rule_seasonal_forecast (hand-built),initial_budget_infeasible=False (pre-registered),18,3.969400892428241,0.21608885381108298,18,0
+rule_seasonal_forecast (hand-built),initial_budget_infeasible=True (pre-registered),2,1.1253281133201654,0.1712512661817982,2,0
+rule_seasonal_forecast (hand-built),"typical, rule reward >= -500 (post hoc)",17,4.090028791357625,0.19016102540722843,17,0
+rule_seasonal_forecast (hand-built),"extreme, rule reward < -500 (post hoc)",3,1.3897942790896802,0.2823437943827552,3,0
+seasonal_search seed0,all,20,3.2731319051810503,0.25259761265721825,20,0
+seasonal_search seed0,initial_budget_infeasible=False (pre-registered),18,3.5207194343813395,0.2054729519020778,18,0
+seasonal_search seed0,initial_budget_infeasible=True (pre-registered),2,1.0448441423784516,0.38283825962867013,2,0
+seasonal_search seed0,"typical, rule reward >= -500 (post hoc)",17,3.608903381344792,0.19684528478976338,17,0
+seasonal_search seed0,"extreme, rule reward < -500 (post hoc)",3,1.3704268735865146,0.3935214850628509,3,0
+seasonal_search seed1,all,20,2.8620080276039053,0.23801951962968468,20,0
+seasonal_search seed1,initial_budget_infeasible=False (pre-registered),18,3.076844421752007,0.20573320076945373,18,0
+seasonal_search seed1,initial_budget_infeasible=True (pre-registered),2,0.9284804802709914,0.366474597521119,2,0
+seasonal_search seed1,"typical, rule reward >= -500 (post hoc)",17,3.159114593075641,0.2000062246790767,17,0
+seasonal_search seed1,"extreme, rule reward < -500 (post hoc)",3,1.1784041565974046,0.3274594949983867,3,0
+seasonal_search seed2,all,20,3.684030726516667,0.24878425860101888,20,0
+seasonal_search seed2,initial_budget_infeasible=False (pre-registered),18,3.9581542599202604,0.17991337982044125,18,0
+seasonal_search seed2,initial_budget_infeasible=True (pre-registered),2,1.216918925884329,0.21076347612279275,2,0
+seasonal_search seed2,"typical, rule reward >= -500 (post hoc)",17,4.038396919540436,0.1707957326528735,17,0
+seasonal_search seed2,"extreme, rule reward < -500 (post hoc)",3,1.6759556327153102,0.47489133406919515,3,0
+rule_progress_search seed0,all,20,-0.14243960566083658,0.05408204324645745,6,14
+rule_progress_search seed0,initial_budget_infeasible=False (pre-registered),18,-0.15838443995609847,0.05901386840783266,4,14
+rule_progress_search seed0,initial_budget_infeasible=True (pre-registered),2,0.0010639029965204827,0.0,2,0
+rule_progress_search seed0,"typical, rule reward >= -500 (post hoc)",17,-0.16142279088768668,0.06251064488615275,4,13
+rule_progress_search seed0,"extreme, rule reward < -500 (post hoc)",3,-0.03486822270868591,0.03593212570520639,2,1
+rule_progress_search seed1,all,20,-0.1367753941078796,0.05249291845259869,5,14
+rule_progress_search seed1,initial_budget_infeasible=False (pre-registered),18,-0.15203176584189512,0.05731451073956733,4,14
+rule_progress_search seed1,initial_budget_infeasible=True (pre-registered),2,0.0005319514982602414,0.0005319514982602414,1,0
+rule_progress_search seed1,"typical, rule reward >= -500 (post hoc)",17,-0.15469643006088313,0.060725483070581884,4,13
+rule_progress_search seed1,"extreme, rule reward < -500 (post hoc)",3,-0.0352228570408594,0.03575612755600459,1,1
+rule_progress_search seed2,all,20,-0.17212808385528683,0.09542308090421571,7,13
+rule_progress_search seed2,initial_budget_infeasible=False (pre-registered),18,-0.17470497128328055,0.1056248014660168,6,12
+rule_progress_search seed2,initial_budget_infeasible=True (pre-registered),2,-0.1489360970033431,0.14999999999986358,1,1
+rule_progress_search seed2,"typical, rule reward >= -500 (post hoc)",17,-0.1804087415294471,0.11186855635489676,6,11
+rule_progress_search seed2,"extreme, rule reward < -500 (post hoc)",3,-0.12520435703504518,0.08979529766034114,1,2

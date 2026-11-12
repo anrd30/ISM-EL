@@ -1,0 +1,34 @@
+{
+  "base": "rule",
+  "seed": 2,
+  "generation": 4,
+  "params": {
+    "progress_scale": 0.48814735312612395
+  },
+  "val_gap": 2.340656639838605,
+  "val_gap_sem": 0.7079917732818327,
+  "trained_on": "data_pipeline/profiles/profile_diurnal_long_train.csv",
+  "trained_on_sha256": "65680adfc9c5aa60f1dc30164ecbe66a0117859df9a773cacc3035fd8f1eea3d",
+  "fit_csv_sha256": "dc6ded6502164d40c5aab1a256dc5ed72858520322312c03bf5dde21804f5d87",
+  "val_csv_sha256": "619f20f01d7232998cf73eaff06dacd69dabe839c78fe830b2e00279aa5382e6",
+  "hazard": "v1",
+  "eval_fleet": false,
+  "hazard_error_sigma": 0.25,
+  "val_seeds": "5000..5039",
+  "config": {
+    "base": "rule",
+    "seed": 2,
+    "workload_csv": "data_pipeline/profiles/profile_diurnal_long_train.csv",
+    "hazard": "v1",
+    "eval_fleet": false,
+    "hazard_error_sigma": 0.25,
+    "out_dir": "runs/search/rule/seed2",
+    "generations": 8,
+    "population": 12,
+    "elite": 4,
+    "episodes": 24,
+    "val_days": 3,
+    "val_seeds": 40,
+    "val_seed_start": 5000
+  }
+}

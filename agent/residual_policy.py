@@ -129,7 +129,7 @@ class ResidualPolicy:
             raise ValueError(f"checkpoint feature_version={version}, code FEATURE_VERSION={FEATURE_VERSION}")
         actor = ResidualActor()
         actor.load_state_dict(ckpt["actor"])
-        label = name if name is not None else f"residual_ppo seed{int(ckpt['meta']['seed'])}"
+        label = name if name is not None else f"residual_{ckpt['meta']['method']} seed{int(ckpt['meta']['seed'])}"
         return cls(actor, config, name=label)
 
     def reset(self) -> None:

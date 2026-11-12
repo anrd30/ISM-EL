@@ -294,6 +294,72 @@ def test_search_smoke_and_evaluation(tmp_path: Path) -> None:
                        "--seeds", "1", "--out", str(tmp_path / "eval2")])
 
 
+def test_strict_holdout_guard_ignores_line_endings(tmp_path: Path) -> None:
+    """A recorded training hash refuses the same workload whichever line endings the recorded or the evaluated file has."""
+    import hashlib
+    import json
+
+    from agent.evaluate_learned import _sha256_forms
+    from agent.search_seasonal import SearchConfig, search
+
+    lf_bytes = PROFILE.read_bytes().replace(b"\r\n", b"\n")
+    files = {"lf": tmp_path / "workload_lf.csv", "crlf": tmp_path / "workload_crlf.csv"}
+    files["lf"].write_bytes(lf_bytes)
+    files["crlf"].write_bytes(lf_bytes.replace(b"\n", b"\r\n"))
+    recorded = {kind: hashlib.sha256(path.read_bytes()).hexdigest() for kind, path in files.items()}
+    assert recorded["lf"] != recorded["crlf"]
+    assert _sha256_forms(files["lf"]) == _sha256_forms(files["crlf"]) >= set(recorded.values())
+
+    cfg = SearchConfig(base="rule", workload_csv=str(PROFILE), hazard="v0", out_dir=str(tmp_path / "search"),
+                       generations=1, population=3, elite=1, episodes=1, val_days=0, val_seeds=2)
+    result_path = search(cfg, echo=False) / "search.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+
+    def run(recorded_hash: str, workload: Path) -> int:
+        result["trained_on_sha256"] = recorded_hash
+        result_path.write_text(json.dumps(result), encoding="utf-8")
+        return evaluate_main(["--search-result", str(result_path), "--workload-csv", str(workload), "--hazard", "v0",
+                              "--seeds", "1", "--out", str(tmp_path / "eval")])
+
+    for recorded_kind in ("lf", "crlf"):
+        for evaluated_kind in ("lf", "crlf"):
+            with pytest.raises(SystemExit):
+                run(recorded[recorded_kind], files[evaluated_kind])
+    assert run(hashlib.sha256(b"another workload").hexdigest(), PROFILE) == 0
+
+
+@pytest.mark.parametrize("field", ["trained_on_sha256", "fit_csv_sha256", "val_csv_sha256"])
+@pytest.mark.parametrize("recorded_form", ["lf", "crlf"])
+@pytest.mark.parametrize("evaluated_form", ["lf", "crlf"])
+def test_ppo_checkpoint_guard_refuses_every_recorded_workload_hash_in_any_line_ending(
+    tmp_path: Path, field: str, recorded_form: str, evaluated_form: str
+) -> None:
+    import hashlib
+
+    lf_bytes = PROFILE.read_bytes().replace(b"\r\n", b"\n")
+    forms = {"lf": lf_bytes, "crlf": lf_bytes.replace(b"\n", b"\r\n")}
+    workload = tmp_path / "workload.csv"
+    workload.write_bytes(forms[evaluated_form])
+    meta = {"trained_on_sha256": "0" * 64, "fit_csv_sha256": "1" * 64, "val_csv_sha256": "2" * 64,
+            "hazard": "v0", "hazard_error_sigma": 0.25}
+    meta[field] = hashlib.sha256(forms[recorded_form]).hexdigest()
+    checkpoint = tmp_path / "ckpt_best.pt"
+    torch.save({"meta": meta}, checkpoint)
+    args = ["--ppo-checkpoint", str(checkpoint), "--workload-csv", str(workload), "--hazard", "v0", "--seeds", "1",
+            "--out", str(tmp_path / "eval")]
+    with pytest.raises(SystemExit):
+        evaluate_main(args)
+    # With no recorded hash matching, the guard lets the checkpoint through to the later stages.
+    meta[field] = "3" * 64
+    torch.save({"meta": meta}, checkpoint)
+    try:
+        evaluate_main(args)
+    except SystemExit:
+        pytest.fail("the guard refused a checkpoint whose recorded hashes do not match the workload")
+    except Exception:
+        pass
+
+
 def test_cached_hazard_returns_identical_outputs() -> None:
     from agent.search_seasonal import CachedHazard
     from hazard.v0 import HeuristicHazardV0

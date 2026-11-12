@@ -102,6 +102,19 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _sha256_forms(path: Path) -> frozenset[str]:
+    """SHA-256 of a file's bytes as stored, with LF line endings, and with CRLF line endings.
+
+    A recorded hash is matched against all three, so the same text content
+    compares equal whichever line-ending convention the recorded file or the
+    checked-out file carries. Two files that differ in anything but line
+    endings share none of the three.
+    """
+    raw = path.read_bytes()
+    lf = raw.replace(b"\r\n", b"\n")
+    return frozenset(hashlib.sha256(variant).hexdigest() for variant in (raw, lf, lf.replace(b"\n", b"\r\n")))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point."""
     p = argparse.ArgumentParser(prog="python -m agent.evaluate_learned", description=__doc__.split("\n\n")[0])
@@ -121,11 +134,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     config = build_sim_config(args.hazard, args.eval_fleet, args.hazard_error_sigma)
     eval_sha = _sha256(args.workload_csv)
+    eval_forms = _sha256_forms(args.workload_csv)
     residuals: list[ResidualPolicy] = []
     ckpt_rows = []
     for path in args.checkpoint:
         meta = load_residual_checkpoint(path)["meta"]
-        if meta["trained_on_sha256"] == eval_sha and not args.no_strict_holdout:
+        if meta["trained_on_sha256"] in eval_forms and not args.no_strict_holdout:
             p.error(f"{path} was trained on the evaluation workload (sha256 {eval_sha[:12]}); see --no-strict-holdout")
         if meta["hazard"] != args.hazard:
             p.error(f"{path} was trained with hazard={meta['hazard']}, evaluation uses {args.hazard}")
@@ -150,7 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     searched = []
     for path in args.search_result:
         meta = json.loads(path.read_text(encoding="utf-8"))
-        if meta["trained_on_sha256"] == eval_sha and not args.no_strict_holdout:
+        if meta["trained_on_sha256"] in eval_forms and not args.no_strict_holdout:
             p.error(f"{path} was searched on the evaluation workload (sha256 {eval_sha[:12]}); see --no-strict-holdout")
         if meta["hazard"] != args.hazard:
             p.error(f"{path} was searched with hazard={meta['hazard']}, evaluation uses {args.hazard}")
@@ -177,8 +191,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ppo_policies = []
     for path in args.ppo_checkpoint:
         meta = torch.load(path, map_location="cpu", weights_only=True)["meta"]
-        if meta["trained_on_sha256"] == eval_sha and not args.no_strict_holdout:
+        if meta["trained_on_sha256"] in eval_forms and not args.no_strict_holdout:
             p.error(f"{path} was trained on the evaluation workload (sha256 {eval_sha[:12]}); see --no-strict-holdout")
+        for split in ("fit_csv_sha256", "val_csv_sha256"):
+            if meta[split] in eval_forms and not args.no_strict_holdout:
+                p.error(f"{path} used the evaluation workload as its {split[:3]} split (sha256 {eval_sha[:12]}); see --no-strict-holdout")
         if meta["hazard"] != args.hazard:
             p.error(f"{path} was trained with hazard={meta['hazard']}, evaluation uses {args.hazard}")
         if float(meta["hazard_error_sigma"]) != args.hazard_error_sigma:

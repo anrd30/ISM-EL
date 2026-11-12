@@ -129,6 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--hazard-error-sigma", type=float, default=0.25)
     p.add_argument("--diagnostics", action="store_true", help="add the hand-built seasonal-forecast rule")
     p.add_argument("--no-strict-holdout", action="store_true")
+    p.add_argument("--stochastic", action="store_true", help="sample from the policy instead of taking its mode")
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args(argv)
 
@@ -206,7 +207,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             label = f"forecast_bc_only seed{int(meta['seed'])}"
         else:
             label = f"forecast_ppo_{meta['init']} seed{int(meta['seed'])}"
-        policy = ForecastPPOPolicy.from_checkpoint(path, config, label)
+        policy = ForecastPPOPolicy.from_checkpoint(path, config, label, deterministic=not args.stochastic)
         ppo_policies.append(policy)
         ckpt_rows.append(
             {
@@ -249,7 +250,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"Simulator configuration `{config.label}`; latency model uncalibrated (sim/LIMITATIONS.md). "
         f"Workload `{args.workload_csv.as_posix()}` (sha256 `{eval_sha}`). "
         f"{len(seeds)} paired scenario seeds ({seeds[0]}..{seeds[-1]}), identical for every policy. "
-        "Learned policies act deterministically. Reward is the contract reward with contract coefficients.",
+        f"Learned policies act by {'sampling' if args.stochastic else 'their mode (argmax)'}. "
+        "Reward is the contract reward with contract coefficients.",
         "",
         "## Checkpoints",
         "",

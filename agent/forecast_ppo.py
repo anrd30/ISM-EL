@@ -215,18 +215,39 @@ class ForecastCritic(nn.Module):
 
 
 class ForecastPPOPolicy:
-    """Trained actor as a ``baselines.policies.Policy``; acts by the argmax of the logits."""
+    """Trained actor as a ``baselines.policies.Policy``.
+
+    Acts by the argmax of the logits when ``deterministic``; otherwise samples from the softmax of
+    the logits with a ``torch.Generator`` seeded by ``seed`` and re-seeded by ``reset``.
+    """
 
     deployable: bool = True
 
-    def __init__(self, actor: ForecastActor, config: SimConfig, name: str = "forecast_ppo") -> None:
+    def __init__(
+        self,
+        actor: ForecastActor,
+        config: SimConfig,
+        name: str = "forecast_ppo",
+        deterministic: bool = True,
+        seed: int = 0,
+    ) -> None:
+        self.deterministic: bool = deterministic
+        self._seed: int = int(seed)
+        self._generator: torch.Generator = torch.Generator().manual_seed(self._seed)
         self.actor: ForecastActor = actor.eval()
         self.config: SimConfig = config
         self.name: str = name
         self.features: ForecastFeatures = ForecastFeatures()
 
     @classmethod
-    def from_checkpoint(cls, path: str | os.PathLike[str], config: SimConfig, name: str) -> "ForecastPPOPolicy":
+    def from_checkpoint(
+        cls,
+        path: str | os.PathLike[str],
+        config: SimConfig,
+        name: str,
+        deterministic: bool = True,
+        seed: int = 0,
+    ) -> "ForecastPPOPolicy":
         """Build from a checkpoint written by :func:`train`.
 
         Raises:
@@ -237,15 +258,20 @@ class ForecastPPOPolicy:
             raise ValueError(f"checkpoint feature_version={ckpt['meta']['feature_version']}, code {FEATURE_VERSION}")
         actor = ForecastActor()
         actor.load_state_dict(ckpt["actor"])
-        return cls(actor, config, name=name)
+        return cls(actor, config, name=name, deterministic=deterministic, seed=seed)
 
     def reset(self) -> None:
         self.features.reset()
+        self._generator.manual_seed(self._seed)
 
     @torch.no_grad()
     def __call__(self, obs: np.ndarray) -> int:
         x, _ = self.features.update(obs)
-        return int(self.actor(torch.as_tensor(x).unsqueeze(0)).argmax(dim=-1).item())
+        logits = self.actor(torch.as_tensor(x).unsqueeze(0))
+        if self.deterministic:
+            return int(logits.argmax(dim=-1).item())
+        probs = torch.softmax(logits, dim=-1)
+        return int(torch.multinomial(probs, 1, generator=self._generator).item())
 
 
 @dataclass(frozen=True)

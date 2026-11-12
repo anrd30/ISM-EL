@@ -13,6 +13,7 @@ import torch
 
 from agent.evaluate_learned import main as evaluate_main
 from agent.evaluate_learned import strata_table
+from agent.forecast_ppo import ForecastActor, ForecastPPOPolicy
 from agent.seasonal_rule import SeasonalForecastRule
 from agent.residual_features import (
     DAY_STEPS,
@@ -419,3 +420,50 @@ def test_forecast_ppo_trains_and_evaluates(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         evaluate_main(["--ppo-checkpoint", str(outs["bc"] / "ckpt_best.pt"), "--workload-csv", str(PROFILE),
                        "--hazard", "v0", "--seeds", "1", "--out", str(tmp_path / "e3")])
+
+
+def _forecast_actor() -> "ForecastActor":
+    torch.manual_seed(0)
+    return ForecastActor()  # head gain 0.01: near-uniform logits, so sampling visits several actions
+
+
+def _forecast_obs() -> np.ndarray:
+    return np.full(OBS_DIM, 0.5, dtype=np.float32)
+
+
+def test_forecast_policy_defaults_to_deterministic_argmax() -> None:
+    actor = _forecast_actor()
+    policy = ForecastPPOPolicy(actor, v0_config())
+    assert policy.deterministic is True
+    reference = ForecastPPOPolicy(actor, v0_config())
+    obs = _forecast_obs()
+    for _ in range(10):
+        x, _floor = reference.features.update(obs)
+        expected = int(actor(torch.as_tensor(x).unsqueeze(0)).argmax(dim=-1).item())
+        assert policy(obs) == expected
+    # the seed does not affect deterministic acting
+    other = ForecastPPOPolicy(actor, v0_config(), seed=123)
+    policy.reset()
+    assert [policy(obs) for _ in range(10)] == [other(obs) for _ in range(10)]
+
+
+def test_forecast_policy_stochastic_is_reproducible_across_instances() -> None:
+    actor = _forecast_actor()
+    obs = _forecast_obs()
+    a = ForecastPPOPolicy(actor, v0_config(), deterministic=False, seed=9)
+    b = ForecastPPOPolicy(actor, v0_config(), deterministic=False, seed=9)
+    run_a = [a(obs) for _ in range(60)]
+    run_b = [b(obs) for _ in range(60)]
+    assert run_a == run_b
+    assert len(set(run_a)) > 1 and all(0 <= x < N_ACTIONS for x in run_a)
+    c = ForecastPPOPolicy(actor, v0_config(), deterministic=False, seed=10)
+    assert [c(obs) for _ in range(60)] != run_a
+
+
+def test_forecast_policy_reset_restores_the_seeded_sequence() -> None:
+    policy = ForecastPPOPolicy(_forecast_actor(), v0_config(), deterministic=False, seed=4)
+    obs = _forecast_obs()
+    run = [policy(obs) for _ in range(60)]
+    policy.reset()
+    assert [policy(obs) for _ in range(60)] == run
+

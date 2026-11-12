@@ -1,0 +1,261 @@
+policy,seed,steps,exogenous_fraction,policy_violation_fraction,marginal_fraction
+fixed_20,0,2000,0.0,0.0,0.0
+fixed_20,1,2000,0.0,0.0,0.0
+fixed_20,2,2000,0.0,0.0,0.0
+fixed_20,3,1784,0.0,0.0,0.0
+fixed_20,4,1846,0.0,0.0,0.0
+fixed_20,5,2000,0.0,0.0,0.0
+fixed_20,6,2000,0.0,0.0,0.0
+fixed_20,7,888,0.0,0.0641891891891891,0.0641891891891891
+fixed_20,8,2000,0.0,0.0,0.0
+fixed_20,9,1600,0.0,0.0,0.0
+fixed_20,10,2000,0.0,0.0,0.0
+fixed_20,11,463,0.0,0.4211663066954643,0.4211663066954643
+fixed_20,12,2000,0.0,0.0,0.0
+fixed_20,13,2000,0.0,0.0,0.0
+fixed_20,14,1751,0.0,0.0,0.0
+fixed_20,15,2000,0.0,0.0,0.0
+fixed_20,16,2000,0.0,0.0,0.0
+fixed_20,17,1442,0.0,0.0,0.0
+fixed_20,18,508,0.0,0.3858267716535433,0.3858267716535433
+fixed_20,19,2000,0.0,0.0,0.0
+fixed_50,0,800,0.0,0.0,0.0
+fixed_50,1,800,0.0,0.0,0.0
+fixed_50,2,800,0.0,0.0,0.0
+fixed_50,3,800,0.0,0.0,0.0
+fixed_50,4,800,0.0,0.0,0.0
+fixed_50,5,800,0.0,0.0,0.0
+fixed_50,6,800,0.0,0.0,0.0
+fixed_50,7,635,0.0,0.089763779527559,0.089763779527559
+fixed_50,8,800,0.0,0.0,0.0
+fixed_50,9,800,0.0,0.0,0.0
+fixed_50,10,800,0.0,0.0,0.0
+fixed_50,11,410,0.0,0.4756097560975609,0.4756097560975609
+fixed_50,12,800,0.0,0.0,0.0
+fixed_50,13,800,0.0,0.0,0.0
+fixed_50,14,800,0.0,0.0,0.0
+fixed_50,15,800,0.0,0.0,0.0
+fixed_50,16,800,0.0,0.0,0.0
+fixed_50,17,800,0.0,0.0,0.0
+fixed_50,18,435,0.0,0.4505747126436781,0.4505747126436781
+fixed_50,19,800,0.0,0.0,0.0
+fixed_80,0,500,0.0,0.032,0.032
+fixed_80,1,500,0.0,0.036,0.036
+fixed_80,2,501,0.0,0.0399201596806387,0.0399201596806387
+fixed_80,3,500,0.0,0.032,0.032
+fixed_80,4,501,0.0,0.0359281437125748,0.0359281437125748
+fixed_80,5,501,0.0,0.0339321357285429,0.0339321357285429
+fixed_80,6,500,0.0,0.038,0.038
+fixed_80,7,477,0.0,0.1362683438155136,0.1362683438155136
+fixed_80,8,500,0.0,0.032,0.032
+fixed_80,9,500,0.0,0.034,0.034
+fixed_80,10,501,0.0,0.0339321357285429,0.0339321357285429
+fixed_80,11,377,0.0,0.5172413793103449,0.5172413793103449
+fixed_80,12,501,0.0,0.029940119760479,0.029940119760479
+fixed_80,13,500,0.0,0.04,0.04
+fixed_80,14,501,0.0,0.0319361277445109,0.0319361277445109
+fixed_80,15,500,0.0,0.028,0.028
+fixed_80,16,500,0.0,0.032,0.032
+fixed_80,17,500,0.0,0.028,0.028
+fixed_80,18,388,0.0,0.5154639175257731,0.5154639175257731
+fixed_80,19,501,0.0,0.0319361277445109,0.0319361277445109
+fixed_120,0,352,0.0,0.6221590909090909,0.6221590909090909
+fixed_120,1,354,0.0,0.7429378531073446,0.7429378531073446
+fixed_120,2,355,0.0,0.7436619718309859,0.7436619718309859
+fixed_120,3,348,0.0,0.6436781609195402,0.6436781609195402
+fixed_120,4,354,0.0,0.6666666666666666,0.6666666666666666
+fixed_120,5,354,0.0,0.7429378531073446,0.7429378531073446
+fixed_120,6,348,0.0,0.6350574712643678,0.6350574712643678
+fixed_120,7,354,0.0,0.7146892655367232,0.7146892655367232
+fixed_120,8,351,0.0,0.5811965811965812,0.5811965811965812
+fixed_120,9,348,0.0,0.603448275862069,0.603448275862069
+fixed_120,10,352,0.0,0.6619318181818182,0.6619318181818182
+fixed_120,11,347,0.0,0.5619596541786743,0.5619596541786743
+fixed_120,12,353,0.0,0.7422096317280453,0.7422096317280453
+fixed_120,13,353,0.0,0.7422096317280453,0.7422096317280453
+fixed_120,14,355,0.0,0.7436619718309859,0.7436619718309859
+fixed_120,15,347,0.0,0.5677233429394812,0.5677233429394812
+fixed_120,16,351,0.0,0.7293447293447294,0.7293447293447294
+fixed_120,17,347,0.0,0.5821325648414986,0.5821325648414986
+fixed_120,18,350,0.0,0.6828571428571428,0.6828571428571428
+fixed_120,19,353,0.0,0.7422096317280453,0.7422096317280453
+workload_only_throttle,0,535,0.0,0.0,0.0
+workload_only_throttle,1,520,0.0,0.0,0.0
+workload_only_throttle,2,536,0.0,0.001865671641791,0.001865671641791
+workload_only_throttle,3,556,0.0,0.0,0.0
+workload_only_throttle,4,544,0.0,0.0018382352941176,0.0018382352941176
+workload_only_throttle,5,530,0.0,0.0,0.0
+workload_only_throttle,6,561,0.0,0.0,0.0
+workload_only_throttle,7,501,0.0,0.1137724550898203,0.1137724550898203
+workload_only_throttle,8,562,0.0,0.0,0.0
+workload_only_throttle,9,561,0.0,0.0,0.0
+workload_only_throttle,10,540,0.0,0.0018518518518518,0.0018518518518518
+workload_only_throttle,11,352,0.0,0.5539772727272727,0.5539772727272727
+workload_only_throttle,12,513,0.0,0.0,0.0
+workload_only_throttle,13,544,0.0,0.0,0.0
+workload_only_throttle,14,529,0.0,0.0018903591682419,0.0018903591682419
+workload_only_throttle,15,555,0.0,0.0,0.0
+workload_only_throttle,16,544,0.0,0.0,0.0
+workload_only_throttle,17,532,0.0,0.0,0.0
+workload_only_throttle,18,399,0.0,0.4912280701754385,0.4912280701754385
+workload_only_throttle,19,512,0.0,0.001953125,0.001953125
+risk_aware_rule_based,0,535,0.0,0.0,0.0
+risk_aware_rule_based,1,520,0.0,0.0,0.0
+risk_aware_rule_based,2,536,0.0,0.001865671641791,0.001865671641791
+risk_aware_rule_based,3,556,0.0,0.0,0.0
+risk_aware_rule_based,4,544,0.0,0.0018382352941176,0.0018382352941176
+risk_aware_rule_based,5,530,0.0,0.0,0.0
+risk_aware_rule_based,6,561,0.0,0.0,0.0
+risk_aware_rule_based,7,501,0.0,0.1137724550898203,0.1137724550898203
+risk_aware_rule_based,8,562,0.0,0.0,0.0
+risk_aware_rule_based,9,561,0.0,0.0,0.0
+risk_aware_rule_based,10,540,0.0,0.0018518518518518,0.0018518518518518
+risk_aware_rule_based,11,352,0.0,0.5539772727272727,0.5539772727272727
+risk_aware_rule_based,12,513,0.0,0.0,0.0
+risk_aware_rule_based,13,544,0.0,0.0,0.0
+risk_aware_rule_based,14,529,0.0,0.0018903591682419,0.0018903591682419
+risk_aware_rule_based,15,555,0.0,0.0,0.0
+risk_aware_rule_based,16,544,0.0,0.0,0.0
+risk_aware_rule_based,17,532,0.0,0.0,0.0
+risk_aware_rule_based,18,399,0.0,0.4912280701754385,0.4912280701754385
+risk_aware_rule_based,19,512,0.0,0.001953125,0.001953125
+ORACLE_lookahead (not deployable),0,428,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),1,458,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),2,461,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),3,457,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),4,430,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),5,463,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),6,457,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),7,441,0.0,0.1292517006802721,0.1292517006802721
+ORACLE_lookahead (not deployable),8,448,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),9,452,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),10,427,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),11,348,0.0,0.5603448275862069,0.5603448275862069
+ORACLE_lookahead (not deployable),12,443,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),13,477,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),14,444,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),15,439,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),16,474,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),17,424,0.0,0.0,0.0
+ORACLE_lookahead (not deployable),18,372,0.0,0.5268817204301075,0.5268817204301075
+ORACLE_lookahead (not deployable),19,455,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),0,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),1,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),2,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),3,1784,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),4,1846,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),5,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),6,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),7,888,0.0,0.0641891891891891,0.0641891891891891
+slowest_risk_feasible (literal spec),8,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),9,1600,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),10,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),11,463,0.0,0.4211663066954643,0.4211663066954643
+slowest_risk_feasible (literal spec),12,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),13,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),14,1751,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),15,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),16,2000,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),17,1442,0.0,0.0,0.0
+slowest_risk_feasible (literal spec),18,508,0.0,0.3858267716535433,0.3858267716535433
+slowest_risk_feasible (literal spec),19,2000,0.0,0.0,0.0
+risk_aware_ceiling_persistence (literal spec),0,415,0.0,0.0602409638554216,0.0602409638554216
+risk_aware_ceiling_persistence (literal spec),1,448,0.0,0.0513392857142857,0.0513392857142857
+risk_aware_ceiling_persistence (literal spec),2,450,0.0,0.0577777777777777,0.0577777777777777
+risk_aware_ceiling_persistence (literal spec),3,442,0.0,0.0497737556561085,0.0497737556561085
+risk_aware_ceiling_persistence (literal spec),4,418,0.0,0.055023923444976,0.055023923444976
+risk_aware_ceiling_persistence (literal spec),5,453,0.0,0.0507726269315673,0.0507726269315673
+risk_aware_ceiling_persistence (literal spec),6,442,0.0,0.0520361990950226,0.0520361990950226
+risk_aware_ceiling_persistence (literal spec),7,433,0.0,0.1570438799076212,0.1570438799076212
+risk_aware_ceiling_persistence (literal spec),8,433,0.0,0.0600461893764434,0.0600461893764434
+risk_aware_ceiling_persistence (literal spec),9,436,0.0,0.0504587155963302,0.0504587155963302
+risk_aware_ceiling_persistence (literal spec),10,417,0.0,0.0551558752997601,0.0551558752997601
+risk_aware_ceiling_persistence (literal spec),11,347,0.0,0.5619596541786743,0.5619596541786743
+risk_aware_ceiling_persistence (literal spec),12,435,0.0,0.0482758620689655,0.0482758620689655
+risk_aware_ceiling_persistence (literal spec),13,463,0.0,0.0475161987041036,0.0475161987041036
+risk_aware_ceiling_persistence (literal spec),14,435,0.0,0.0505747126436781,0.0505747126436781
+risk_aware_ceiling_persistence (literal spec),15,425,0.0,0.0447058823529411,0.0447058823529411
+risk_aware_ceiling_persistence (literal spec),16,458,0.0,0.0480349344978165,0.0480349344978165
+risk_aware_ceiling_persistence (literal spec),17,411,0.0,0.0462287104622871,0.0462287104622871
+risk_aware_ceiling_persistence (literal spec),18,368,0.0,0.5489130434782609,0.5489130434782609
+risk_aware_ceiling_persistence (literal spec),19,446,0.0,0.0493273542600896,0.0493273542600896
+risk_aware_rule_based k=1,0,535,0.0,0.0,0.0
+risk_aware_rule_based k=1,1,520,0.0,0.0,0.0
+risk_aware_rule_based k=1,2,536,0.0,0.001865671641791,0.001865671641791
+risk_aware_rule_based k=1,3,556,0.0,0.0,0.0
+risk_aware_rule_based k=1,4,525,0.0,0.0114285714285714,0.0114285714285714
+risk_aware_rule_based k=1,5,530,0.0,0.0,0.0
+risk_aware_rule_based k=1,6,561,0.0,0.0,0.0
+risk_aware_rule_based k=1,7,440,0.0,0.3931818181818182,0.3931818181818182
+risk_aware_rule_based k=1,8,562,0.0,0.0,0.0
+risk_aware_rule_based k=1,9,561,0.0,0.0,0.0
+risk_aware_rule_based k=1,10,540,0.0,0.0018518518518518,0.0018518518518518
+risk_aware_rule_based k=1,11,352,0.0,0.5539772727272727,0.5539772727272727
+risk_aware_rule_based k=1,12,513,0.0,0.0,0.0
+risk_aware_rule_based k=1,13,544,0.0,0.0,0.0
+risk_aware_rule_based k=1,14,529,0.0,0.0018903591682419,0.0018903591682419
+risk_aware_rule_based k=1,15,555,0.0,0.0,0.0
+risk_aware_rule_based k=1,16,544,0.0,0.0,0.0
+risk_aware_rule_based k=1,17,529,0.0,0.0018903591682419,0.0018903591682419
+risk_aware_rule_based k=1,18,399,0.0,0.4912280701754385,0.4912280701754385
+risk_aware_rule_based k=1,19,512,0.0,0.001953125,0.001953125
+ppo_lagrangian seed0,0,856,0.0,0.0,0.0
+ppo_lagrangian seed0,1,857,0.0,0.0,0.0
+ppo_lagrangian seed0,2,878,0.0,0.0,0.0
+ppo_lagrangian seed0,3,800,0.0,0.0,0.0
+ppo_lagrangian seed0,4,800,0.0,0.0,0.0
+ppo_lagrangian seed0,5,853,0.0,0.0,0.0
+ppo_lagrangian seed0,6,805,0.0,0.0,0.0
+ppo_lagrangian seed0,7,635,0.0,0.089763779527559,0.089763779527559
+ppo_lagrangian seed0,8,800,0.0,0.0,0.0
+ppo_lagrangian seed0,9,800,0.0,0.0,0.0
+ppo_lagrangian seed0,10,809,0.0,0.0,0.0
+ppo_lagrangian seed0,11,410,0.0,0.4756097560975609,0.4756097560975609
+ppo_lagrangian seed0,12,847,0.0,0.0,0.0
+ppo_lagrangian seed0,13,815,0.0,0.0,0.0
+ppo_lagrangian seed0,14,800,0.0,0.0,0.0
+ppo_lagrangian seed0,15,812,0.0,0.0,0.0
+ppo_lagrangian seed0,16,842,0.0,0.0,0.0
+ppo_lagrangian seed0,17,800,0.0,0.0,0.0
+ppo_lagrangian seed0,18,435,0.0,0.4505747126436781,0.4505747126436781
+ppo_lagrangian seed0,19,842,0.0,0.0,0.0
+ppo_lagrangian seed1,0,794,0.0,0.0,0.0
+ppo_lagrangian seed1,1,785,0.0,0.0,0.0
+ppo_lagrangian seed1,2,781,0.0,0.0,0.0
+ppo_lagrangian seed1,3,790,0.0,0.0,0.0
+ppo_lagrangian seed1,4,788,0.0,0.0,0.0
+ppo_lagrangian seed1,5,788,0.0,0.0,0.0
+ppo_lagrangian seed1,6,792,0.0,0.0,0.0
+ppo_lagrangian seed1,7,621,0.0,0.0917874396135265,0.0917874396135265
+ppo_lagrangian seed1,8,794,0.0,0.0,0.0
+ppo_lagrangian seed1,9,787,0.0,0.0,0.0
+ppo_lagrangian seed1,10,793,0.0,0.0,0.0
+ppo_lagrangian seed1,11,407,0.0,0.4791154791154791,0.4791154791154791
+ppo_lagrangian seed1,12,787,0.0,0.0,0.0
+ppo_lagrangian seed1,13,789,0.0,0.0,0.0
+ppo_lagrangian seed1,14,781,0.0,0.0,0.0
+ppo_lagrangian seed1,15,792,0.0,0.0,0.0
+ppo_lagrangian seed1,16,790,0.0,0.0,0.0
+ppo_lagrangian seed1,17,785,0.0,0.0,0.0
+ppo_lagrangian seed1,18,435,0.0,0.4505747126436781,0.4505747126436781
+ppo_lagrangian seed1,19,786,0.0,0.0,0.0
+ppo_lagrangian seed2,0,1084,0.0,0.0,0.0
+ppo_lagrangian seed2,1,1079,0.0,0.0,0.0
+ppo_lagrangian seed2,2,1070,0.0,0.0,0.0
+ppo_lagrangian seed2,3,1003,0.0,0.0,0.0
+ppo_lagrangian seed2,4,976,0.0,0.0,0.0
+ppo_lagrangian seed2,5,1078,0.0,0.0,0.0
+ppo_lagrangian seed2,6,1106,0.0,0.0,0.0
+ppo_lagrangian seed2,7,650,0.0,0.0876923076923077,0.0876923076923077
+ppo_lagrangian seed2,8,1079,0.0,0.0,0.0
+ppo_lagrangian seed2,9,974,0.0,0.0,0.0
+ppo_lagrangian seed2,10,1064,0.0,0.0,0.0
+ppo_lagrangian seed2,11,412,0.0,0.4733009708737864,0.4733009708737864
+ppo_lagrangian seed2,12,1058,0.0,0.0,0.0
+ppo_lagrangian seed2,13,1090,0.0,0.0,0.0
+ppo_lagrangian seed2,14,1009,0.0,0.0,0.0
+ppo_lagrangian seed2,15,1108,0.0,0.0,0.0
+ppo_lagrangian seed2,16,1097,0.0,0.0,0.0
+ppo_lagrangian seed2,17,927,0.0,0.0,0.0
+ppo_lagrangian seed2,18,440,0.0,0.4454545454545454,0.4454545454545454
+ppo_lagrangian seed2,19,1066,0.0,0.0,0.0

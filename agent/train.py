@@ -144,6 +144,9 @@ class TrainConfig:
             interval's foreground load (``SimConfig.latency_filter_causal``).
         fleet_degradation: Pinned fleet degradation level, or ``None`` to sample.
         ablate_hazard: Mask observation fields 5 and 6.
+        marginal_violation_cost: Feed ``max(0, violation - violation_if_min_action)`` per step
+            to the latency cost and multiplier (``PPOAgent.marginal_violation_cost``); writes
+            ``l3_stats.csv`` next to ``log.csv``.
         out_dir: Directory for ``log.csv`` and checkpoints.
         checkpoint_every: Write ``ckpt_latest.pt`` every this many iterations.
         reward: Reward coefficients passed to the simulator. Evaluation uses
@@ -163,6 +166,7 @@ class TrainConfig:
     latency_filter_causal: bool = False
     fleet_degradation: float | None = None
     ablate_hazard: bool = False
+    marginal_violation_cost: bool = False
     out_dir: str = "runs/ppo"
     checkpoint_every: int = 10
     reward: RewardConfig = field(default_factory=RewardConfig)
@@ -223,8 +227,19 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
     if cfg.latency_filter_causal:
         fields["latency_filter_causal"] = True
     sim_cfg = v1_eval_config(**fields) if cfg.eval_fleet else SimConfig(**fields)  # type: ignore[arg-type]
-    agent = PPOAgent(cfg.ppo, seed=cfg.seed)
+    agent = PPOAgent(cfg.ppo, seed=cfg.seed, marginal_violation_cost=cfg.marginal_violation_cost)
     collector = RolloutCollector(sim_cfg, seed=cfg.seed, ablate_hazard=cfg.ablate_hazard)
+    if cfg.marginal_violation_cost:
+        from agent.min_action_counterfactual import MinActionCounterfactual
+
+        counterfactual = MinActionCounterfactual(collector.env, sim_cfg)
+        collector.env = counterfactual  # type: ignore[assignment]
+        (out / "l3_stats.csv").write_text(
+            "iteration,n_steps,real_violations,min_action_violations,marginal_cost_steps,floor_above_min_steps"
+            + chr(10),
+            encoding="utf-8",
+            newline=chr(10),
+        )
 
     env_steps = 0
     started = time.monotonic()
@@ -239,6 +254,17 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
             agent.action_prob_floor = agent.floor_at(iteration)
             batch = collector.collect(agent, cfg.rollout_steps)
             env_steps += len(batch)
+            if cfg.marginal_violation_cost:
+                records = counterfactual.drain()
+                agent.set_min_action_violated(records["min_action_violated"])
+                with open(out / "l3_stats.csv", "a", encoding="utf-8", newline=chr(10)) as l3_handle:
+                    l3_handle.write(
+                        f"{iteration},{len(batch)},{int(records['real_violated'].sum())},"
+                        f"{int(records['min_action_violated'].sum())},"
+                        f"{int((records['real_violated'] & ~records['min_action_violated']).sum())},"
+                        f"{int((records['floor_index'] > 0).sum())}"
+                        + chr(10)
+                    )
             stats = agent.update(batch, progress=(iteration - 1) / max(1, cfg.iterations - 1))
             constraint = agent.update_multipliers(batch.episodes, batch)
             counts = batch.termination_counts()
@@ -348,6 +374,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--fleet-degradation", type=float, default=None)
     p.add_argument("--ablate-hazard", action="store_true", help="mask observation fields 5 and 6")
+    p.add_argument(
+        "--marginal-violation-cost",
+        action="store_true",
+        help="latency cost = max(0, violation - violation the smallest action would have produced)",
+    )
     p.add_argument("--out", default="runs/ppo")
     p.add_argument("--checkpoint-every", type=int, default=10)
     p.add_argument("--gamma", type=float, default=PPOConfig.gamma)
@@ -439,6 +470,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             latency_filter_causal=args.latency_filter_causal,
             fleet_degradation=args.fleet_degradation,
             ablate_hazard=args.ablate_hazard,
+            marginal_violation_cost=args.marginal_violation_cost,
             out_dir=os.path.join(args.out, f"seed{seed}"),
             checkpoint_every=args.checkpoint_every,
             reward=reward,

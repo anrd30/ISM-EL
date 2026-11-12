@@ -61,7 +61,7 @@ oracle headroom is +11.9.
 | `forecast_ppo_bc` seed 0 | +6.24 | 1.42 | 19 / 20 |
 | `forecast_ppo_bc` seed 1 | +6.32 | 1.42 | 19 / 20 |
 | `forecast_ppo_bc` seed 2 | +6.71 | 1.26 | 20 / 20 |
-| pooled, 60 pairs | **+6.43** | **0.78** | 58 / 60 |
+| pooled, 60 pairs | **+6.43** | **1.35**[^corr] | 58 / 60 |
 | `forecast_bc_only` (same networks before PPO) | -2.83 to +4.44 | 1.8 to 2.6 | 11 to 18 / 20 |
 | `forecast_ppo_scratch`, 3 seeds | -18.1 to -20.4 | 1.5 to 2.4 | 0 / 20 |
 | hand-built `SeasonalForecastRule` | +3.68 | 0.28 | 20 / 20 |
@@ -82,3 +82,15 @@ oracle headroom is +11.9.
 ## Hash note
 
 The recorded hash of `profile_diurnal_long_holdout.csv` (`workload_sha256`) and, where noted, of the training file (`trained_on_sha256`) in `episodes.csv` now carry the LF hashes (`94fe6bd6f8a5...` holdout, `65680adfc9c5...` train). Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged. The `fit_csv_sha256` and `val_csv_sha256` fields of the search results are hashes of the split pieces written during that run and were not changed.
+
+## Statistical correction (2026-11-12)
+
+The pooled-row sem in the table above was **1.35**, not the 0.78 it originally
+read. The three seeds are evaluated on the same 20 scenarios, so the 60
+pairs are not 60 independent samples: mean within-scenario, across-seed sd
+is 0.48, against a between-scenario sd of 6.03 -- near-replicates, not
+independent draws. Averaging the three seeds within each scenario first,
+then taking the sem across the resulting 20 scenario-level means, gives sem
+1.35 (t = 4.77). The mean is unchanged at +6.43; only the uncertainty
+estimate was wrong. Verified independently from
+`agent/evidence/forecast-ppo-2026-11-11/episodes.csv`.

@@ -296,13 +296,16 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-12, on `main`: a full `python -m pytest -q` run passed 1,817
+As of 2026-11-12, on `main`: a full `python -m pytest -q` run passed 1,836
 tests with 16 skips. `hazard/artifacts/v1/` (25 boosters + `calibrators.npz`),
 `sim/fleet_features_v1.json`, and all `data_pipeline` generated outputs are
 present locally, and the skip count did not change with them present, so
-these are not simply missing-artifact skips; at least 5 are
-`baselines/test_baselines.py` tests gated by `--runslow`
-(`baselines/conftest.py`), the remainder not re-verified one by one. The
+these are not simply missing-artifact skips. All 16 are accounted for: 9 are
+`baselines/test_baselines.py` tests gated by `--runslow`/`BASELINES_RUN_SLOW`
+(`baselines/conftest.py`; 5 marked functions, one parametrized into 5 cases),
+and 7 are `contracts/test_adapter_conformance.py::TestExternalEnvironment`,
+gated by the unset `ISM_ENV_FACTORY` environment variable
+(`contracts/test_adapter_conformance.py:41`). The
 acceptance checker reports `RESULT: PASS` in
 `--committed-only` mode on a clean clone, and in full mode once the
 Backblaze/Tencent outputs have been regenerated locally (they are gitignored,

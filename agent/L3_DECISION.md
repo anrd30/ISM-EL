@@ -168,6 +168,18 @@ non-significant moves on the other two) is also better read as a variance
 observation than an established effect, per the same caution raised
 alongside it: three seeds is thin evidence for a variance claim.
 
+The oracle-ceiling figure used to interpret the flat reward is now
+cross-verified independently in two places rather than asserted by one
+lane: `agent/evidence/forecast-ppo-2026-11-11/episodes.csv` gives
+`ORACLE_lookahead` beating `risk_aware_rule_based` by 11.850 +/- 1.496 on
+20/20 scenarios against a rule-based mean of -330.196, i.e. 3.59% on the
+holdout half; `baselines/evidence/diurnal-long-sigma0.25/summary.md` gives
+-278.1 vs. -293.3 on the full long profile, i.e. 5.19%. Both numbers come
+from committed evidence already in this repo, independent of this L3 run.
+The two windows differ (holdout is the harder one), and both represent a
+narrow reward ceiling for any controller change, L3 included, to work
+inside of.
+
 ## Caveat
 
 Only one gamma value (2.0) was tested with L3, matching the clean

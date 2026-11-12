@@ -138,6 +138,10 @@ class TrainConfig:
             (``v1_eval_config``) instead of the train-split table. A run whose
             fleets come from drives the hazard model was fitted on is
             contaminated on the fleet side independently of the workload.
+        latency_filter: Apply the latency ceiling of ``sim.latency_filter`` in
+            the training environment (``SimConfig.latency_filter``).
+        latency_filter_causal: The same ceiling computed from the previous
+            interval's foreground load (``SimConfig.latency_filter_causal``).
         fleet_degradation: Pinned fleet degradation level, or ``None`` to sample.
         ablate_hazard: Mask observation fields 5 and 6.
         out_dir: Directory for ``log.csv`` and checkpoints.
@@ -155,6 +159,8 @@ class TrainConfig:
     workload_csv: str | None = None
     hazard_error_sigma: float = 0.0
     eval_fleet: bool = False
+    latency_filter: bool = False
+    latency_filter_causal: bool = False
     fleet_degradation: float | None = None
     ablate_hazard: bool = False
     out_dir: str = "runs/ppo"
@@ -177,6 +183,8 @@ def _checkpoint_payload(agent: PPOAgent, cfg: TrainConfig, iteration: int) -> di
             "workload_csv": cfg.workload_csv if cfg.workload_csv is not None else "",
             "hazard_error_sigma": cfg.hazard_error_sigma,
             "eval_fleet": cfg.eval_fleet,
+            "latency_filter": cfg.latency_filter,
+            "latency_filter_causal": cfg.latency_filter_causal,
             "fleet_degradation": cfg.fleet_degradation if cfg.fleet_degradation is not None else -1.0,
             "ablate_hazard": cfg.ablate_hazard,
             "reward": dataclasses.asdict(cfg.reward),
@@ -203,9 +211,17 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
         "fleet_degradation": cfg.fleet_degradation,
         "reward": cfg.reward,
     }
-    if cfg.eval_fleet or cfg.hazard_error_sigma != 0.0:
+    if cfg.eval_fleet or cfg.hazard_error_sigma != 0.0 or cfg.latency_filter or cfg.latency_filter_causal:
         fleet = "eval-fleet" if cfg.eval_fleet else "train-fleet"
-        fields["label"] = f"{fleet},sigma={cfg.hazard_error_sigma:g}"
+        fields["label"] = (
+            f"{fleet},sigma={cfg.hazard_error_sigma:g}"
+            + (",latency-filter" if cfg.latency_filter else "")
+            + (",latency-filter-causal" if cfg.latency_filter_causal else "")
+        )
+    if cfg.latency_filter:
+        fields["latency_filter"] = True
+    if cfg.latency_filter_causal:
+        fields["latency_filter_causal"] = True
     sim_cfg = v1_eval_config(**fields) if cfg.eval_fleet else SimConfig(**fields)  # type: ignore[arg-type]
     agent = PPOAgent(cfg.ppo, seed=cfg.seed)
     collector = RolloutCollector(sim_cfg, seed=cfg.seed, ablate_hazard=cfg.ablate_hazard)
@@ -315,6 +331,16 @@ def _parser() -> argparse.ArgumentParser:
         help="draw the fleet from the held-out-split feature table instead of the train-split table",
     )
     p.add_argument(
+        "--latency-filter",
+        action="store_true",
+        help="apply the latency ceiling (sim/latency_filter.py) after the safety filter in the training environment, from the interval's own load",
+    )
+    p.add_argument(
+        "--latency-filter-causal",
+        action="store_true",
+        help="apply the latency ceiling from the previous interval's load in the training environment; exclusive with --latency-filter",
+    )
+    p.add_argument(
         "--hazard-error-sigma",
         type=float,
         default=0.0,
@@ -377,7 +403,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point."""
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.latency_filter and args.latency_filter_causal:
+        parser.error("--latency-filter and --latency-filter-causal are mutually exclusive")
     ppo = dataclasses.replace(
         PPOConfig(),
         gamma=args.gamma,
@@ -406,6 +435,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             workload_csv=args.workload_csv,
             hazard_error_sigma=args.hazard_error_sigma,
             eval_fleet=args.eval_fleet,
+            latency_filter=args.latency_filter,
+            latency_filter_causal=args.latency_filter_causal,
             fleet_degradation=args.fleet_degradation,
             ablate_hazard=args.ablate_hazard,
             out_dir=os.path.join(args.out, f"seed{seed}"),

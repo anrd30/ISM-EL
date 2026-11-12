@@ -692,12 +692,23 @@ def _csv_workloads(parser: argparse.ArgumentParser, directory: Path | None, file
 def _build_config(args: argparse.Namespace) -> SimConfig:
     """Base config for the command line: train-split fleet, or the held-out-split fleet with ``--eval-fleet``.
 
-    The label is ``"<fleet>,sigma=<value>"``; it stays ``"default"`` when both flags are at their defaults.
+    The label is ``"<fleet>,sigma=<value>"``, with ``",latency-filter"`` appended under ``--latency-filter``;
+    it stays ``"default"`` when all flags are at their defaults.
     """
+    latency_filter = bool(getattr(args, "latency_filter", False))
+    latency_filter_causal = bool(getattr(args, "latency_filter_causal", False))
     fields: dict[str, Any] = {"hazard_error_sigma": args.hazard_error_sigma}
-    if args.eval_fleet or args.hazard_error_sigma != 0.0:
+    if args.eval_fleet or args.hazard_error_sigma != 0.0 or latency_filter or latency_filter_causal:
         fleet = "eval-fleet" if args.eval_fleet else "train-fleet"
-        fields["label"] = f"{fleet},sigma={args.hazard_error_sigma:g}"
+        fields["label"] = (
+            f"{fleet},sigma={args.hazard_error_sigma:g}"
+            + (",latency-filter" if latency_filter else "")
+            + (",latency-filter-causal" if latency_filter_causal else "")
+        )
+    if latency_filter:
+        fields["latency_filter"] = True
+    if latency_filter_causal:
+        fields["latency_filter_causal"] = True
     if args.eval_fleet:
         return v1_eval_config(**fields)
     return SimConfig(**fields)
@@ -742,7 +753,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="draw the simulated fleet from the held-out-split feature table instead of the train-split table",
     )
+    parser.add_argument(
+        "--latency-filter",
+        action="store_true",
+        help="apply the latency ceiling (sim/latency_filter.py) after the safety filter, from the interval's own load; off by default",
+    )
+    parser.add_argument(
+        "--latency-filter-causal",
+        action="store_true",
+        help="apply the latency ceiling from the previous interval's load; off by default; exclusive with --latency-filter",
+    )
     args = parser.parse_args(argv)
+    if args.latency_filter and args.latency_filter_causal:
+        parser.error("--latency-filter and --latency-filter-causal are mutually exclusive")
     if args.seeds < 1:
         parser.error("--seeds must be >= 1")
     if not (math.isfinite(args.hazard_error_sigma) and args.hazard_error_sigma >= 0.0):

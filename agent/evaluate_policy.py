@@ -69,7 +69,9 @@ __all__ = ["build_config", "evaluate_checkpoints", "main"]
 REFERENCE_POLICY = "risk_aware_rule_based"
 
 
-def build_config(*, eval_fleet: bool, hazard_error_sigma: float) -> SimConfig:
+def build_config(
+    *, eval_fleet: bool, hazard_error_sigma: float, latency_filter: bool = False, latency_filter_causal: bool = False
+) -> SimConfig:
     """Simulator configuration, labelled with the fleet split and sigma.
 
     Mirrors ``baselines.evaluate._build_config`` so that a run of this script
@@ -77,9 +79,17 @@ def build_config(*, eval_fleet: bool, hazard_error_sigma: float) -> SimConfig:
     and so comparable rows.
     """
     fields: dict[str, Any] = {"hazard_error_sigma": hazard_error_sigma}
-    if eval_fleet or hazard_error_sigma != 0.0:
+    if eval_fleet or hazard_error_sigma != 0.0 or latency_filter or latency_filter_causal:
         fleet = "eval-fleet" if eval_fleet else "train-fleet"
-        fields["label"] = f"{fleet},sigma={hazard_error_sigma:g}"
+        fields["label"] = (
+            f"{fleet},sigma={hazard_error_sigma:g}"
+            + (",latency-filter" if latency_filter else "")
+            + (",latency-filter-causal" if latency_filter_causal else "")
+        )
+    if latency_filter:
+        fields["latency_filter"] = True
+    if latency_filter_causal:
+        fields["latency_filter_causal"] = True
     return v1_eval_config(**fields) if eval_fleet else SimConfig(**fields)
 
 
@@ -210,6 +220,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="draw the simulated fleet from the held-out-split feature table instead of the train-split table",
     )
     parser.add_argument(
+        "--latency-filter",
+        action="store_true",
+        help="apply the latency ceiling (sim/latency_filter.py) after the safety filter, from the interval's own load; off by default",
+    )
+    parser.add_argument(
+        "--latency-filter-causal",
+        action="store_true",
+        help="apply the latency ceiling from the previous interval's load; off by default; exclusive with --latency-filter",
+    )
+    parser.add_argument(
         "--no-strict-holdout",
         dest="strict_holdout",
         action="store_false",
@@ -220,6 +240,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.seeds < 1:
         parser.error("--seeds must be >= 1")
+    if args.latency_filter and args.latency_filter_causal:
+        parser.error("--latency-filter and --latency-filter-causal are mutually exclusive")
     if not (math.isfinite(args.hazard_error_sigma) and args.hazard_error_sigma >= 0.0):
         parser.error(f"--hazard-error-sigma must be a finite number >= 0, got {args.hazard_error_sigma!r}")
     for path in args.checkpoint:
@@ -237,7 +259,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
 
-    config = build_config(eval_fleet=args.eval_fleet, hazard_error_sigma=args.hazard_error_sigma)
+    config = build_config(
+        eval_fleet=args.eval_fleet,
+        hazard_error_sigma=args.hazard_error_sigma,
+        latency_filter=args.latency_filter,
+        latency_filter_causal=args.latency_filter_causal,
+    )
     seeds = list(range(args.seed_start, args.seed_start + args.seeds))
 
     try:

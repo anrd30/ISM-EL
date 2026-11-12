@@ -1,0 +1,24 @@
+oracle home extremes  rule                   seed  9: steps 390 latency-clipped 0.000 reliability-overrode 0.459 ceiling-infeasible 0.000 violated 0.459
+oracle home extremes  rule                   seed 17: steps 397 latency-clipped 0.000 reliability-overrode 0.229 ceiling-infeasible 0.000 violated 0.229
+oracle home extremes  rule                   seed 19: steps 471 latency-clipped 0.000 reliability-overrode 0.187 ceiling-infeasible 0.000 violated 0.187
+oracle home extremes  forecast_ppo_bc seed0  seed  9: steps 374 latency-clipped 0.000 reliability-overrode 0.479 ceiling-infeasible 0.000 violated 0.479
+oracle home extremes  forecast_ppo_bc seed0  seed 17: steps 387 latency-clipped 0.000 reliability-overrode 0.235 ceiling-infeasible 0.000 violated 0.235
+oracle home extremes  forecast_ppo_bc seed0  seed 19: steps 451 latency-clipped 0.000 reliability-overrode 0.195 ceiling-infeasible 0.000 violated 0.195
+oracle peak           rule                   seed  0: steps 1657 latency-clipped 0.000 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.000
+oracle peak           rule                   seed  1: steps 1657 latency-clipped 0.000 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.000
+oracle peak           rule                   seed  2: steps 1496 latency-clipped 0.000 reliability-overrode 0.056 ceiling-infeasible 0.000 violated 0.056
+oracle peak           forecast_ppo_bc seed0  seed  0: steps 1415 latency-clipped 0.724 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.000
+oracle peak           forecast_ppo_bc seed0  seed  1: steps 1417 latency-clipped 0.725 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.000
+oracle peak           forecast_ppo_bc seed0  seed  2: steps 1292 latency-clipped 0.635 reliability-overrode 0.065 ceiling-infeasible 0.000 violated 0.065
+causal home extremes  rule                   seed  9: steps 390 latency-clipped 0.000 reliability-overrode 0.456 ceiling-infeasible 0.000 violated 0.459
+causal home extremes  rule                   seed 17: steps 397 latency-clipped 0.000 reliability-overrode 0.229 ceiling-infeasible 0.000 violated 0.229
+causal home extremes  rule                   seed 19: steps 471 latency-clipped 0.000 reliability-overrode 0.187 ceiling-infeasible 0.000 violated 0.187
+causal home extremes  forecast_ppo_bc seed0  seed  9: steps 378 latency-clipped 0.008 reliability-overrode 0.471 ceiling-infeasible 0.000 violated 0.474
+causal home extremes  forecast_ppo_bc seed0  seed 17: steps 390 latency-clipped 0.005 reliability-overrode 0.233 ceiling-infeasible 0.000 violated 0.233
+causal home extremes  forecast_ppo_bc seed0  seed 19: steps 455 latency-clipped 0.015 reliability-overrode 0.193 ceiling-infeasible 0.000 violated 0.193
+causal peak           rule                   seed  0: steps 1657 latency-clipped 0.000 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.000
+causal peak           rule                   seed  1: steps 1657 latency-clipped 0.000 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.000
+causal peak           rule                   seed  2: steps 1496 latency-clipped 0.000 reliability-overrode 0.056 ceiling-infeasible 0.000 violated 0.056
+causal peak           forecast_ppo_bc seed0  seed  0: steps 1415 latency-clipped 0.724 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.025
+causal peak           forecast_ppo_bc seed0  seed  1: steps 1417 latency-clipped 0.725 reliability-overrode 0.000 ceiling-infeasible 0.000 violated 0.024
+causal peak           forecast_ppo_bc seed0  seed  2: steps 1292 latency-clipped 0.635 reliability-overrode 0.065 ceiling-infeasible 0.000 violated 0.087

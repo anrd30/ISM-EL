@@ -221,6 +221,18 @@ class SimConfig:
             ``config_label`` so results can be traced to the configuration
             that produced them. ``"default"`` for the unmodified simulator;
             :func:`sim.stress.stress_config` sets a stress label.
+        latency_filter: Apply the latency ceiling of :mod:`sim.latency_filter`
+            after the safety filter: the applied allocation is clipped down
+            to the largest action whose utilisation stays at or below
+            :func:`violation_rho_threshold`, never below the reliability
+            floor. ``False`` (default) leaves the simulator unchanged. The
+            ceiling reads the foreground load of the interval about to run,
+            which a controller deciding at the start of the interval does
+            not have.
+        latency_filter_causal: The same ceiling computed from the previous
+            interval's foreground load, the value observation field ``fg_bw``
+            carries at decision time, so it uses no load from the interval
+            being decided. Mutually exclusive with ``latency_filter``.
     """
 
     # [ASSUMED] 2 ms unloaded latency; never checked against any device.
@@ -244,6 +256,8 @@ class SimConfig:
     hazard_model: HazardModel = field(default_factory=FittedHazardV1)
     feature_fn: FleetFeatureFn = field(default=v1_drive_features, kw_only=True)
     label: str = "default"
+    latency_filter: bool = field(default=False, kw_only=True)
+    latency_filter_causal: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if not (math.isfinite(self.latency_unloaded_ms) and self.latency_unloaded_ms > 0.0):
@@ -253,6 +267,8 @@ class SimConfig:
                 "latency_target_ms must be finite and strictly greater than latency_unloaded_ms "
                 f"(otherwise any load is a violation), got {self.latency_target_ms!r}"
             )
+        if self.latency_filter and self.latency_filter_causal:
+            raise ValueError("latency_filter and latency_filter_causal are mutually exclusive")
         if not 0.0 < self.rho_max < 1.0:
             raise ValueError(f"rho_max must be in (0, 1), got {self.rho_max!r}")
         if self.workload_profile is not None and self.workload_profile not in PROFILE_NAMES:

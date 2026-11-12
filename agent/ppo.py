@@ -14,9 +14,13 @@ evidence that a constraint held.
 
 The two constraints have different shapes and are handled separately:
 
-- Latency is a per-step rate averaged over an episode. Its per-step cost is
-  the indicator ``violated_latency``; the episode measurement is the mean of
-  that indicator.
+- Latency is a per-step rate. Its per-step cost is the indicator
+  ``violated_latency``; the multiplier measurement is the mean of that
+  indicator over every step of the batch (a step-pooled rate), not a mean of
+  per-episode fractions. Episodes differ in length and the fraction is
+  strongly negatively correlated with length (fast, high-allocation episodes
+  are short and violate more), so an unweighted mean over finished episodes
+  reads about 0.025 above the step-pooled rate at the same policy.
 - Reliability is an episode-level quantity: the largest exposure reached in
   the episode (the same statistic the evaluation harness reports as
   ``p_failure_max``). A maximum is not additive over steps, so the per-step
@@ -83,6 +87,7 @@ Nothing here has been trained to a result; the defaults are untuned.
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -151,6 +156,26 @@ class PPOConfig:
         risk_cost_cap: Cap on the per-step normalised exposure exceedance.
         latency_limit: Allowed mean fraction of violating steps per episode.
         risk_limit: Allowed episode exposure (the budget ``eps``).
+        latency_window: Number of most recent per-iteration latency
+            measurements averaged before the multiplier update; 1 uses the
+            current iteration's measurement alone.
+        action_prob_floor: Minimum probability of every action. The policy
+            distribution is ``floor + (1 - n_actions * floor) * softmax(logits)``;
+            sampling, the stored log-probabilities and the PPO loss all use this
+            distribution. 0 leaves the softmax unchanged. Must satisfy
+            ``n_actions * floor < 1``. This is the initial value when a decay
+            is configured.
+        action_prob_floor_hold: Number of leading iterations at the initial
+            floor when a decay is configured.
+        action_prob_floor_end: Iteration at which the floor reaches 0 after a
+            linear decay from the end of the hold; 0 disables the decay and
+            keeps the floor constant. The floor of an iteration is fixed for
+            that iteration's collection and update.
+        mask_infeasible_cost: Episodes flagged ``infeasible`` (latency target
+            violated at the reset observation, before any recovery bandwidth is
+            applied) are excluded from the latency multiplier measurement, and
+            their per-step latency cost is set to zero. The reliability
+            measurement and cost are unaffected.
     """
 
     gamma: float = 0.999
@@ -171,6 +196,11 @@ class PPOConfig:
     risk_cost_cap: float = 10.0
     latency_limit: float = LATENCY_VIOLATION_FRACTION_MAX
     risk_limit: float = RISK_BUDGET_EPS
+    mask_infeasible_cost: bool = True
+    latency_window: int = 1
+    action_prob_floor: float = 0.0
+    action_prob_floor_hold: int = 0
+    action_prob_floor_end: int = 0
 
 
 class LagrangeMultiplier:
@@ -370,11 +400,33 @@ class PPOAgent:
             scale=self.config.risk_limit,
             max_value=self.config.lambda_max,
         )
+        self._latency_history: deque[float] = deque(maxlen=max(1, int(self.config.latency_window)))
+        self.action_prob_floor: float = self.config.action_prob_floor
         self._shuffle: torch.Generator = torch.Generator().manual_seed(int(seed) + 1)
 
     # ------------------------------------------------------------------
     # Acting
     # ------------------------------------------------------------------
+
+    def floor_at(self, iteration: int) -> float:
+        """Floor in force during 1-based ``iteration`` under the configured hold and linear decay."""
+        cfg = self.config
+        if cfg.action_prob_floor_end <= 0:
+            return cfg.action_prob_floor
+        if iteration <= cfg.action_prob_floor_hold:
+            return cfg.action_prob_floor
+        if iteration >= cfg.action_prob_floor_end:
+            return 0.0
+        span = cfg.action_prob_floor_end - cfg.action_prob_floor_hold
+        return cfg.action_prob_floor * (cfg.action_prob_floor_end - iteration) / span
+
+    def _floored_log_probs(self, logits: torch.Tensor) -> torch.Tensor:
+        """Log-probabilities of the floored softmax (plain log-softmax when the floor is 0)."""
+        floor = self.action_prob_floor
+        if floor <= 0.0:
+            return torch.log_softmax(logits, dim=-1)
+        probs = torch.softmax(logits, dim=-1)
+        return torch.log(floor + (1.0 - logits.shape[-1] * floor) * probs)
 
     @torch.no_grad()
     def act(
@@ -382,7 +434,7 @@ class PPOAgent:
     ) -> tuple[int, float, float]:
         """Return ``(action index, log-probability, value)`` for one observation."""
         x = torch.as_tensor(np.asarray(obs, dtype=np.float32)).unsqueeze(0)
-        log_probs = torch.log_softmax(self.actor(x), dim=-1)
+        log_probs = self._floored_log_probs(self.actor(x))
         if deterministic:
             action = int(torch.argmax(log_probs, dim=-1).item())
         else:
@@ -402,6 +454,8 @@ class PPOAgent:
         """Per-step ``(latency cost, reliability cost)`` from the batch's ``info`` signals."""
         cfg = self.config
         latency_cost = batch.latency_violated.astype(np.float64)
+        if cfg.mask_infeasible_cost and batch.infeasible is not None:
+            latency_cost = np.where(batch.infeasible, 0.0, latency_cost)
         excess = np.maximum(0.0, batch.exposure.astype(np.float64) - cfg.risk_limit) / cfg.risk_limit
         return latency_cost, np.minimum(excess, cfg.risk_cost_cap)
 
@@ -469,7 +523,7 @@ class PPOAgent:
             epoch_batches = 0
             for start in range(0, n, cfg.minibatch_size):
                 idx = order[start : start + cfg.minibatch_size]
-                dist = self.actor.distribution(obs[idx])
+                dist = torch.distributions.Categorical(logits=self._floored_log_probs(self.actor(obs[idx])))
                 terms = ppo_loss(
                     dist.log_prob(actions[idx]),
                     old_log_probs[idx],
@@ -499,36 +553,74 @@ class PPOAgent:
                 break
         return {k: v / count for k, v in sums.items()}
 
-    def update_multipliers(self, episodes: Sequence[EpisodeRecord]) -> dict[str, float]:
+    def update_multipliers(
+        self, episodes: Sequence[EpisodeRecord], batch: RolloutBatch | None = None
+    ) -> dict[str, float]:
         """Update both multipliers from the episodes finished in the last batch.
 
         Measurements: mean over episodes of the latency violation fraction, and
         mean over episodes of the maximum exposure. With no finished episode
         there is no measurement and neither multiplier moves (the returned
-        measurements are NaN). ``lambda_latency_capped`` and
+        measurements are NaN). Episodes flagged ``infeasible`` are left out of
+        the latency measurement when ``mask_infeasible_cost`` is set; if every
+        finished episode is flagged, the latency multiplier does not move and
+        its measurement is NaN, while the reliability multiplier still updates.
+        ``n_infeasible_episodes`` counts the flagged episodes.
+
+        With ``batch`` given, the latency measurement is the mean of
+        ``latency_violated`` over the batch's steps (excluding steps of
+        infeasible episodes when ``mask_infeasible_cost`` is set), averaged
+        over the last ``latency_window`` iterations; it exists whenever the
+        batch has counted steps, including when no episode finished. Without
+        ``batch`` it is the mean over episodes' violation fractions.
+        ``episode_violation_fraction`` is that episode-weighted mean in both
+        cases.
+        ``lambda_latency_capped`` and
         ``lambda_risk_capped`` are 1.0 when this iteration's update was
         clipped by ``lambda_max`` and 0.0 otherwise (including when no update
         happened).
         """
-        if not episodes:
+        if not episodes and batch is None:
             nan = float("nan")
             return {
                 "latency_violation_fraction": nan,
+                "episode_violation_fraction": nan,
                 "max_exposure": nan,
                 "lambda_latency": self.lambda_latency.value,
                 "lambda_risk": self.lambda_risk.value,
                 "lambda_latency_capped": 0.0,
                 "lambda_risk_capped": 0.0,
+                "n_infeasible_episodes": 0,
             }
-        latency = float(np.mean([e.latency_violation_fraction for e in episodes]))
-        exposure = float(np.mean([e.max_exposure for e in episodes]))
+        n_infeasible = sum(bool(e.infeasible) for e in episodes)
+        counted = [e for e in episodes if not (self.config.mask_infeasible_cost and e.infeasible)]
+        exposure = float(np.mean([e.max_exposure for e in episodes])) if episodes else float("nan")
+        episode_latency = float(np.mean([e.latency_violation_fraction for e in counted])) if counted else float("nan")
+        latency = episode_latency
+        if batch is not None:
+            steps = batch.latency_violated.astype(np.float64)
+            if self.config.mask_infeasible_cost and batch.infeasible is not None:
+                steps = steps[~batch.infeasible]
+            latency = float(steps.mean()) if len(steps) else float("nan")
+            if not math.isnan(latency):
+                self._latency_history.append(latency)
+                latency = float(np.mean(self._latency_history))
+        if not math.isnan(latency):
+            lambda_latency = self.lambda_latency.update(latency)
+            latency_capped = float(self.lambda_latency.last_capped)
+        else:
+            latency = float("nan")
+            lambda_latency = self.lambda_latency.value
+            latency_capped = 0.0
         return {
             "latency_violation_fraction": latency,
+            "episode_violation_fraction": episode_latency,
             "max_exposure": exposure,
-            "lambda_latency": self.lambda_latency.update(latency),
-            "lambda_risk": self.lambda_risk.update(exposure),
-            "lambda_latency_capped": float(self.lambda_latency.last_capped),
-            "lambda_risk_capped": float(self.lambda_risk.last_capped),
+            "lambda_latency": lambda_latency,
+            "lambda_risk": self.lambda_risk.update(exposure) if episodes else self.lambda_risk.value,
+            "lambda_latency_capped": latency_capped,
+            "lambda_risk_capped": float(self.lambda_risk.last_capped) if episodes else 0.0,
+            "n_infeasible_episodes": n_infeasible,
         }
 
     # ------------------------------------------------------------------

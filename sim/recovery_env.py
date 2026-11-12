@@ -88,6 +88,7 @@ from contracts.contracts import (
     validate_info,
 )
 from sim.config import SimConfig, latency_mean_ms, latency_percentiles_ms
+from sim.latency_filter import apply_latency_filter
 from sim.safety_filter import apply_safety_filter, exposure_probability
 from sim.scenario import (
     HAZARD_ERROR_STREAM,
@@ -245,12 +246,39 @@ class RecoveryEnv:
 
         # Safety filter on the state at the start of the interval.
         decision = apply_safety_filter(int(action), self._hazard, self._work)
+        applied_mbps = decision.applied_mbps
+        p_failure = decision.p_failure
+        violated_risk_budget = decision.violated_risk_budget
+        clipped = decision.clipped
+        latency_info: dict[str, Any] = {}
+        if cfg.latency_filter or cfg.latency_filter_causal:
+            # Latency ceiling after the reliability filter; the reliability floor wins (sim/latency_filter.py).
+            # The causal variant uses the previous interval's load, the value the policy's observation carries.
+            filter_fg = fg if cfg.latency_filter else float(self._trace.fg_bw_mbps[(position - 1) % n_rows])
+            floor = apply_safety_filter(0, self._hazard, self._work).applied_index
+            lat = apply_latency_filter(decision.applied_index, filter_fg, cfg, floor)
+            applied_mbps = lat.applied_mbps
+            p_failure = exposure_probability(self._hazard, self._work, applied_mbps)
+            violated_risk_budget = not p_failure < RISK_BUDGET_EPS
+            clipped = lat.applied_index != int(action)
+            latency_info = {
+                "latency_filter_active": True,
+                "latency_filter_fg_source": "oracle" if cfg.latency_filter else "causal",
+                "latency_filter_fg_mbps": float(filter_fg),
+                "alloc_after_reliability_filter_mbps": float(decision.applied_mbps),
+                "latency_ceiling_mbps": float(lat.ceiling_mbps),
+                "latency_ceiling_feasible": bool(lat.ceiling_feasible),
+                "alloc_clipped_by_latency_filter": bool(lat.clipped),
+                "latency_filter_overridden_by_reliability": bool(lat.reliability_overrode),
+                "reliability_filter_clipped": bool(decision.clipped),
+                "both_filters_fired": bool(lat.clipped and decision.clipped),
+            }
         avail = self._headroom(fg)
-        effective = min(decision.applied_mbps, avail)
+        effective = min(applied_mbps, avail)
         p_effective = exposure_probability(self._hazard, self._work, effective)
         # Exposure at the true hazard (diagnostic only; nothing acts on it).
         true_hazard_now = self._true_group_hazard()
-        p_true_applied = exposure_probability(true_hazard_now, self._work, decision.applied_mbps)
+        p_true_applied = exposure_probability(true_hazard_now, self._work, applied_mbps)
         p_true_effective = exposure_probability(true_hazard_now, self._work, effective)
 
         rho = self._rho(fg, effective)
@@ -296,19 +324,20 @@ class RecoveryEnv:
         info = self._info(
             latency=latency,
             rho=rho,
-            p_failure=decision.p_failure,
-            violated_risk_budget=decision.violated_risk_budget,
-            clipped=decision.clipped,
+            p_failure=p_failure,
+            violated_risk_budget=violated_risk_budget,
+            clipped=clipped,
             complete=reason is TerminationReason.RECOVERY_COMPLETE,
             reason=reason,
             requested=requested_mbps,
-            applied=decision.applied_mbps,
+            applied=applied_mbps,
             effective=effective,
             avail=avail,
             fg=fg,
             p_effective=p_effective,
             p_true_applied=p_true_applied,
             p_true_effective=p_true_effective,
+            extra=latency_info,
         )
         return obs, reward, terminated, truncated, info
 
@@ -403,6 +432,7 @@ class RecoveryEnv:
         p_effective: float,
         p_true_applied: float,
         p_true_effective: float,
+        extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Assemble and validate ``info``: contract keys plus diagnostics.
 
@@ -450,6 +480,8 @@ class RecoveryEnv:
             "p_failure_true_at_delivered_rate": float(p_true_effective),
             "violated_risk_budget_true": bool(not p_true_applied < RISK_BUDGET_EPS),
         }
+        if extra:
+            info.update(extra)
         if reason is not None:
             info["termination_reason"] = reason.value
         validate_info(info)

@@ -93,3 +93,12 @@ rather than one being dropped, but a pre-registered scenario set would be strong
 Full context, the rejected alternatives, and the limits: `agent/PPO_COLLAPSE_DECISION.md`.
 
 Hash note: `episodes.csv` (`workload_sha256` column, `diurnal_long_holdout` rows) and `summary.md` now carry the LF hash `94fe6bd6f8a5...` of `profile_diurnal_long_holdout.csv`. Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.
+
+## Resolution (2026-11-12)
+
+Resolved by a clean re-run rather than a ruling: see
+`agent/evidence/b2-244-clean-2026-11-12/`. It drops `--eval-fleet` from both
+training and evaluation, so the question above no longer applies to that
+run. `ppo_lagrangian` loses to `risk_aware_rule_based` on all three seeds
+in the clean setting; use that evidence directory, not this one, for any
+number that needs to be reported.

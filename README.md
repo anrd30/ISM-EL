@@ -296,14 +296,14 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-06, on `main`: 396 tests pass under `data_pipeline/tests`, which is
-the pipeline suite only; `contracts/`, `sim/`, `baselines/`, `workload/` and
-`hazard/` carry their own tests and run from the repo root. Across the whole
-repo, a full `python -m pytest -q` run on `main` (after PR #17's calibration
-bootstrap, PR #18's 14-day aggregate workload trace and PR #19's decision-doc
-sign-offs and xgboost-import fix) passed 1,695 tests with 16 pre-existing
-skips -- the current confirmed count. The acceptance checker
-reports `RESULT: PASS` in
+As of 2026-11-12, on `main`: a full `python -m pytest -q` run passed 1,817
+tests with 16 skips. `hazard/artifacts/v1/` (25 boosters + `calibrators.npz`),
+`sim/fleet_features_v1.json`, and all `data_pipeline` generated outputs are
+present locally, and the skip count did not change with them present, so
+these are not simply missing-artifact skips; at least 5 are
+`baselines/test_baselines.py` tests gated by `--runslow`
+(`baselines/conftest.py`), the remainder not re-verified one by one. The
+acceptance checker reports `RESULT: PASS` in
 `--committed-only` mode on a clean clone, and in full mode once the
 Backblaze/Tencent outputs have been regenerated locally (they are gitignored,
 so a clean clone's full-mode run reports `INCOMPLETE` until then, not `PASS`).
@@ -331,7 +331,7 @@ real fitted model, until `python -m hazard.fit_v1` is run locally.
 | Risk A4 | Evaluate: calibration, PR-AUC, recall vs `hazard/v0.py` | Done, PR #12 |
 | Risk A5 | Replace `hazard/v0.py` with the fitted model | Done, PR #13 |
 | Risk A6 | Risk-model slides | Not started |
-| Control | RL controller training | `agent/train.py` (PPO, checkpointing, ablation flag) built; no full training run yet, only a smoke run; `hazard_error_sigma` still at its `0.0` default, which leaves the reliability constraint inert (`sim/LIMITATIONS.md` section 15) |
+| Control | RL controller training | PPO full-episode collapse diagnosed and the training-time constraint-estimator bias fixed (`agent/PPO_COLLAPSE_DECISION.md`); hand-built seasonal-forecast rule and forecast-PPO with imitation warm-start evaluated against the risk-aware rule baseline (`agent/SEASONAL_SEARCH_DECISION.md`, `agent/FORECAST_PPO_DECISION.md`); a missing-latency-guardrail fix (D1) and an out-of-distribution evaluation (`agent/evaluate_ood.py`) show the forecast-PPO gain holds near the training distribution but inverts badly off it, confirmed on both synthetic and real non-diurnal workloads (`agent/WORKLOAD_SELECTION_DECISION.md`); `hazard_error_sigma=0.25` used throughout, no longer the inert `0.0` default. All decision records are proposed, not yet reviewed by the other lanes |
 | Report | Literature review, figures, report, deck | Tracked outside this repo |
 
 ### What A1 through A5 produced

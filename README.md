@@ -1,5 +1,7 @@
 # ISM-EL — A Closed-Loop, Distribution-Aware Risk Scheduler for Self-Healing Storage
 
+[![CI](https://github.com/anrd30/ISM-EL/actions/workflows/ci.yml/badge.svg)](https://github.com/anrd30/ISM-EL/actions/workflows/ci.yml)
+
 Working title: **Predict, Quantify, Control**.
 
 A storage group that has lost a drive must rebuild the missing data. The rebuild

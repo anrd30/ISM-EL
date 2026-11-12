@@ -1,0 +1,21 @@
+policy,stratum,n,gap,sem,n_better,n_worse
+rule_seasonal_forecast (hand-built),all,20,3.5758496177256327,0.25907970354149096,20,0
+rule_seasonal_forecast (hand-built),initial_budget_infeasible=False (pre-registered),18,3.8469117324287527,0.20032673018510097,18,0
+rule_seasonal_forecast (hand-built),initial_budget_infeasible=True (pre-registered),2,1.1362905853975462,0.02243003834837509,2,0
+rule_seasonal_forecast (hand-built),"typical, rule reward >= -500 (post hoc)",17,3.943077004780244,0.18639586669973385,17,0
+rule_seasonal_forecast (hand-built),"extreme, rule reward < -500 (post hoc)",3,1.4948944244161642,0.3588375893989658,3,0
+forecast_ppo_bc seed0,all,20,-4.0400099563252265,2.665703859561254,8,12
+forecast_ppo_bc seed0,initial_budget_infeasible=False (pre-registered),18,-2.760257643983825,2.7649723089276677,8,10
+forecast_ppo_bc seed0,initial_budget_infeasible=True (pre-registered),2,-15.557780767397844,5.748104769777682,0,2
+forecast_ppo_bc seed0,"typical, rule reward >= -500 (post hoc)",17,-3.0418220181320086,2.9174505212412356,7,10
+forecast_ppo_bc seed0,"extreme, rule reward < -500 (post hoc)",3,-9.696408272753464,6.7356704939019005,1,2
+forecast_ppo_bc seed1,all,20,-9.2698947625283,3.5364032539348083,8,12
+forecast_ppo_bc seed1,initial_budget_infeasible=False (pre-registered),18,-7.9639481032185735,3.70529583196978,8,10
+forecast_ppo_bc seed1,initial_budget_infeasible=True (pre-registered),2,-21.023414696315854,11.050030870907108,0,2
+forecast_ppo_bc seed1,"typical, rule reward >= -500 (post hoc)",17,-8.537801320264684,3.8826406476341284,7,10
+forecast_ppo_bc seed1,"extreme, rule reward < -500 (post hoc)",3,-13.418424268688796,9.926577464243783,1,2
+forecast_ppo_bc seed2,all,20,-8.857628199057126,3.291555267037473,7,13
+forecast_ppo_bc seed2,initial_budget_infeasible=False (pre-registered),18,-7.502532764623415,3.517521683387065,7,11
+forecast_ppo_bc seed2,initial_budget_infeasible=True (pre-registered),2,-21.053487108960553,0.4423028495345988,0,2
+forecast_ppo_bc seed2,"typical, rule reward >= -500 (post hoc)",17,-8.063682954127087,3.6831138884316266,6,11
+forecast_ppo_bc seed2,"extreme, rule reward < -500 (post hoc)",3,-13.356651253660706,7.701070885727398,1,2

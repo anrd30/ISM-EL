@@ -134,6 +134,26 @@
       "file": "profiles/profile_diurnal_long.meta.json",
       "rows": null,
       "sha256": "04be33b748daea85580b8dfe16620651807e0983956fd62a67d265bafca12ae9"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_train.csv",
+      "rows": 2880,
+      "sha256": "96cfe78982c8cb7d6cf29acb6dd659c6438398f642b9c871478e56902e7072a4"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_train.meta.json",
+      "rows": null,
+      "sha256": "f965abd53d0056b13150a3d765a6eff95a669e9786f7fdd6a2b15cd36e462421"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_holdout.csv",
+      "rows": 1152,
+      "sha256": "2c83b9db2e80b0a85afc996ea7df525692f89b331d07eec26c14011bd06a59b1"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_holdout.meta.json",
+      "rows": null,
+      "sha256": "404edaafaa23711e831d1d5397df15f8b540bc54be39708bb758295c05500c83"
     }
   ],
   "sources": {

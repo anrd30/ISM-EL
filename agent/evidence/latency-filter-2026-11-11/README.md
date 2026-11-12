@@ -59,3 +59,5 @@ From a tree holding the T9 branch, `sim/latency_filter.py` and the changed `sim/
     python scripts/build_report.py OUT agent/evidence/forecast-ppo-2026-11-11/episodes.csv REPORT_DIR
 
 The oracle-fg results were re-run after the causal flag was added and matched the earlier run exactly (largest per-scenario reward difference 0).
+
+Hash note: `episodes_filter0.csv`, `episodes_filter1.csv` and `episodes_filter2.csv` (`workload_sha256` column, `home` and holdout-based rows) now carry the LF hash `94fe6bd6f8a5...` of `profile_diurnal_long_holdout.csv`. Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.

@@ -1065,54 +1065,73 @@ _PRE_ERROR_INFO_KEYS: tuple[str, ...] = (
 )
 
 
-def _trajectory_digest(config: SimConfig, seed: int, n_episodes: int = 3, max_steps: int = 600) -> str:
-    """SHA-256 over observations, rewards, flags and pre-existing ``info`` values.
+#: Info values computed with ``math.expm1`` (``sim/safety_filter.py``), whose last bit differs between
+#: platform math libraries. They are left out of the digest and compared with a tolerance.
+_P_FAILURE_KEYS: tuple[str, ...] = ("p_failure_before_complete", "p_failure_at_delivered_rate")
+_DIGEST_INFO_KEYS: tuple[str, ...] = tuple(k for k in _PRE_ERROR_INFO_KEYS if k not in _P_FAILURE_KEYS)
+#: Reference ``_P_FAILURE_KEYS`` values per step for each recorded case, one array of shape (records, 2) per case.
+GOLDEN_P_FAILURE = Path(__file__).resolve().parent / "golden_p_failure_v0.npz"
+
+
+def _trajectory(
+    config: SimConfig, seed: int, n_episodes: int = 3, max_steps: int = 600
+) -> tuple[str, np.ndarray]:
+    """SHA-256 over observations, rewards, flags and pre-existing ``info`` values, and the ``_P_FAILURE_KEYS`` values.
 
     Floats enter through ``repr``, which is exact, so one differing bit in any
-    observation or ``info`` value changes the digest. Actions come from a
-    generator seeded from ``seed`` so the run is a pure function of the
-    arguments.
+    observation or hashed ``info`` value changes the digest. The
+    ``_P_FAILURE_KEYS`` values are returned separately, one row per reset and
+    step, in order. Actions come from a generator seeded from ``seed`` so the
+    run is a pure function of the arguments.
     """
     env = RecoveryEnv(config)
     digest = hashlib.sha256()
+    p_failure: list[list[float]] = []
     actions = np.random.default_rng(seed + 1000)
     obs, info = env.reset(seed=seed)
     for _ in range(n_episodes):
         digest.update(obs.tobytes())
-        digest.update(repr([(k, info[k]) for k in _PRE_ERROR_INFO_KEYS if k in info]).encode())
+        digest.update(repr([(k, info[k]) for k in _DIGEST_INFO_KEYS if k in info]).encode())
+        p_failure.append([float(info[k]) for k in _P_FAILURE_KEYS])
         for _ in range(max_steps):
             obs, reward, terminated, truncated, info = env.step(int(actions.integers(0, N_ACTIONS)))
             digest.update(obs.tobytes())
             digest.update(repr((reward, terminated, truncated)).encode())
-            digest.update(repr([(k, info[k]) for k in _PRE_ERROR_INFO_KEYS if k in info]).encode())
+            digest.update(repr([(k, info[k]) for k in _DIGEST_INFO_KEYS if k in info]).encode())
+            p_failure.append([float(info[k]) for k in _P_FAILURE_KEYS])
             if terminated or truncated:
                 break
         obs, info = env.reset()
-    return digest.hexdigest()
+    return digest.hexdigest(), np.array(p_failure, dtype=np.float64)
+
+
+def _trajectory_digest(config: SimConfig, seed: int, n_episodes: int = 3, max_steps: int = 600) -> str:
+    """The digest of :func:`_trajectory`."""
+    return _trajectory(config, seed, n_episodes, max_steps)[0]
 
 
 #: Digests recorded by running the simulator as it stood before the estimation
 #: error existed. ``stress_seed3`` and ``stress_peak_seed3`` include survivor
 #: failures and a terminal failure, so the failure-draw path is covered.
 _RECORDED_DIGESTS: dict[str, tuple[SimConfig, int, str]] = {
-    "default_seed0": (v0_config(), 0, "44ff8f6dba3692482345bbd596f9101cc37cdb14d4d52c4fd00fa546ceefd154"),
-    "default_seed7": (v0_config(), 7, "87103736fca3c07413861eec2268e4853d82aedde2b8e8d70640fd95bcec3ee6"),
+    "default_seed0": (v0_config(), 0, "151b8f2dadf80775709b77603b0659db9a80d786c370dd1efbbe61a17ffbf357"),
+    "default_seed7": (v0_config(), 7, "8ed23d1c69cef530b2dd2be6ee4466330991b95456509ff57cf6d0efda1412f5"),
     "peak_mid_seed3": (
         v0_config(workload_profile="peak", fleet_degradation=0.5),
         3,
-        "737e6109efc9f9380154eab06a1a69e6edaf6b5bc88ef352c284a8edc238dd8e",
+        "fe116c5a14832c27454c3d133a34d38497be825d97065a6099ad7acde1019da7",
     ),
     "degraded_seed11": (
         v0_config(fleet_degradation=1.0, workload_profile="bursty"),
         11,
-        "ecffe856aab3ccbceca38e460863c1f50395e6017d86a7e72da5da6a9fc3b71d",
+        "1e36055ac4b9ae5ed4b11281a689d089a48bb250aea62150df183a756bfb3fd1",
     ),
-    "stress_seed2": (stress_config(), 2, "1f10eabd31047e172033580ec12e4e71a87e80ccb2041f340360540f27faad1e"),
-    "stress_seed3": (stress_config(), 3, "2bf567cf561afcd5e39a2cbbfe5e386303e5c43777db13b8d42f96339b35f8f5"),
+    "stress_seed2": (stress_config(), 2, "3ccb44bdac6b406f84e688c8e91f75933366191920b3510d3376d790f52b4c89"),
+    "stress_seed3": (stress_config(), 3, "d89197bdf006f1b188a7337652788caffab4d35e813e86a84317528545aec2a3"),
     "stress_peak_seed3": (
         stress_config(base=v0_config(workload_profile="peak")),
         3,
-        "ddbdbf7ae759e85983c1060d0f5e44bbca6b4faa2dcb7b9182fc51753cad23fe",
+        "7853961715cd6ac7ab773a1be08317d6bf2f3b107bfcc18a7ccdb93a8f1077e2",
     ),
 }
 
@@ -1141,10 +1160,18 @@ class TestHazardEstimationError:
 
     @pytest.mark.parametrize("name", sorted(_RECORDED_DIGESTS))
     def test_sigma_zero_reproduces_recorded_trajectory(self, name: str) -> None:
-        """Default sigma gives the same observations, rewards, flags and info bit for bit."""
+        """Default sigma gives the same observations, rewards, flags and info bit for bit.
+
+        The two ``_P_FAILURE_KEYS`` values are compared per step to a relative 1e-12 instead.
+        """
         config, seed, expected = _RECORDED_DIGESTS[name]
         assert config.hazard_error_sigma == 0.0
-        assert _trajectory_digest(config, seed) == expected
+        digest, p_failure = _trajectory(config, seed)
+        assert digest == expected
+        with np.load(GOLDEN_P_FAILURE) as golden:
+            reference = golden[name]
+        assert p_failure.shape == reference.shape
+        assert p_failure.ravel().tolist() == pytest.approx(reference.ravel().tolist(), rel=1e-12)
 
     def test_sigma_zero_truth_is_the_estimate(self) -> None:
         env = _error_env(0.0, fleet_degradation=0.6)

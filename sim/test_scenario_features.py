@@ -43,10 +43,11 @@ def _golden() -> list[dict]:
 def _assert_matches(case: dict, fleet) -> None:
     assert fleet.level == case["fleet_level"]
     assert list(fleet.features) == case["features"]
-    assert fleet.pairs.tolist() == case["pairs"]
-    assert fleet.interval_fail_prob.tolist() == case["interval_fail_prob"]
-    assert np.array_equal(fleet.pairs, np.array(case["pairs"], dtype=np.float64))
-    assert np.array_equal(fleet.interval_fail_prob, np.array(case["interval_fail_prob"], dtype=np.float64))
+    # pairs and interval_fail_prob come from math.expm1, whose last bit differs between platform math libraries.
+    for name in ("pairs", "interval_fail_prob"):
+        actual, reference = np.asarray(getattr(fleet, name)), np.array(case[name], dtype=np.float64)
+        assert actual.shape == reference.shape
+        assert np.allclose(actual, reference, rtol=1e-12, atol=0)
 
 
 def test_v0_default_path_is_unchanged() -> None:

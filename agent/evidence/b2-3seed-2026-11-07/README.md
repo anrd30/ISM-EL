@@ -91,3 +91,5 @@ The subset split was chosen after seeing the results. Both halves are reported a
 rather than one being dropped, but a pre-registered scenario set would be stronger.
 
 Full context, the rejected alternatives, and the limits: `agent/PPO_COLLAPSE_DECISION.md`.
+
+Hash note: `episodes.csv` (`workload_sha256` column, `diurnal_long_holdout` rows) and `summary.md` now carry the LF hash `94fe6bd6f8a5...` of `profile_diurnal_long_holdout.csv`. Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.

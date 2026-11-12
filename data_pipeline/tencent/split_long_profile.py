@@ -106,10 +106,11 @@ def split(source_csv: Path | None = None, *, write: bool = True) -> dict[str, Pa
 
         target = csv_path.with_name(f"{SOURCE_STEM}_{half}.csv")
         if write:
-            piece.to_csv(target, index=False)
+            piece.to_csv(target, index=False, lineterminator="\n")
             target.with_suffix(".meta.json").write_text(
                 json.dumps(_half_meta(parent, half, start, end), indent=2) + "\n",
                 encoding="utf-8",
+                newline="\n",
             )
         out[half] = target
     return out

@@ -41,7 +41,7 @@ Follows `agent/PPO_COLLAPSE_DECISION.md`, which concluded that constrained PPO t
 ## Evidence
 
 Configuration `v1,eval-fleet,sigma=0.25`, holdout `profile_diurnal_long_holdout.csv`
-(sha256 `2c83b9db…`), 20 paired scenarios (0 to 19).
+(sha256 `94fe6bd6…` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.)), 20 paired scenarios (0 to 19).
 
 **Baseline reproduction first:** every row of the baseline harness is identical to
 `agent/evidence/b2-3seed-2026-11-07/summary.md`. Rule -330.2, oracle -318.3, so the
@@ -118,7 +118,7 @@ reportable.
 - **Search budget:** three parameters, three seeds, 8 generations (default 12), 12
   candidates of 24 episodes each. None of this is tuned.
 - **Training file:** rebuilt as the first 2,880 rows of `profile_diurnal_long.csv`
-  (sha256 `96cfe789…`). The holdout rebuilt the same way matched the original byte for
+  (sha256 `65680adf…` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.)). The holdout rebuilt the same way matched the original byte for
   byte, but the original training file was not available to compare.
 - **Simulator:** the latency model is uncalibrated (`sim/LIMITATIONS.md`). Every figure
   is a property of the model.

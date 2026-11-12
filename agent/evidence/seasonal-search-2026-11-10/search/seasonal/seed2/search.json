@@ -10,7 +10,7 @@
   "val_gap": 4.656160213252573,
   "val_gap_sem": 0.9344392384404309,
   "trained_on": "data_pipeline/profiles/profile_diurnal_long_train.csv",
-  "trained_on_sha256": "96cfe78982c8cb7d6cf29acb6dd659c6438398f642b9c871478e56902e7072a4",
+  "trained_on_sha256": "65680adfc9c5aa60f1dc30164ecbe66a0117859df9a773cacc3035fd8f1eea3d",
   "fit_csv_sha256": "dc6ded6502164d40c5aab1a256dc5ed72858520322312c03bf5dde21804f5d87",
   "val_csv_sha256": "619f20f01d7232998cf73eaff06dacd69dabe839c78fe830b2e00279aa5382e6",
   "hazard": "v1",

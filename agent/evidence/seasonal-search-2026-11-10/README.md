@@ -39,12 +39,12 @@ was changed.
 
 ## Data provenance
 
-- **Holdout:** `profile_diurnal_long_holdout.csv`, SHA-256 `2c83b9db…a59b1`. Byte-identical
+- **Holdout:** `profile_diurnal_long_holdout.csv`, SHA-256 `94fe6bd6…5a53d` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.). Byte-identical
   to the file every earlier evaluation used. It was rebuilt from the committed
   `profile_diurnal_long.csv` as the last 1,152 rows, with `t_seconds` rebased and CRLF line
   endings, and the hash matched.
 - **Training:** the first 2,880 rows of `profile_diurnal_long.csv`, rebuilt the same way,
-  SHA-256 `96cfe789…072a4`. The original training file was not available to compare
+  SHA-256 `65680adf…eea3d` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.). The original training file was not available to compare
   against.
 - **Fleets:** training used the train-split table (no `--eval-fleet`). Evaluation used the
   held-out table.
@@ -82,3 +82,7 @@ oracle headroom is +11.9.
   meeting the latency budget is 0.85, the same as the rule.
 - Every episode completed the rebuild. Completion time is 41.4 to 41.9 h, against the
   rule's 43.6 h.
+
+## Hash note
+
+The recorded hash of `profile_diurnal_long_holdout.csv` (`workload_sha256`) and, where noted, of the training file (`trained_on_sha256`) in `episodes.csv` and the six `search/{rule,seasonal}/seed{0,1,2}/search.json` files now carry the LF hashes (`94fe6bd6f8a5...` holdout, `65680adfc9c5...` train). Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged. The `fit_csv_sha256` and `val_csv_sha256` fields of the search results are hashes of the split pieces written during that run and were not changed.

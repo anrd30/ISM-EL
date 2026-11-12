@@ -1,6 +1,6 @@
 # Learned controllers against the baselines (simulated)
 
-Simulator configuration `v1,eval-fleet,sigma=0.25`; latency model uncalibrated (sim/LIMITATIONS.md). Workload `data_pipeline/profiles/profile_diurnal_long_holdout.csv` (sha256 `2c83b9db2e80b0a85afc996ea7df525692f89b331d07eec26c14011bd06a59b1`). 20 paired scenario seeds (0..19), identical for every policy. Learned policies act deterministically. Reward is the contract reward with contract coefficients.
+Simulator configuration `v1,eval-fleet,sigma=0.25`; latency model uncalibrated (sim/LIMITATIONS.md). Workload `data_pipeline/profiles/profile_diurnal_long_holdout.csv` (sha256 `94fe6bd6f8a5cb163cba7a9fafac1274d4ec6511113920a63d4993f03295a53d` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.)). 20 paired scenario seeds (0..19), identical for every policy. Learned policies act deterministically. Reward is the contract reward with contract coefficients.
 
 ## Checkpoints
 

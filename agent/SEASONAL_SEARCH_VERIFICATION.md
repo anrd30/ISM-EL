@@ -18,8 +18,8 @@ checkout; it is not on the T9 branch). `agent/PPO_COLLAPSE_ADDENDUM.md` is not o
 number in the evidence could be re-run. Every CONFIRMED below rests on the committed evidence
 files and on the code, not on a reproduction of the simulation. Two checks that do not need
 the artifacts were possible and were done: the SHA-256 values recorded in the evidence match
-the local `profile_diurnal_long_train.csv` (`96cfe789…`) and `profile_diurnal_long_holdout.csv`
-(`2c83b9db…`), and all figures were re-derived from `episodes.csv`.
+the local `profile_diurnal_long_train.csv` (`65680adf…` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.)) and `profile_diurnal_long_holdout.csv`
+(`94fe6bd6…` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.)), and all figures were re-derived from `episodes.csv`.
 
 ## Claim verification
 

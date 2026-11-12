@@ -39,9 +39,9 @@ repo-relative paths. No value or weight was changed.
 
 ## Provenance and reportability
 
-- **Holdout:** `profile_diurnal_long_holdout.csv`, SHA-256 `2c83b9db…a59b1`, the file of
+- **Holdout:** `profile_diurnal_long_holdout.csv`, SHA-256 `94fe6bd6…5a53d` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.), the file of
   every earlier evaluation.
-- **Training:** the first 2,880 rows of `profile_diurnal_long.csv` (SHA-256 `96cfe789…`).
+- **Training:** the first 2,880 rows of `profile_diurnal_long.csv` (SHA-256 `65680adf…` (Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.)).
   The first 7 days are used for training and the last 3 for validation.
 - **Fleets:** train-split table for training, held-out table for evaluation.
 - **Reward:** contract coefficients throughout.
@@ -78,3 +78,7 @@ oracle headroom is +11.9.
 - **Extreme scenarios** (9, 17, 19): all three seeds gain +0.42 to +2.33.
 - **From scratch:** the PPO-from-scratch arm collapsed to a near-constant slow allocation
   (54 MB/s delivered, 63 h completion), as in `agent/PPO_COLLAPSE_DECISION.md`.
+
+## Hash note
+
+The recorded hash of `profile_diurnal_long_holdout.csv` (`workload_sha256`) and, where noted, of the training file (`trained_on_sha256`) in `episodes.csv` now carry the LF hashes (`94fe6bd6f8a5...` holdout, `65680adfc9c5...` train). Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged. The `fit_csv_sha256` and `val_csv_sha256` fields of the search results are hashes of the split pieces written during that run and were not changed.

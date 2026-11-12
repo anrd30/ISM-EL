@@ -5,7 +5,8 @@ Simulator configuration `eval-fleet,sigma=0.25`; latency model uncalibrated (sim
 ## Workloads
 
 - `diurnal_long_holdout`: source `data_pipeline/profiles/profile_diurnal_long_holdout.csv`, synthetic: false
-  - sha256: `2c83b9db2e80b0a85afc996ea7df525692f89b331d07eec26c14011bd06a59b1`
+  - sha256: `94fe6bd6f8a5cb163cba7a9fafac1274d4ec6511113920a63d4993f03295a53d`
+    - Corrected: this is the LF hash of the committed file; an earlier note quoted the CRLF hash of the same content from a Windows test run that temporarily rewrote it before the LF version was restored. The file content is unchanged.
   - disclosure: selected extremes, not a representative sample
 
 | profile | policy | workload_synthetic | n | completed | horizon_expired | terminal_failure | completion_h | lat_deg_mean | lat_deg_p95 | viol_frac | lat_budget_met | p_fail_mean | p_fail_max | risk_viol | clip_frac | deliv_mbps | stall_frac | reward | reward_sem |

@@ -56,10 +56,39 @@ action, using the same live hazard/work state already computed for the
 real step at that point in training -- so it does inherit the filter's
 override behavior and is not subject to this limitation.
 
+## Mechanistic prediction (2026-11-12)
+
+Proposed by the RL-agent lane: the exogenous fraction should fall as a
+policy acts more aggressively, and rise toward 100% as it retreats to the
+floor. At the minimum action, violations are exactly the unavoidable set
+(call it X); any faster policy adds a self-inflicted set Y on top, so its
+exogenous fraction is X/(X+Y). As a policy slows toward the floor, Y
+shrinks and the fraction climbs toward 100%, which is also offered as the
+reason a penalty-constrained policy has no incentive to stop retreating:
+slowing down removes Y but cannot touch X, so the latency penalty never
+fully disappears and the policy converges to maximum timidity.
+
+Checked directly against `runs/l3_244/seed{0,1,2}/l3_stats.csv` and
+`log.csv` (732 iteration-seed points, excluding iterations with zero real
+violations): correlation between the per-iteration exogenous fraction and
+a weighted-mean action-level proxy (`20*action_frac_20 +
+50*action_frac_50 + 80*action_frac_80 + 120*action_frac_120`) is -0.235 --
+the predicted direction, but modest, not strong. Bucketing by action level
+shows the exogenous fraction roughly flat around 0.80-0.87 for most of the
+run (this policy spent most of training between 43 and 54 Mbps) and
+dropping to 0.69 only in the top decile (~58 Mbps) -- consistent with the
+predicted direction but better described as a threshold near the top of
+the range this run explored than a smooth relationship across it. The
+direction holds; the strength of the effect is not established by this
+check alone, and this run never explored a genuinely aggressive policy
+(it collapsed toward the floor early, which is itself consistent with the
+proposed trap).
+
 ## Caveat
 
 Checked against evaluation-time `episodes.csv` output, using `fixed_20` as
 its own ground truth (it has no other baseline to compare the load-only
 estimate against). Says nothing about whether a post-hoc, non-training-time
 exogenous check is possible some other way -- only that this specific
-load-only one is not.
+load-only one is not. The mechanistic-prediction check above is likewise
+limited to the narrow action range one training run actually visited.

@@ -49,7 +49,7 @@ baseline harness reproduced the `b2_244` evaluation row for row.
 | PPO agent, seed 0 | +6.24 | 1.42 | 19 / 20 |
 | PPO agent, seed 1 | +6.32 | 1.42 | 19 / 20 |
 | PPO agent, seed 2 | +6.71 | 1.26 | 20 / 20 |
-| pooled, 60 pairs | **+6.43** | **0.78** | 58 / 60 |
+| pooled, 60 pairs | **+6.43** | **1.35**[^corr] | 58 / 60 |
 | same networks before PPO (imitation only) | -2.83 / +1.07 / +4.44 | 1.8 to 2.6 | 11 to 18 / 20 |
 | PPO from scratch, 3 seeds | -18.1 to -20.4 | 1.5 to 2.4 | 0 / 20 |
 | hand-built `SeasonalForecastRule` (the imitation target) | +3.68 | 0.28 | 20 / 20 |
@@ -118,3 +118,15 @@ Reproduced exactly from the committed checkpoints. Gap against `risk_aware_rule_
   behaves like the synthetic ones. `agent/workload_selection_check.py` answers it; it
   needs the Tencent pipeline outputs in `data_pipeline/data/processed/`, and it has not
   been run.
+
+## Statistical correction (2026-11-12)
+
+The pooled-row sem in the table above was **1.35**, not the 0.78 it originally
+read. The three seeds are evaluated on the same 20 scenarios, so the 60
+pairs are not 60 independent samples: mean within-scenario, across-seed sd
+is 0.48, against a between-scenario sd of 6.03 -- near-replicates, not
+independent draws. Averaging the three seeds within each scenario first,
+then taking the sem across the resulting 20 scenario-level means, gives sem
+1.35 (t = 4.77). The mean is unchanged at +6.43; only the uncertainty
+estimate was wrong. Verified independently from
+`agent/evidence/forecast-ppo-2026-11-11/episodes.csv`.

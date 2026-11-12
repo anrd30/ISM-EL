@@ -21,10 +21,18 @@ Training, three seeds:
 Evaluation, all three checkpoints against every baseline on identical scenarios:
 
     python -m agent.evaluate_policy \
-        --checkpoint runs/b2_244_clean/seed{0,1,2}/ckpt_final.pt \
+        --checkpoint runs/b2_244_clean/seed0/ckpt_final.pt \
+        --checkpoint runs/b2_244_clean/seed1/ckpt_final.pt \
+        --checkpoint runs/b2_244_clean/seed2/ckpt_final.pt \
         --workload-csv data_pipeline/profiles/profile_diurnal_long_holdout.csv \
         --seeds 20 --out runs/eval244/b2_3seed_clean --diagnostics \
         --hazard-error-sigma 0.25
+
+`--checkpoint` is repeatable (one policy per flag); it is not a glob, so
+`seed{0,1,2}/...` only expands if the invoking shell does brace expansion
+(bash/WSL) -- it passes through unexpanded in PowerShell and the run fails.
+Written here as three explicit flags so this command is copy-safe from
+either shell.
 
 Run on 2026-11-12. Workload sha256 `94fe6bd6f8a5cb163cba7a9fafac1274d4ec6511113920a63d4993f03295a53d`
 (the committed LF holdout file — no CRLF-provenance risk here, this is a fresh run).

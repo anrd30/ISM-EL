@@ -376,9 +376,21 @@ class PPOAgent:
     Args:
         config: Hyperparameters.
         seed: Seeds network initialisation and minibatch shuffling.
+        marginal_violation_cost: When True, the per-step latency cost and the latency
+            multiplier measurement use ``max(0, violated_latency - min_action_violated)``
+            instead of ``violated_latency``, where ``min_action_violated`` is the violation
+            the smallest action would have produced at the same step
+            (``agent.min_action_counterfactual``), supplied per step through
+            :meth:`set_min_action_violated` before each :meth:`step_costs` or
+            :meth:`update_multipliers` call. False (default) leaves every computation
+            unchanged.
     """
 
-    def __init__(self, config: PPOConfig | None = None, seed: int = 0) -> None:
+    def __init__(
+        self, config: PPOConfig | None = None, seed: int = 0, marginal_violation_cost: bool = False
+    ) -> None:
+        self.marginal_violation_cost: bool = bool(marginal_violation_cost)
+        self._min_action_violated: np.ndarray | None = None
         self.config: PPOConfig = config if config is not None else PPOConfig()
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(int(seed))
@@ -450,10 +462,29 @@ class PPOAgent:
     # Constraint signals and advantages
     # ------------------------------------------------------------------
 
+    def set_min_action_violated(self, min_action_violated: np.ndarray) -> None:
+        """Set the per-step smallest-action violation (``(T,)``, aligned with the next batch)."""
+        self._min_action_violated = np.asarray(min_action_violated, dtype=np.float64)
+
+    def _marginal_cost(self, violated: np.ndarray, batch: RolloutBatch) -> np.ndarray:
+        """Per-step ``max(0, violated - min_action_violated)``.
+
+        Raises:
+            ValueError: if the smallest-action violations were not set for a batch of this length.
+        """
+        cf = self._min_action_violated
+        if cf is None or cf.shape != violated.shape:
+            raise ValueError(
+                "marginal_violation_cost needs set_min_action_violated() with one value per step of the batch"
+            )
+        return np.maximum(0.0, violated - cf)
+
     def step_costs(self, batch: RolloutBatch) -> tuple[np.ndarray, np.ndarray]:
         """Per-step ``(latency cost, reliability cost)`` from the batch's ``info`` signals."""
         cfg = self.config
         latency_cost = batch.latency_violated.astype(np.float64)
+        if self.marginal_violation_cost:
+            latency_cost = self._marginal_cost(latency_cost, batch)
         if cfg.mask_infeasible_cost and batch.infeasible is not None:
             latency_cost = np.where(batch.infeasible, 0.0, latency_cost)
         excess = np.maximum(0.0, batch.exposure.astype(np.float64) - cfg.risk_limit) / cfg.risk_limit
@@ -599,6 +630,8 @@ class PPOAgent:
         latency = episode_latency
         if batch is not None:
             steps = batch.latency_violated.astype(np.float64)
+            if self.marginal_violation_cost:
+                steps = self._marginal_cost(steps, batch)
             if self.config.mask_infeasible_cost and batch.infeasible is not None:
                 steps = steps[~batch.infeasible]
             latency = float(steps.mean()) if len(steps) else float("nan")

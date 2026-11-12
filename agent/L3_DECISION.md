@@ -130,7 +130,43 @@ Lambda saturating in low-exogenous-fraction conditions would have
 falsified the premise. It did not saturate in either the clean baseline or
 the L3 run, in any seed -- consistent with the earlier, separate finding
 that the "lambda diverging into its cap" premise did not hold for this
-run to begin with.
+run to begin with. Across the full gamma sweep (`agent/GAMMA_SWEEP_DECISION.md`,
+gamma 1.0-10.0, single seed each), `lambda_latency` never caps either:
+final values 1.27-1.68 at every gamma tested. The premise that motivated
+this check -- lambda saturating at the 2.0 bound -- does not hold anywhere
+in this project's own data; the general claim it was narrowed to (lambda
+inflated by exogenous violations, whatever level it settles at) is what
+the evidence here supports.
+
+## Reclassification (2026-11-12)
+
+Proposed by the RL-agent lane and accepted here: this result is better
+read as a mechanism demonstration than a performance result. `lambda_risk`
+is an unexercised control -- nothing about it changed -- while
+`lambda_latency`, the one input L3 touches, collapsed from 1.20-1.68 to
+0.0000 in all three seeds. One targeted change, one multiplier moved, the
+untargeted one did not: that is a controlled intervention showing the
+latency multiplier was being driven almost entirely by violations the
+policy's own action did not cause, not a correlational inference from it.
+
+A specific figure proposed alongside this (roughly 60% of violations
+occurring at load levels where even the slowest allocation violates) does
+not match what this run's own training-time logs show. Computed directly
+from `runs/l3_244/seed{0,1,2}/l3_stats.csv` (`real_violations -
+marginal_cost_steps`, summed over all 244 iterations and all three seeds):
+398,170 real violation-steps, of which 335,685 would also have violated
+under the minimum action -- **84.3%** exogenous, not ~60%. This is the
+training workload under the policy's own evolving action distribution
+across all of training, not the holdout; a holdout-specific figure under a
+fixed evaluation policy could differ and has not been computed here. Either
+way the qualitative claim is unchanged and, on this number, stronger: the
+large majority of recorded latency violations in this environment are not
+attributable to the policy's choice of action.
+
+The seed-level pattern (`+16.82 +/- 3.25` on the one outlier seed, small
+non-significant moves on the other two) is also better read as a variance
+observation than an established effect, per the same caution raised
+alongside it: three seeds is thin evidence for a variance claim.
 
 ## Caveat
 

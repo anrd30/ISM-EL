@@ -83,8 +83,9 @@ baseline harness reproduced the `b2_244` evaluation row for row.
 - **Holdout reuse:** this configuration was evaluated on the holdout once. Its design
   (forecast inputs, imitation target) followed the earlier holdout finding that the
   forecast carries the gain, so the holdout is not untouched by the design process.
-- **Workload:** one workload family, selected for its daily cycle. The forecast inputs
-  are uninformative on a workload without one.
+- **Workload:** one workload family, selected for its daily cycle. Outside it the agent
+  loses to the rule, badly on bursty and high load; see "Out-of-distribution results"
+  below.
 - **Forecast warm-up:** the forecast needs a day plus an hour of the current episode,
   less than half of a typical 44-hour episode.
 - **Training budget:** 3 seeds, 120 iterations of 4,096 steps, one architecture, untuned
@@ -93,3 +94,27 @@ baseline harness reproduced the `b2_244` evaluation row for row.
   under some other setting is not tested here.
 - **Simulator:** the latency model is uncalibrated (`sim/LIMITATIONS.md`). Every figure
   is a property of the model.
+
+## Out-of-distribution results (added 2026-11-11)
+
+`agent/evaluate_ood.py`; evidence `agent/evidence/forecast-ppo-ood-2026-11-11/`.
+Reproduced exactly from the committed checkpoints. Gap against `risk_aware_rule_based`,
+3 seeds:
+
+| Condition | PPO agent | Hand-built forecast rule |
+| --- | --- | --- |
+| holdout, all fleets degraded (level 0.9) | +4.2 to +4.8 | +3.5 |
+| holdout, days shifted 6 h per day | -10 to -35 | -3.2 |
+| synthetic `diurnal`, days differ | -2.5 to -23 | -4.5 |
+| synthetic `bursty` | -174 to -196 | -38 |
+| synthetic `peak` (load above the training range) | -9,283 | -0.8 |
+
+- **Scope of the headline gain:** the +6.43 holds on `profile_diurnal_long`, which was
+  selected for the strongest daily cycle. It also holds under a risk-side shift.
+- **Where it inverts:** where the daily pattern is absent or changes, or where load leaves
+  the training range.
+- **Status:** this is a limit of the adopted controller, not of the evaluation.
+- **Open question:** whether a real Tencent workload not selected for its daily cycle
+  behaves like the synthetic ones. `agent/workload_selection_check.py` answers it; it
+  needs the Tencent pipeline outputs in `data_pipeline/data/processed/`, and it has not
+  been run.

@@ -120,6 +120,7 @@ class RolloutBatch:
     infeasible: np.ndarray | None = None  # (T,) bool, step belongs to an episode flagged infeasible at reset
     episodes: list[EpisodeRecord] = field(default_factory=list)
     in_progress: EpisodeRecord | None = None  # episode still running at the end of the batch, measured so far
+    latency_now: np.ndarray | None = None  # (T,) float64 ms, info["latency_now"] of each step (NaN when info lacks it)
 
     def __len__(self) -> int:
         return int(self.actions.shape[0])
@@ -209,6 +210,7 @@ class RolloutCollector:
         violated = np.zeros(n_steps, dtype=np.float32)
         exposure = np.zeros(n_steps, dtype=np.float32)
         infeasible = np.zeros(n_steps, dtype=bool)
+        latency_now = np.zeros(n_steps, dtype=np.float64)
         episodes: list[EpisodeRecord] = []
 
         for t in range(n_steps):
@@ -229,6 +231,7 @@ class RolloutCollector:
             violated[t] = 1.0 if info["violated_latency"] else 0.0
             exposure[t] = float(info[self.reliability_key])
             infeasible[t] = self._ep_infeasible
+            latency_now[t] = float(info.get("latency_now", float("nan")))
 
             self._ep_return += float(reward)
             self._ep_length += 1
@@ -268,4 +271,5 @@ class RolloutCollector:
             infeasible=infeasible,
             episodes=episodes,
             in_progress=self._in_progress_record(),
+            latency_now=latency_now,
         )

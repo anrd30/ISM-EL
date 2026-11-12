@@ -97,7 +97,7 @@ import torch
 
 from agent.networks import Actor, Critic
 from agent.rollout import EpisodeRecord, RolloutBatch
-from contracts.contracts import LATENCY_VIOLATION_FRACTION_MAX, RISK_BUDGET_EPS
+from contracts.contracts import LATENCY_LIMIT_FACTOR, LATENCY_VIOLATION_FRACTION_MAX, RISK_BUDGET_EPS
 
 __all__ = [
     "PPOConfig",
@@ -107,7 +107,29 @@ __all__ = [
     "resolve_next_values",
     "compute_gae",
     "ppo_loss",
+    "latency_barrier",
 ]
+
+BARRIER_DELTA: float = 0.05
+BARRIER_CAP: float = 10.0
+
+
+def latency_barrier(latency_now_ms: np.ndarray, latency_target_ms: float) -> np.ndarray:
+    """Log-barrier cost of the latency margin, bounded past the boundary.
+
+    With ``limit = LATENCY_LIMIT_FACTOR * latency_target_ms`` and the normalised margin
+    ``d = (limit - latency_now) / limit`` (positive inside the limit, 0 at it, negative past
+    it), the cost is ``-log(d)`` for ``d >= BARRIER_DELTA``. Below ``BARRIER_DELTA`` it continues
+    along the tangent at ``BARRIER_DELTA`` (value ``-log(delta)``, slope ``-1/delta``), which keeps
+    the function continuous and differentiable and finite for every ``d``. The result is capped at
+    ``BARRIER_CAP``. The cost is 0 at zero latency (``d = 1``) and increases monotonically as
+    ``d`` decreases.
+    """
+    limit = LATENCY_LIMIT_FACTOR * float(latency_target_ms)
+    d = (limit - np.asarray(latency_now_ms, dtype=np.float64)) / limit
+    inside = -np.log(np.maximum(d, BARRIER_DELTA))
+    tangent = np.where(d < BARRIER_DELTA, -(d - BARRIER_DELTA) / BARRIER_DELTA, 0.0)
+    return np.minimum(inside + tangent, BARRIER_CAP)
 
 
 @dataclass(frozen=True)
@@ -384,11 +406,34 @@ class PPOAgent:
             :meth:`set_min_action_violated` before each :meth:`step_costs` or
             :meth:`update_multipliers` call. False (default) leaves every computation
             unchanged.
+        barrier_cost: When True, the latency term of the penalised reward is
+            ``barrier_coef * latency_barrier(latency_now)`` instead of
+            ``lambda_latency * violated_latency``; it replaces the latency Lagrangian charge.
+            ``lambda_latency`` is still updated and logged from the measured violation
+            fraction but multiplies nothing. The reliability term is unchanged. Needs
+            ``barrier_latency_target_ms`` and a batch carrying ``latency_now``. Cannot be
+            combined with ``marginal_violation_cost``.
+        barrier_coef: Weight of the barrier cost; the caller may change the attribute
+            ``barrier_coef`` between iterations to anneal it.
+        barrier_latency_target_ms: Latency target the barrier margin is measured against.
     """
 
     def __init__(
-        self, config: PPOConfig | None = None, seed: int = 0, marginal_violation_cost: bool = False
+        self,
+        config: PPOConfig | None = None,
+        seed: int = 0,
+        marginal_violation_cost: bool = False,
+        barrier_cost: bool = False,
+        barrier_coef: float = 0.05,
+        barrier_latency_target_ms: float | None = None,
     ) -> None:
+        if barrier_cost and marginal_violation_cost:
+            raise ValueError("barrier_cost and marginal_violation_cost are mutually exclusive")
+        if barrier_cost and barrier_latency_target_ms is None:
+            raise ValueError("barrier_cost needs barrier_latency_target_ms")
+        self.barrier_cost: bool = bool(barrier_cost)
+        self.barrier_coef: float = float(barrier_coef)
+        self.barrier_latency_target_ms: float | None = barrier_latency_target_ms
         self.marginal_violation_cost: bool = bool(marginal_violation_cost)
         self._min_action_violated: np.ndarray | None = None
         self.config: PPOConfig = config if config is not None else PPOConfig()
@@ -493,11 +538,30 @@ class PPOAgent:
     def penalised_rewards(self, batch: RolloutBatch) -> np.ndarray:
         """``reward_scale * reward - lambda_latency * c_latency - lambda_risk * c_risk``."""
         latency_cost, risk_cost = self.step_costs(batch)
+        if self.barrier_cost:
+            return (
+                self.config.reward_scale * batch.rewards
+                - self.barrier_coef * self._barrier_step_cost(batch)
+                - self.lambda_risk.value * risk_cost
+            )
         return (
             self.config.reward_scale * batch.rewards
             - self.lambda_latency.value * latency_cost
             - self.lambda_risk.value * risk_cost
         )
+
+    def _barrier_step_cost(self, batch: RolloutBatch) -> np.ndarray:
+        """Per-step ``latency_barrier``; steps of infeasible episodes cost 0 when ``mask_infeasible_cost``.
+
+        Raises:
+            ValueError: if the batch carries no finite ``latency_now``.
+        """
+        if batch.latency_now is None or not np.all(np.isfinite(batch.latency_now)):
+            raise ValueError("barrier_cost needs a batch with finite latency_now")
+        cost = latency_barrier(batch.latency_now, float(self.barrier_latency_target_ms))
+        if self.config.mask_infeasible_cost and batch.infeasible is not None:
+            cost = np.where(batch.infeasible, 0.0, cost)
+        return cost
 
     def advantages(self, batch: RolloutBatch) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(advantages, returns)`` for the batch, with correct bootstrapping."""

@@ -1,6 +1,8 @@
 # T-lane decision record: a PPO agent that beats the rule
 
-Status: proposed. Not yet reviewed by the other lanes.
+Status: proposed. Not yet reviewed by the other lanes. **See the correction
+dated 2026-11-12 below the Evidence section before reading the headline
+number as support for the title of this document.**
 
 Follows `agent/PPO_COLLAPSE_DECISION.md` (constrained PPO trailed the rule) and
 `agent/SEASONAL_SEARCH_DECISION.md` (a same-time-yesterday load forecast is the
@@ -67,6 +69,112 @@ baseline harness reproduced the `b2_244` evaluation row for row.
   losing scenario for two seeds (-6.5) is a single extra violation interval.
 - **Validation gaps** (training days 8 to 10, best checkpoint, biased upward by
   selection): +4.4, +6.5 and +6.8. Before PPO they were -3.6, +3.8 and -0.6.
+
+## Correction (2026-11-12): the headline number is an argmax artifact, and it reverses
+
+`ForecastPPOPolicy` acted by hardcoded argmax of the logits with no sampling
+path at all (`agent/forecast_ppo.py`, before this date). PPO's own training
+objective is expected return under *sampling* from the policy, not under its
+mode -- so +6.43 was never a measurement of what PPO was trained to
+optimise. It was flagged as a live risk (entropy at this checkpoint: 0.09-0.12
+nats, not near zero, so argmax and sampling are genuinely different
+policies here) and checked directly, rather than assumed.
+
+`ForecastPPOPolicy` now supports `deterministic=False` (sampling, seeded and
+reproducible; `agent/evaluate_learned.py --stochastic`). Same 3 checkpoints,
+same holdout, same protocol, evaluated honestly:
+
+| | argmax (original) | stochastic (honest) |
+|---|---|---|
+| seed 0 vs. rule | +6.24±1.42 | **-12.81±2.58** |
+| seed 1 vs. rule | +6.32±1.42 | **-5.21±2.59** |
+| seed 2 vs. rule | +6.71±1.26 | **-4.91±2.69** |
+| pooled (scenario-paired sem) | +6.43±1.35, t=4.77 | **-7.64±2.31, t=-3.31** |
+
+This does not shrink the gain, it reverses it: a significant win over the
+rule becomes a significant loss. All three seeds flip sign individually.
+The per-stratum breakdown (`agent/evidence/forecast-ppo-2026-11-12-stochastic/strata.csv`)
+shows the loss is not confined to one stratum -- it holds on the
+pre-registered "typical" split and on the extreme-scenario split alike.
+
+**What does and doesn't survive:** the hand-built `rule_seasonal_forecast`
+comparator in the same evaluation run is unaffected (it's deterministic by
+construction, so there's no argmax/stochastic distinction for it), and it
+still beats `risk_aware_rule_based` by +3.69±0.28 -- consistent with its
+own earlier reported number. So the underlying forecast *signal* (same-time-
+yesterday load) is still real and still exploitable by a hand-built rule.
+What doesn't survive is the specific claim that *this trained PPO network*,
+run the way its own objective was trained, exploits that signal better than
+the rule does. It does not; under honest evaluation it loses to the rule it
+was warm-started from and KL-penalised toward.
+
+**Why this one checkpoint was the most exposed in the project:** every other
+positive result evaluated so far (`L3_DECISION.md`, `BARRIER_DECISION.md`)
+showed the same general argmax-flatters-the-policy pattern, but none of
+them reversed sign -- they lost significance or lost a seed's apparent
+win, not the whole comparator relationship. This network's residual entropy
+(0.09-0.12 nats) is far lower than the `agent/ppo.py`-family policies
+(0.9-1.1 nats) checked for barrier/L3/baseline, which made it look like the
+*safer* case for an argmax/stochastic gap going in (closer to fully
+deterministic). It was not: a near-peaked-but-not-peaked categorical policy
+can still have its probability mass split closely enough between two
+actions that argmax and the true sampling distribution disagree on which
+one is actually favoured on net, and that is what happened here. Entropy
+alone, without measuring the actual gap, was not a reliable guide, for the
+project's own prior intuition or for the one given above when this
+correction was scoped -- both read a low entropy number as reassuring and
+both were wrong to.
+
+**Status implication:** the title and Decision section above ("a PPO agent
+that beats the rule") are not supported by this evidence as it now stands.
+This needs the other lanes' review before anything is adopted on the
+strength of it. The hand-built `rule_seasonal_forecast` and
+`seasonal_search` comparators, both deterministic and both still showing a
+real (if smaller) gain over the rule in this same evaluation, remain the
+better-supported claims in this document.
+
+(Full evidence: `agent/evidence/forecast-ppo-2026-11-12-stochastic/`.)
+
+## Rolling-origin check (2026-11-12): the reversal replicates, it is not one unlucky split
+
+The single train/holdout split above is the same split every positive result
+in this document was designed and selected against (see Limits, "Holdout
+reuse"). Before concluding anything further from -7.64, it was checked
+against 3 additional sliding train/holdout folds of the same 14-day source
+(`data_pipeline/tencent/sliding_rolling_folds.py`): 8-day train / 4-day
+holdout / 1-day step. With only 14 days of source data, consecutive folds
+overlap by about 75% -- **this is a boundary-sensitivity check, not
+independent-fold cross-validation**, and is reported as such, not as CV.
+
+Same protocol throughout (bc-init, 3 seeds, `--stochastic`), pooled gap vs.
+`risk_aware_rule_based` (scenario-paired, 20 scenarios per fold):
+
+| fold | train window | pooled gap | sem | t |
+|---|---|---|---|---|
+| 1 | days 0-8 | -11.926 | 2.754 | -4.330 |
+| 2 | days 1-9 | -7.389 | 2.895 | -2.553 |
+| 3 | days 2-10 | -7.008 | 1.967 | -3.564 |
+| original split | days 0-10 | -7.641 | 2.308 | -3.311 |
+
+All four partitions -- the original split and all three folds -- show a
+significant loss to the rule. Across-fold mean -8.775, sd 2.736 (n=3,
+sem 1.580). Fold 3's holdout window is the same calendar days as the
+original split's holdout (only the train window is shifted earlier by 2
+days), and its gap (-7.008) lands close to the original (-7.641) as a
+direct consistency check.
+
+Per-seed, the sign is consistently negative in 8 of 9 seed-by-fold
+combinations; the one exception is seed 2 on fold 3 (-1.029±2.247, not
+distinguishable from zero) -- a wash, not a reversal back to a win. Seed 1
+is the most consistently negative across folds (-9.41, -9.27, -16.82).
+
+**Conclusion:** the reversal found above is not an artifact of one
+particular train/holdout partition. It replicates, with some spread in
+magnitude (-7 to -12), across every partition checked. The loss to
+`risk_aware_rule_based` is the better-supported reading of this
+checkpoint's real behaviour than the original +6.43.
+
+(Full evidence: `agent/evidence/forecast-ppo-2026-11-13-folds/`.)
 
 ## Rejected alternatives
 

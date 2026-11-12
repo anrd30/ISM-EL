@@ -147,6 +147,11 @@ class TrainConfig:
         marginal_violation_cost: Feed ``max(0, violation - violation_if_min_action)`` per step
             to the latency cost and multiplier (``PPOAgent.marginal_violation_cost``); writes
             ``l3_stats.csv`` next to ``log.csv``.
+        barrier_cost: Replace the latency Lagrangian charge with ``barrier_coef`` times the
+            log-barrier of the latency margin (``agent.ppo.latency_barrier``).
+        barrier_coef: Barrier weight at the first iteration.
+        barrier_coef_final: Weight at the last iteration (linear in iteration); ``None`` keeps
+            ``barrier_coef`` constant.
         out_dir: Directory for ``log.csv`` and checkpoints.
         checkpoint_every: Write ``ckpt_latest.pt`` every this many iterations.
         reward: Reward coefficients passed to the simulator. Evaluation uses
@@ -167,6 +172,9 @@ class TrainConfig:
     fleet_degradation: float | None = None
     ablate_hazard: bool = False
     marginal_violation_cost: bool = False
+    barrier_cost: bool = False
+    barrier_coef: float = 0.05
+    barrier_coef_final: float | None = None
     out_dir: str = "runs/ppo"
     checkpoint_every: int = 10
     reward: RewardConfig = field(default_factory=RewardConfig)
@@ -227,7 +235,14 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
     if cfg.latency_filter_causal:
         fields["latency_filter_causal"] = True
     sim_cfg = v1_eval_config(**fields) if cfg.eval_fleet else SimConfig(**fields)  # type: ignore[arg-type]
-    agent = PPOAgent(cfg.ppo, seed=cfg.seed, marginal_violation_cost=cfg.marginal_violation_cost)
+    agent = PPOAgent(
+        cfg.ppo,
+        seed=cfg.seed,
+        marginal_violation_cost=cfg.marginal_violation_cost,
+        barrier_cost=cfg.barrier_cost,
+        barrier_coef=cfg.barrier_coef,
+        barrier_latency_target_ms=sim_cfg.latency_target_ms if cfg.barrier_cost else None,
+    )
     collector = RolloutCollector(sim_cfg, seed=cfg.seed, ablate_hazard=cfg.ablate_hazard)
     if cfg.marginal_violation_cost:
         from agent.min_action_counterfactual import MinActionCounterfactual
@@ -252,6 +267,9 @@ def train(cfg: TrainConfig, echo: bool = True) -> Path:
         episode_writer.writeheader()
         for iteration in range(1, cfg.iterations + 1):
             agent.action_prob_floor = agent.floor_at(iteration)
+            if cfg.barrier_cost and cfg.barrier_coef_final is not None:
+                frac = (iteration - 1) / max(1, cfg.iterations - 1)
+                agent.barrier_coef = cfg.barrier_coef + frac * (cfg.barrier_coef_final - cfg.barrier_coef)
             batch = collector.collect(agent, cfg.rollout_steps)
             env_steps += len(batch)
             if cfg.marginal_violation_cost:
@@ -374,6 +392,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--fleet-degradation", type=float, default=None)
     p.add_argument("--ablate-hazard", action="store_true", help="mask observation fields 5 and 6")
+    p.add_argument("--barrier-cost", action="store_true", help="log-barrier latency penalty instead of lambda_latency")
+    p.add_argument("--barrier-coef", type=float, default=0.05, help="barrier weight (first iteration)")
+    p.add_argument("--barrier-coef-final", type=float, default=None, help="barrier weight at the last iteration")
     p.add_argument(
         "--marginal-violation-cost",
         action="store_true",
@@ -438,6 +459,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.latency_filter and args.latency_filter_causal:
         parser.error("--latency-filter and --latency-filter-causal are mutually exclusive")
+    if args.barrier_cost and args.marginal_violation_cost:
+        parser.error("--barrier-cost and --marginal-violation-cost are mutually exclusive")
     ppo = dataclasses.replace(
         PPOConfig(),
         gamma=args.gamma,
@@ -471,6 +494,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             fleet_degradation=args.fleet_degradation,
             ablate_hazard=args.ablate_hazard,
             marginal_violation_cost=args.marginal_violation_cost,
+            barrier_cost=args.barrier_cost,
+            barrier_coef=args.barrier_coef,
+            barrier_coef_final=args.barrier_coef_final,
             out_dir=os.path.join(args.out, f"seed{seed}"),
             checkpoint_every=args.checkpoint_every,
             reward=reward,

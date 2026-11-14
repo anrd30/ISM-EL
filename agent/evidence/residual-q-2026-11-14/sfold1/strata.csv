@@ -1,0 +1,21 @@
+policy,stratum,n,gap,sem,n_better,n_worse
+rule_seasonal_forecast (hand-built),all,20,3.4060794221850683,0.24707615666943153,20,0
+rule_seasonal_forecast (hand-built),initial_budget_infeasible=False (pre-registered),18,3.659642921812499,0.19489295816644425,18,0
+rule_seasonal_forecast (hand-built),initial_budget_infeasible=True (pre-registered),2,1.1240079255381943,0.030319122769583373,2,0
+rule_seasonal_forecast (hand-built),"typical, rule reward >= -500 (post hoc)",17,3.7530677545676814,0.1814165069349402,17,0
+rule_seasonal_forecast (hand-built),"extreme, rule reward < -500 (post hoc)",3,1.43981220535026,0.31628904430829796,3,0
+residual_q seed0,all,20,7.2004914554317425,1.2350945673008125,20,0
+residual_q seed0,initial_budget_infeasible=False (pre-registered),18,7.855266911809569,1.2814102870952593,18,0
+residual_q seed0,initial_budget_infeasible=True (pre-registered),2,1.3075123480313096,0.1531852997235319,2,0
+residual_q seed0,"typical, rule reward >= -500 (post hoc)",17,8.213411530554993,1.3049761876867354,17,0
+residual_q seed0,"extreme, rule reward < -500 (post hoc)",3,1.4606110297333241,0.17680813995974334,3,0
+residual_q seed1,all,20,6.417679539757236,1.1295684015754848,20,0
+residual_q seed1,initial_budget_infeasible=False (pre-registered),18,6.996587005504551,1.1778479087272598,18,0
+residual_q seed1,initial_budget_infeasible=True (pre-registered),2,1.2075123480314005,0.05318529972362285,2,0
+residual_q seed1,"typical, rule reward >= -500 (post hoc)",17,7.293856768223534,1.2088531475325905,17,0
+residual_q seed1,"extreme, rule reward < -500 (post hoc)",3,1.4526752451148848,0.24707840484739038,3,0
+residual_q seed2,all,20,8.203494362034643,1.289620128932104,20,0
+residual_q seed2,initial_budget_infeasible=False (pre-registered),18,8.989151896071196,1.3046113391904273,18,0
+residual_q seed2,initial_budget_infeasible=True (pre-registered),2,1.1325765557056684,0.17880704202718786,2,0
+residual_q seed2,"typical, rule reward >= -500 (post hoc)",17,9.42995191113684,1.3023706671662882,17,0
+residual_q seed2,"extreme, rule reward < -500 (post hoc)",3,1.253568250455525,0.1590481361871723,3,0

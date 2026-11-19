@@ -25,7 +25,7 @@ from baselines.evaluate import (
 )
 from baselines.policies import FixedRate
 from contracts.contracts import ACTIONS_MBPS, BW_TOTAL_MBPS, CONTROL_INTERVAL_S, Observation
-from sim.config import SimConfig, v0_config, v1_eval_config
+from sim.config import v0_config, v1_eval_config
 from sim.recovery_env import RecoveryEnv
 from sim.safety_filter import apply_safety_filter
 
@@ -74,7 +74,7 @@ def test_latency_cost_is_the_latency_part_of_the_reward() -> None:
 
 
 def test_minimum_action_formula_matches_the_environment_latency() -> None:
-    config = SimConfig()
+    config = v0_config()
     env = RecoveryEnv(config)
     env.reset(seed=0)
     for _ in range(40):

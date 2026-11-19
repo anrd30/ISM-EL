@@ -1,0 +1,29 @@
+environment,policy,seed,viol_frac,data_loss_probability,total_reward,completion_h,delivered_mbps,risk_budget_violated
+contract,risk_aware_rule_based,9,0.22963,7.79178e-05,-1366.11,33.75,98.8582,True
+contract,risk_aware_rule_based,17,0.324468,8.2391e-05,-1676.22,31.3333,106.554,True
+contract,predictive_controller,9,0.22963,7.79178e-05,-1365.7,33.75,98.9569,True
+contract,predictive_controller,17,0.322835,8.45871e-05,-1692.12,31.75,105.173,True
+contract,DP_hindsight_optimum (not deployable),9,0.229798,7.45071e-05,-1343.26,33,101.029,True
+contract,DP_hindsight_optimum (not deployable),17,0.333333,7.80846e-05,-1674.96,30.5,109.302,True
+objective,risk_aware_rule_based,9,0.22963,7.79178e-05,-1472.31,33.75,98.8582,True
+objective,risk_aware_rule_based,17,0.324468,8.2391e-05,-1789.49,31.3333,106.554,True
+objective,workload_only_throttle,9,0.22963,7.79178e-05,-1472.31,33.75,98.8582,True
+objective,workload_only_throttle,17,0.324468,8.2391e-05,-1789.49,31.3333,106.554,True
+objective,predictive_controller,9,0.22963,7.79178e-05,-1471.91,33.75,98.9569,True
+objective,predictive_controller,17,0.322835,8.45871e-05,-1806.9,31.75,105.173,True
+objective,hazard_weighted_rule,9,0.230198,7.75351e-05,-1471.95,33.6667,99.2761,True
+objective,hazard_weighted_rule,17,0.328841,8.02234e-05,-1787.83,30.9167,107.882,True
+objective,hazard_weighted_controller,9,0.233251,7.71533e-05,-1481.7,33.5833,99.2743,True
+objective,hazard_weighted_controller,17,0.328,8.19552e-05,-1804.52,31.25,106.67,True
+objective,DP_hindsight_optimum (not deployable),9,0.231552,7.3387e-05,-1446.71,32.75,101.8,True
+objective,DP_hindsight_optimum (not deployable),17,0.337017,7.63941e-05,-1784.61,30.1667,110.565,True
+objective_unforced,risk_aware_rule_based,9,0.238329,7.8686e-05,-1515.07,33.9167,98.4706,True
+objective_unforced,risk_aware_rule_based,17,0.324468,8.2391e-05,-1789.49,31.3333,106.554,True
+objective_unforced,predictive_controller,9,0.251834,7.9458e-05,-1594.45,34.0833,97.909,True
+objective_unforced,predictive_controller,17,0.322835,8.45871e-05,-1806.9,31.75,105.173,True
+objective_unforced,hazard_weighted_rule,9,0.235149,7.75351e-05,-1492.65,33.6667,99.0286,True
+objective_unforced,hazard_weighted_rule,17,0.328841,8.02234e-05,-1787.83,30.9167,107.882,True
+objective_unforced,hazard_weighted_controller,9,0.246305,7.83014e-05,-1552.5,33.8333,98.6848,True
+objective_unforced,hazard_weighted_controller,17,0.328,8.19552e-05,-1804.52,31.25,106.67,True
+objective_unforced,DP_hindsight_optimum (not deployable),9,0.0034965,0.00015489,-230.21,47.6667,69.9301,True
+objective_unforced,DP_hindsight_optimum (not deployable),17,0,0.000130644,-191.44,39.5,84.3882,True

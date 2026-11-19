@@ -136,6 +136,7 @@ from workload.generate import PROFILE_NAMES
 
 __all__ = [
     "SimConfig",
+    "RiskObjective",
     "v0_config",
     "v1_eval_config",
     "latency_mean_ms",
@@ -149,6 +150,29 @@ __all__ = [
 # and the factors are not measured tail ratios of any device.
 _P95_FACTOR: float = math.log(20.0)
 _P99_FACTOR: float = math.log(100.0)
+
+
+@dataclass(frozen=True)
+class RiskObjective:
+    """Optional exposure-weighted degraded-state cost (off by default; ``SimConfig.risk_objective``).
+
+    The contract reward charges ``beta * C`` per degraded interval with ``C = 1``. With this objective the
+    environment charges ``beta * C * h / hazard_ref_per_hour`` instead, ``h`` being the true group hazard (per hour)
+    at the start of the interval, so that an interval spent degraded costs more when the group is more likely to
+    lose a further drive. ``hazard_ref_per_hour`` is the mean initial true group hazard of the evaluation fleet
+    (``baselines.risk_objective.calibrate_hazard_ref``), so the mean charge per degraded interval equals the
+    contract's ``beta`` at that fleet. The contract (``contracts/``) is not changed: the weight multiplies the
+    ``c_degraded`` argument of ``contracts.compute_reward``.
+    """
+
+    hazard_ref_per_hour: float
+
+    def __post_init__(self) -> None:
+        if isinstance(self.hazard_ref_per_hour, bool) or not (
+            isinstance(self.hazard_ref_per_hour, (int, float)) and math.isfinite(self.hazard_ref_per_hour)
+            and self.hazard_ref_per_hour > 0.0
+        ):
+            raise ValueError(f"hazard_ref_per_hour must be a finite number > 0, got {self.hazard_ref_per_hour!r}")
 
 
 @dataclass(frozen=True)
@@ -193,6 +217,11 @@ class SimConfig:
         drive_spread_sd: Standard deviation, in degradation-level units, of a
             drive's deviation from the fleet level. Design decision: 0.15, so
             drives in one group are strongly but not perfectly coupled.
+        risk_objective: ``RiskObjective`` or ``None`` (default, the contract reward): the degraded-state term is
+            weighted by the true group hazard over a reference hazard.
+        infeasible_budget_max_rate: ``True`` (default): when no action meets the risk budget the safety filter
+            applies the largest action. ``False``: the filter applies the requested action in that case (the
+            exposure stays on record in ``violated_risk_budget``); the feasible-budget behaviour is unchanged.
         history_rows: Number of trace rows before the episode's start row that the reset ``info`` carries
             (``contracts.RESET_HISTORY_INFO_KEYS``), the load a deployed system would have monitored before
             the failure; 0 (default) is off and leaves every episode unchanged. When positive, a drawn start
@@ -264,6 +293,8 @@ class SimConfig:
     latency_filter: bool = field(default=False, kw_only=True)
     latency_filter_causal: bool = field(default=False, kw_only=True)
     history_rows: int = field(default=0, kw_only=True)
+    risk_objective: RiskObjective | None = field(default=None, kw_only=True)
+    infeasible_budget_max_rate: bool = field(default=True, kw_only=True)
 
     def __post_init__(self) -> None:
         if isinstance(self.history_rows, bool) or not isinstance(self.history_rows, int) or self.history_rows < 0:

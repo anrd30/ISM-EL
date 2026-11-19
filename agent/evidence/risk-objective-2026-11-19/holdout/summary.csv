@@ -1,0 +1,43 @@
+environment,class,policy,n,total_reward,viol_frac,data_loss_probability,completion_h,delivered_mbps
+contract,all,risk_aware_rule_based,20,-334.003,0.045284,9.88288e-06,43.3542,77.7276
+contract,all,predictive_controller,20,-320.992,0.0472459,8.75353e-06,37.05,90.4589
+contract,all,DP_hindsight_optimum (not deployable),20,-320.175,0.0469427,8.85185e-06,37.4417,89.4411
+contract,primary_controllable,risk_aware_rule_based,16,-62.1901,0.000934278,4.70885e-07,44.7656,74.591
+contract,primary_controllable,predictive_controller,16,-47.0431,0,3.42688e-07,37.7708,88.4697
+contract,primary_controllable,DP_hindsight_optimum (not deployable),16,-46.1489,0,3.50457e-07,38.1927,87.3911
+contract,filter_forced,risk_aware_rule_based,4,-1421.26,0.222683,4.75309e-05,37.7083,90.274
+contract,filter_forced,predictive_controller,4,-1416.79,0.236229,4.23969e-05,34.1667,98.4157
+contract,filter_forced,DP_hindsight_optimum (not deployable),4,-1416.28,0.234714,4.28574e-05,34.4375,97.6412
+objective,all,risk_aware_rule_based,20,-311.173,0.045284,9.88288e-06,43.3542,77.7276
+objective,all,workload_only_throttle,20,-311.173,0.045284,9.88288e-06,43.3542,77.7276
+objective,all,predictive_controller,20,-303.059,0.0472459,8.75353e-06,37.05,90.4589
+objective,all,hazard_weighted_rule,20,-310.649,0.0455376,9.81779e-06,44.225,76.3461
+objective,all,hazard_weighted_controller,20,-302.708,0.04736,8.77892e-06,40.3125,83.5654
+objective,all,DP_hindsight_optimum (not deployable),20,-301.764,0.0472409,8.76523e-06,37.7792,88.7011
+objective,primary_controllable,risk_aware_rule_based,16,-18.9134,0.000934278,4.70885e-07,44.7656,74.591
+objective,primary_controllable,workload_only_throttle,16,-18.9134,0.000934278,4.70885e-07,44.7656,74.591
+objective,primary_controllable,predictive_controller,16,-10.5739,0,3.42688e-07,37.7708,88.4697
+objective,primary_controllable,hazard_weighted_rule,16,-18.3363,0.000912931,4.90273e-07,45.8906,72.749
+objective,primary_controllable,hazard_weighted_controller,16,-10.0752,0,4.0243e-07,41.8542,79.7988
+objective,primary_controllable,DP_hindsight_optimum (not deployable),16,-9.06813,0,3.57231e-07,38.6406,86.3754
+objective,filter_forced,risk_aware_rule_based,4,-1480.21,0.222683,4.75309e-05,37.7083,90.274
+objective,filter_forced,workload_only_throttle,4,-1480.21,0.222683,4.75309e-05,37.7083,90.274
+objective,filter_forced,predictive_controller,4,-1473,0.236229,4.23969e-05,34.1667,98.4157
+objective,filter_forced,hazard_weighted_rule,4,-1479.9,0.224036,4.71278e-05,37.5625,90.7344
+objective,filter_forced,hazard_weighted_controller,4,-1473.24,0.2368,4.22849e-05,34.1458,98.6321
+objective,filter_forced,DP_hindsight_optimum (not deployable),4,-1472.55,0.236205,4.23972e-05,34.3333,98.0038
+objective_unforced,all,risk_aware_rule_based,20,-274.872,0.0381852,1.04154e-05,43.4708,77.3847
+objective_unforced,all,predictive_controller,20,-266.577,0.0401405,9.07483e-06,37.125,90.2072
+objective_unforced,all,hazard_weighted_rule,20,-274.33,0.0384358,1.03281e-05,44.3375,76.0049
+objective_unforced,all,hazard_weighted_controller,20,-266.221,0.0402331,9.09937e-06,40.3875,83.3069
+objective_unforced,all,DP_hindsight_optimum (not deployable),20,-102.529,0.0104931,1.74204e-05,39.1833,85.4774
+objective_unforced,primary_controllable,risk_aware_rule_based,16,-18.9134,0.000934278,4.70885e-07,44.7656,74.591
+objective_unforced,primary_controllable,predictive_controller,16,-10.5739,0,3.42688e-07,37.7708,88.4697
+objective_unforced,primary_controllable,hazard_weighted_rule,16,-18.3363,0.000912931,4.90273e-07,45.8906,72.749
+objective_unforced,primary_controllable,hazard_weighted_controller,16,-10.0752,0,4.0243e-07,41.8542,79.7988
+objective_unforced,primary_controllable,DP_hindsight_optimum (not deployable),16,-9.06813,0,3.57231e-07,38.6406,86.3754
+objective_unforced,filter_forced,risk_aware_rule_based,4,-1298.71,0.187189,5.01935e-05,38.2917,88.5592
+objective_unforced,filter_forced,predictive_controller,4,-1290.59,0.200703,4.40034e-05,34.5417,97.1571
+objective_unforced,filter_forced,hazard_weighted_rule,4,-1298.31,0.188527,4.96796e-05,38.125,89.0289
+objective_unforced,filter_forced,hazard_weighted_controller,4,-1290.8,0.201165,4.38871e-05,34.5208,97.3395
+objective_unforced,filter_forced,DP_hindsight_optimum (not deployable),4,-476.371,0.0524653,8.56733e-05,41.3542,81.8857

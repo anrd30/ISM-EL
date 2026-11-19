@@ -105,7 +105,8 @@ Configuration `v1,eval-fleet,sigma=0.25`, 20 paired scenarios (0 to 19). Rule -3
 
 - **Standard error:** sems are across the 20 scenarios after averaging the three seeds
   within each scenario. The between-seed sd within a scenario is 1.23.
-- **Headroom:** +7.512 is 63% of the oracle headroom, below the ceiling.
+- **Headroom:** +7.512 is 63% of the gain of `OracleLookahead` (+11.850), a one-step greedy reference and not an upper
+  bound; see the correction below for the exact optimum and the controllable scenarios.
 - **Worst scenario:** the lowest seed-averaged scenario gap is -0.51.
 
 ### 3b. Independent disk population, zero-shot (`altB-2026-11-19/`)
@@ -197,7 +198,8 @@ hold on another population:
 
 - **Consistency:** every one of the 12 seed-by-partition combinations beats
   `SeasonalForecastRule`.
-- **Ceiling:** every result is below its own oracle ceiling.
+- **Ceiling:** every result is below the gain of its own `OracleLookahead`, which is a one-step greedy reference, not a
+  ceiling (the exact hindsight optimum is higher by about +1 on the holdout).
 - **Latency:** the violation fraction equals the forecast rule's within 0.0003 on every fold.
 - **Not cross-validation:** the folds overlap by about 75%, so this is a
   boundary-sensitivity check, as in `FORECAST_PPO_DECISION.md`.
@@ -229,13 +231,42 @@ phase shift, the degraded fleet), plus the real Tencent holdouts from
   rule. That is far less than forecast-PPO's -293 to -350 on the same real bursty volumes,
   but it is a loss.
 
+## Correction (2026-11-20): the basis of "63% of the oracle headroom" and the controllable-scenario figures
+
+- **The basis.** The 63% is 7.512 / 11.850: the gain over the rule divided by the gain of `OracleLookahead`, over all
+  20 holdout scenarios. `OracleLookahead` knows the next interval's load but plans one interval at a time
+  (`baselines/policies.py`, its docstring), so it is a reference and not an upper bound. The exact hindsight optimum
+  (`DP_hindsight_optimum`, `agent/OPTIMUM_DECISION.md`) gains +12.863 over the rule on the same scenarios, so the
+  residual Q-policy captures 58% of it.
+- **The scenarios.** Three holdout seeds (9, 17, 19) carry 84% of the rule's total cost and every policy pays nearly
+  the same there, because the safety filter forces the allocation (`agent/SCENARIO_SPLIT_DECISION.md`). On the 16
+  scenarios controllable under the registered definition (the filter raises a `fixed_20` rollout's applied action on
+  fewer than 10% of the intervals; seeds 3, 9, 17, 19 excluded):
+
+| Quantity (holdout, 3 models averaged per scenario) | All 20 | Controllable 16 |
+| --- | --- | --- |
+| residual Q minus rule | +7.512 +/- 1.155 (t 6.50) | +8.834 +/- 1.216 (t 7.26) |
+| residual Q minus `SeasonalForecastRule` | +3.827 +/- 1.071 (t 3.57) | +4.753 +/- 1.234 (t 3.85) |
+| `OracleLookahead` minus rule | +11.850 | +13.753 |
+| hindsight optimum minus rule | +12.863 | +14.836 |
+| residual Q as a share of the `OracleLookahead` gain | 63% | 64% |
+| residual Q as a share of the optimum's gain | 58% | 60% |
+
+- **Reading.** The share is about 60% on the controllable scenarios too, so the correction changes the label ("oracle
+  headroom" is a one-step reference) and not the size. The result on the independent population (altB, above) is
+  unaffected: -49.93 +/- 8.09 against the forecast rule on all scenarios.
+- Sources: this file's holdout evidence for the residual Q-policy; `agent/evidence/scenario-split-2026-11-19/holdout/`
+  (scenario flags, `OracleLookahead`) and `agent/evidence/optimum-2026-11-19/holdout_dp/` (optimum) of the
+  evaluation-fixes branches (#34, #35).
+
 ## Verdict
 
 - **On the population it was trained on, the policy beats `rule_seasonal_forecast`; on an
   independent population it loses to it** (section 3b: -49.93 ± 8.09, t -6.17). The claims below
   hold for the 44-disk `profile_diurnal_long` population and are not established beyond it.
   - **Main holdout:** +3.83 ± 1.07 (t 3.57, 18 of 20 scenarios). That is +7.51 over
-    `risk_aware_rule_based`, 63% of the oracle headroom.
+    `risk_aware_rule_based`, 63% of the gain of `OracleLookahead` (58% of the exact hindsight optimum's gain; see the
+    correction below).
   - **Replication:** the result repeats on all three rolling-origin folds (+3.87, +5.87,
     +4.13; 12 of 12 seed-partitions positive).
   - **Mechanism:** it finishes the rebuild faster and violates the latency limit less, both

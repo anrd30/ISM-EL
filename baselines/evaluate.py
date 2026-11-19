@@ -14,11 +14,20 @@ scenario across policies and raises if they differ.
 
 Metric sources. Every per-episode quantity is taken from the ``info`` mapping
 the environment returns, which the contract defines as the authoritative
-record, and from the step reward. Nothing is re-derived from the observation
-or from the reward. The one quantity ``info`` does not carry is the latency
-degradation ``D``; it is computed from ``info["latency_now"]`` with the
-contract's own ``latency_degradation`` and the configured latency target, the
-same call the environment makes.
+record, and from the step reward. Nothing is re-derived from the reward. The
+quantities ``info`` does not carry are the latency degradation ``D``, computed
+from ``info["latency_now"]`` with the contract's own ``latency_degradation``
+and the configured latency target (the call the environment makes), and the
+``exogenous_violations`` count, which applies the environment's own safety
+filter and latency formulas to the observation the policy saw and the realised
+load (see ``_run_episode``).
+
+Scenario flags. ``filter_forced`` marks a scenario in which the safety filter
+raises a ``fixed_20`` rollout's applied action on at least 10% of intervals
+(``FILTER_FORCED_CLIP_FRACTION``). It is a property of the scenario, identical
+for every policy, and is computed once per workload, seed set and configuration
+by a ``fixed_20`` rollout. ``summarise`` blocks are ``scenario_blocks``: all,
+controllable (not forced) and filter-forced scenarios.
 
 Everything measured here comes from the simulator in ``sim/``: its constants
 are design decisions and its latency model is uncalibrated
@@ -69,22 +78,27 @@ import numpy as np
 import pandas as pd
 
 from baselines.policies import (
+    FixedRate,
     NeedsEnv,
     Policy,
     baseline_policies,
     diagnostic_policies,
 )
 from contracts.contracts import (
+    ACTIONS_MBPS,
     BW_TOTAL_MBPS,
     CONTROL_INTERVAL_S,
     LATENCY_VIOLATION_FRACTION_MAX,
     MAX_EPISODE_STEPS,
     ContractViolation,
+    Observation,
     TerminationReason,
     latency_degradation,
+    latency_violation,
 )
-from sim.config import SimConfig, v1_eval_config
+from sim.config import SimConfig, latency_mean_ms, v1_eval_config
 from sim.recovery_env import RecoveryEnv
+from sim.safety_filter import apply_safety_filter
 from sim.scenario import load_replay_csv
 from workload.generate import PROFILE_NAMES
 
@@ -94,6 +108,10 @@ __all__ = [
     "evaluate",
     "compare",
     "summarise",
+    "scenario_blocks",
+    "forced_seed_sets",
+    "pareto_table",
+    "recovery_time_distribution",
     "paired_delta",
     "to_markdown",
     "check_pairing",
@@ -132,7 +150,21 @@ EPISODE_COLUMNS: tuple[str, ...] = (
     "initial_fg_bw_mbps",
     "initial_budget_infeasible",
     "trace_start_row",
+    "latency_cost",
+    "exogenous_violations",
+    "data_loss_probability",
+    "fixed20_clip_fraction",
+    "fixed20_latency_cost",
+    "filter_forced",
 )
+
+#: A scenario is filter-forced when the safety filter raises a ``fixed_20`` rollout's applied action on at
+#: least this share of the intervals (primary definition; fixed before any result was seen).
+FILTER_FORCED_CLIP_FRACTION: float = 0.10
+#: Sensitivity definitions reported next to the primary one: other clip-fraction thresholds, and a
+#: ``fixed_20`` latency cost above ``FIXED20_LATENCY_COST_THRESHOLD``.
+SENSITIVITY_CLIP_FRACTIONS: tuple[float, ...] = (0.01, 0.25)
+FIXED20_LATENCY_COST_THRESHOLD: float = 50.0
 
 #: Columns that fingerprint a scenario and so must agree across policies. The
 #: provenance columns are included so that a policy run on a different file, or
@@ -145,6 +177,9 @@ _SCENARIO_COLUMNS: tuple[str, ...] = (
     "initial_fg_bw_mbps",
     "initial_budget_infeasible",
     "trace_start_row",
+    "fixed20_clip_fraction",
+    "fixed20_latency_cost",
+    "filter_forced",
 )
 
 #: Metrics reported by ``paired_delta`` by default.
@@ -172,6 +207,19 @@ def _check_policy_config(policy: Policy, config: SimConfig) -> None:
             )
 
 
+def _minimum_action_violates(fg_mbps: float, floor_index: int, config: SimConfig) -> bool:
+    """Whether the smallest action the safety filter allows would violate latency at ``fg_mbps``.
+
+    The delivered rate is ``min(ACTIONS_MBPS[floor_index], max(0, rho_max * BW_TOTAL_MBPS - fg))``, the
+    utilisation ``min(rho_max, (fg + delivered) / BW_TOTAL_MBPS)``, the latency ``latency_mean_ms`` of it:
+    the formulas ``RecoveryEnv.step`` applies, with the contract's violation test.
+    """
+    available = max(0.0, config.rho_max * BW_TOTAL_MBPS - fg_mbps)
+    delivered = min(float(ACTIONS_MBPS[floor_index]), available)
+    rho = min(config.rho_max, (fg_mbps + delivered) / BW_TOTAL_MBPS)
+    return latency_violation(latency_mean_ms(rho, config), config.latency_target_ms) == 1.0
+
+
 def _run_episode(
     env: RecoveryEnv, policy: Policy, source: str, sha256: str | None, seed: int, config: SimConfig
 ) -> dict[str, Any]:
@@ -180,6 +228,15 @@ def _run_episode(
     ``source`` is the caller's name for the workload (profile name or path as
     given) and ``sha256`` the digest of the CSV bytes (``None`` for the generator); the label, the
     synthetic flag and the start row come from the reset ``info``.
+
+    ``exogenous_violations`` counts the intervals in which the smallest action the safety filter allows
+    would also have violated latency. The floor is ``apply_safety_filter(0, hazard, work_remaining)`` on
+    the observation the policy saw before the step (de-normalised with ``Observation.from_vector``), the
+    load is ``info["fg_bw_mbps"]`` of the step; the hazard and the remaining work are those of the
+    policy's own trajectory. The observation's hazard field is clipped at ``OBS_SCALES["hazard"]``; where
+    the reported hazard exceeds it the recovered floor can be lower than the environment's, and the count
+    is then a lower bound. ``data_loss_probability`` is ``P(N >= 2)`` for ``N`` Poisson with mean the
+    sum of ``info["hazard_true_per_hour"]`` over the realised intervals times the interval length in hours.
     """
     obs, reset_info = env.reset(seed=seed)
     synthetic = reset_info["workload_synthetic"]
@@ -197,13 +254,19 @@ def _run_episode(
     clipped: list[bool] = []
     requested: list[float] = []
     delivered: list[float] = []
+    exogenous: list[bool] = []
+    true_hazard: list[float] = []
     total_reward = 0.0
     final_info: dict[str, Any] = reset_info
 
     for _ in range(MAX_EPISODE_STEPS + 1):
         action = int(policy(obs))
+        seen = Observation.from_vector(obs)
+        floor_index = apply_safety_filter(0, seen.hazard, seen.work_remaining).applied_index
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
+        exogenous.append(_minimum_action_violates(float(info["fg_bw_mbps"]), floor_index, config))
+        true_hazard.append(float(info["hazard_true_per_hour"]))
         latency_now.append(float(info["latency_now"]))
         violated_latency.append(bool(info["violated_latency"]))
         p_failure.append(float(info["p_failure_before_complete"]))
@@ -225,6 +288,11 @@ def _run_episode(
     reason = str(final_info["termination_reason"])
     completed = reason == TerminationReason.RECOVERY_COMPLETE.value
     violation_fraction = float(np.mean(violated_latency))
+    latency_cost = float(
+        np.sum(config.reward.alpha * degradation + config.reward.gamma * np.asarray(violated_latency, dtype=np.float64))
+    )
+    expected_failures = float(np.sum(true_hazard)) * CONTROL_INTERVAL_S / 3600.0
+    data_loss = -math.expm1(-expected_failures) - expected_failures * math.exp(-expected_failures)
     return {
         "profile": str(reset_info["workload_profile"]),
         "workload_source": source,
@@ -254,7 +322,44 @@ def _run_episode(
         "initial_fg_bw_mbps": initial_fg,
         "initial_budget_infeasible": bool(reset_info["violated_risk_budget"]),
         "trace_start_row": start_row,
+        "latency_cost": latency_cost,
+        "exogenous_violations": int(sum(exogenous)),
+        "data_loss_probability": data_loss,
     }
+
+
+_SCENARIO_FLAG_CACHE: dict[Any, tuple[Any, dict[int, tuple[float, float]]]] = {}
+_SCENARIO_FLAG_CACHE_SIZE = 16
+
+
+def _config_key(config: SimConfig) -> tuple[Any, ...]:
+    """Hashable description of a config; the hazard model, which cannot be described, enters by identity."""
+    fields = [(f.name, repr(getattr(config, f.name))) for f in dataclasses.fields(config) if f.name != "hazard_model"]
+    return (id(config.hazard_model), tuple(fields))
+
+
+def _scenario_flags(
+    config: SimConfig, source: str, sha256: str | None, seeds: Sequence[int]
+) -> dict[int, tuple[float, float]]:
+    """``fixed_20`` clip fraction and latency cost per seed: the scenario's forcing by the safety filter.
+
+    Cached per (workload, seeds, config); the entry holds a reference to the hazard model so that its
+    identity cannot be reused while the entry exists.
+    """
+    key = (source, sha256, tuple(seeds), _config_key(config))
+    hit = _SCENARIO_FLAG_CACHE.get(key)
+    if hit is not None:
+        return hit[1]
+    env = RecoveryEnv(config)
+    policy = FixedRate(int(ACTIONS_MBPS[0]))
+    flags = {}
+    for seed in seeds:
+        row = _run_episode(env, policy, source, sha256, int(seed), config)
+        flags[int(seed)] = (float(row["clip_fraction"]), float(row["latency_cost"]))
+    if len(_SCENARIO_FLAG_CACHE) >= _SCENARIO_FLAG_CACHE_SIZE:
+        _SCENARIO_FLAG_CACHE.pop(next(iter(_SCENARIO_FLAG_CACHE)))
+    _SCENARIO_FLAG_CACHE[key] = (config.hazard_model, flags)
+    return flags
 
 
 def _file_sha256(path: Path) -> str:
@@ -366,6 +471,12 @@ def evaluate(
     if isinstance(policy, NeedsEnv):
         policy.bind(env)
     rows = [_run_episode(env, policy, source, sha256, s, cfg) for s in seed_list]
+    flags = _scenario_flags(cfg, source, sha256, seed_list)
+    for row in rows:
+        clip_fraction, cost = flags[row["seed"]]
+        row["fixed20_clip_fraction"] = clip_fraction
+        row["fixed20_latency_cost"] = cost
+        row["filter_forced"] = clip_fraction >= FILTER_FORCED_CLIP_FRACTION
     frame = pd.DataFrame(rows, columns=list(EPISODE_COLUMNS))
     # Always object dtype (True / False / None), so frames from sources with and
     # without a sidecar have one column type and None is never coerced to NaN.
@@ -557,6 +668,90 @@ def summarise(df: pd.DataFrame) -> pd.DataFrame:
                     "stall_frac": float(g["stall_fraction"].mean()),
                     "reward": float(reward.mean()),
                     "reward_sem": float(reward.std(ddof=1) / math.sqrt(n)) if n > 1 else float("nan"),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def scenario_blocks(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Rows split by the scenario's ``filter_forced`` flag: ``all``, ``controllable`` and ``filter_forced``."""
+    forced = df["filter_forced"].astype(bool)
+    return {"all": df, "controllable": df[~forced], "filter_forced": df[forced]}
+
+
+def forced_seed_sets(df: pd.DataFrame) -> pd.DataFrame:
+    """Seeds each definition of "filter-forced" flags, per profile.
+
+    ``primary`` is ``fixed20_clip_fraction >= FILTER_FORCED_CLIP_FRACTION``; ``clip_<p>`` uses another
+    threshold from ``SENSITIVITY_CLIP_FRACTIONS``; ``fixed20_cost`` is ``fixed20_latency_cost >
+    FIXED20_LATENCY_COST_THRESHOLD``. One row per profile and definition.
+    """
+    rows: list[dict[str, Any]] = []
+    for profile in _first_appearance_order(df["profile"]):
+        block = df[df["profile"] == profile].drop_duplicates("seed").sort_values("seed")
+        definitions = {"primary": block["fixed20_clip_fraction"] >= FILTER_FORCED_CLIP_FRACTION}
+        for threshold in SENSITIVITY_CLIP_FRACTIONS:
+            definitions[f"clip_{threshold:g}"] = block["fixed20_clip_fraction"] >= threshold
+        definitions["fixed20_cost"] = block["fixed20_latency_cost"] > FIXED20_LATENCY_COST_THRESHOLD
+        for name, mask in definitions.items():
+            seeds = [int(s) for s in block.loc[mask, "seed"]]
+            rows.append({"profile": profile, "definition": name, "n_forced": len(seeds), "n": len(block),
+                         "forced_seeds": " ".join(map(str, seeds))})
+    return pd.DataFrame(rows)
+
+
+def recovery_time_distribution(df: pd.DataFrame) -> pd.DataFrame:
+    """Completion hours per profile and policy: n, mean, p50, p90, p95, p99 and max, completed episodes only."""
+    rows: list[dict[str, Any]] = []
+    for profile in _first_appearance_order(df["profile"]):
+        for policy in _first_appearance_order(df["policy"]):
+            g = df[(df["profile"] == profile) & (df["policy"] == policy)]
+            hours = g.loc[g["completed"].astype(bool), "completion_hours"].to_numpy(dtype=np.float64)
+            if g.empty:
+                continue
+            row: dict[str, Any] = {"profile": profile, "policy": policy, "n": len(g), "n_completed": len(hours)}
+            for name, q in (("p50", 50), ("p90", 90), ("p95", 95), ("p99", 99)):
+                row[name] = float(np.percentile(hours, q)) if len(hours) else float("nan")
+            row["mean"] = float(hours.mean()) if len(hours) else float("nan")
+            row["max"] = float(hours.max()) if len(hours) else float("nan")
+            rows.append(row)
+    return pd.DataFrame(rows, columns=["profile", "policy", "n", "n_completed", "mean", "p50", "p90", "p95", "p99", "max"])
+
+
+def pareto_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Per profile and policy: the completion-time tail against latency, exposure and data-loss figures.
+
+    ``completion_p50/p95/p99`` are over completed episodes; ``viol_frac`` and ``lat_budget_met`` as in
+    :func:`summarise`; ``p_fail_mean`` is the filter's exposure of the applied allocation and
+    ``p_fail_delivered`` the exposure at the delivered rate; ``exog_viol`` is the mean number of intervals
+    per episode in which the smallest allowed action also violates latency; ``data_loss_prob`` is the mean
+    simulated data-loss probability per episode (the probability of two or more further failures under
+    the true group hazard over the realised episode).
+    """
+    rows: list[dict[str, Any]] = []
+    for profile in _first_appearance_order(df["profile"]):
+        for policy in _first_appearance_order(df["policy"]):
+            g = df[(df["profile"] == profile) & (df["policy"] == policy)]
+            if g.empty:
+                continue
+            hours = g.loc[g["completed"].astype(bool), "completion_hours"].to_numpy(dtype=np.float64)
+            nan = float("nan")
+            rows.append(
+                {
+                    "profile": profile,
+                    "policy": policy,
+                    "n": len(g),
+                    "completion_mean_h": float(hours.mean()) if len(hours) else nan,
+                    "completion_p50_h": float(np.percentile(hours, 50)) if len(hours) else nan,
+                    "completion_p95_h": float(np.percentile(hours, 95)) if len(hours) else nan,
+                    "completion_p99_h": float(np.percentile(hours, 99)) if len(hours) else nan,
+                    "viol_frac": float(g["latency_violation_fraction"].mean()),
+                    "lat_budget_met": float(g["latency_budget_met"].mean()),
+                    "latency_cost": float(g["latency_cost"].mean()),
+                    "exog_viol": float(g["exogenous_violations"].mean()),
+                    "p_fail_mean": float(g["p_failure_mean"].mean()),
+                    "p_fail_delivered": float(g["p_failure_delivered_mean"].mean()),
+                    "data_loss_prob": float(g["data_loss_probability"].mean()),
                 }
             )
     return pd.DataFrame(rows)
@@ -793,6 +988,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
     summary = summarise(episodes)
+    blocks = scenario_blocks(episodes)
 
     args.out.mkdir(parents=True, exist_ok=True)
     on_disk = episodes.copy()
@@ -815,7 +1011,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         "",
         _workload_section(episodes),
         "",
-        to_markdown(summary),
+        "## Scenario blocks",
+        "",
+        "`filter_forced`: the safety filter raises a `fixed_20` rollout's applied action on at least "
+        f"{FILTER_FORCED_CLIP_FRACTION:.0%} of the intervals of that scenario. Controllable scenarios are the rest. "
+        "Both are properties of the scenario, identical for every policy.",
+        "",
+        to_markdown(forced_seed_sets(episodes)),
+    ]
+    for title, key in (
+        ("All scenarios", "all"),
+        ("Controllable scenarios", "controllable"),
+        ("Filter-forced scenarios", "filter_forced"),
+    ):
+        block = blocks[key]
+        n_seeds = block.drop_duplicates(["profile", "seed"]).shape[0]
+        parts += ["", f"## {title} ({n_seeds} profile-seed scenarios)", ""]
+        parts.append(to_markdown(summarise(block)) if len(block) else "No scenarios.")
+    parts += [
+        "",
+        "## Pareto table: completion time, latency, exposure and simulated data-loss probability",
+        "",
+        "`exog_viol` is the mean number of intervals per episode in which the smallest action the safety "
+        "filter allows also violates latency, computed on the policy's own trajectory. `data_loss_prob` is "
+        "the simulated data-loss probability: the probability of two or more further failures for a Poisson "
+        "count with mean the true group hazard integrated over the realised episode.",
+        "",
+        to_markdown(pareto_table(episodes)),
+        "",
+        "## Recovery-time distribution (hours, completed episodes)",
+        "",
+        to_markdown(recovery_time_distribution(episodes)),
     ]
     names = {p.name for p in policies}
     pairs = [
@@ -833,6 +1059,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "",
                 to_markdown(paired_delta(episodes, treatment, reference)),
             ]
+            if len(blocks["controllable"]):
+                parts += [
+                    "",
+                    f"## Paired difference, controllable scenarios: {treatment} minus {reference}",
+                    "",
+                    to_markdown(paired_delta(blocks["controllable"], treatment, reference)),
+                ]
+    pareto_table(episodes).to_csv(args.out / "pareto.csv", index=False, lineterminator="\n")
+    recovery_time_distribution(episodes).to_csv(args.out / "recovery_time_distribution.csv", index=False, lineterminator="\n")
     text = "\n".join(parts) + "\n"
     (args.out / "summary.md").write_text(text, encoding="utf-8")
     print(text)

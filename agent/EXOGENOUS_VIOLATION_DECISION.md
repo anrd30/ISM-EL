@@ -92,3 +92,29 @@ estimate against). Says nothing about whether a post-hoc, non-training-time
 exogenous check is possible some other way -- only that this specific
 load-only one is not. The mechanistic-prediction check above is likewise
 limited to the narrow action range one training run actually visited.
+
+## Correction (2026-11-19)
+
+- **Superseded definition.** The load-only `min_action_violates` helper is
+  non-functional here (above). The harness now counts, per episode, the
+  intervals in which the smallest action the safety filter allows would also
+  have violated latency (`exogenous_violations`, `baselines/evaluate.py`): the
+  floor is `apply_safety_filter(0, hazard, work_remaining)` on the observation
+  the policy saw, the load is the realised `fg_bw_mbps`, and the delivered rate
+  and latency use the environment's formulas.
+- **The 8 clipped episodes.** The 8 of 20 `fixed_20` holdout episodes with
+  `clip_fraction` > 0 are scenarios where the safety filter, not the load,
+  sets the allocation. The harness now flags them per scenario
+  (`filter_forced`: the filter raises the `fixed_20` applied action on at least
+  10% of the intervals). The flag is 4 scenarios on the holdout (seeds 3, 9, 17,
+  19) and 4 on altB (3, 9, 17, 19). Seeds 9, 17 and 19 carry 84.2% of the
+  rule's total reward cost on the holdout (80.4% of its latency cost on altB).
+  Evidence: `agent/evidence/scenario-split-2026-11-19/`.
+- **Limit of the count.** The observation's hazard field is clipped at 1.8e-4
+  per hour. On the two scenarios where the reported hazard exceeds that (seeds
+  9 and 17) the recovered floor is lower than the environment's, and the count is
+  a lower bound: for `fixed_20`, whose own violations equal the exogenous ones,
+  68 and 20 counted against 179 and 91 realised on the holdout (66 and 9
+  against 91 and 42 on altB). On every other scenario the count equals the
+  realised violations of `fixed_20`. The counterfactual uses the policy's own
+  trajectory for the hazard and the remaining work.

@@ -1,7 +1,18 @@
-# T-lane decision record: a deterministic residual Q-policy that beats `rule_seasonal_forecast`
+# T-lane decision record: a deterministic residual Q-policy; wins on its own population, reverses on an independent one
 
-Status: proposed. Not yet reviewed by the other lanes. Nothing here changes an existing
-default.
+Status: the holdout win reverses on an independent disk population. On
+`profile_diurnal_long_holdout.csv`, which shares its 44 disks with the training data, the policy
+beats `SeasonalForecastRule` by +3.83 ± 1.07 (t 3.57). Zero-shot on `profile_diurnal_long_altB.csv`
+(150 disks, none of the 44, a disjoint 14-day window; section 3b) it loses to
+`SeasonalForecastRule` by -49.93 ± 8.09 (t -6.17) and to `risk_aware_rule_based` by
+-45.47 ± 7.51 (t -6.05), and each of the three models loses on its own.
+Diagnosis (section 3b): the bandwidth level matches, so this is not a load-scale shift. altB
+differs in its IOPS inputs (67.8% of its states have a feature outside the training range, 59.6%
+from `fg_read_iops`) and in day-to-day repeatability (the load one day earlier predicts the
+next interval with RMSE 13.45 MB/s against 2.74 on the training profile, worse than the last
+value at 9.02). The policy's same-time-yesterday features carry a property of the 44 selected
+disks that altB does not have. Not yet reviewed by the other lanes. Nothing here changes an
+existing default.
 
 Code: `agent/residual_q.py`; `--q-model` added to `agent/evaluate_learned.py` and
 `agent/evaluate_ood.py`; tests in `agent/test_residual_q.py`. Evidence:
@@ -97,6 +108,59 @@ Configuration `v1,eval-fleet,sigma=0.25`, 20 paired scenarios (0 to 19). Rule -3
 - **Headroom:** +7.512 is 63% of the oracle headroom, below the ceiling.
 - **Worst scenario:** the lowest seed-averaged scenario gap is -0.51.
 
+### 3b. Independent disk population, zero-shot (`altB-2026-11-19/`)
+
+`profile_diurnal_long_altB.csv`: 150 Tencent volumes chosen by the same diurnal rule, none of the 44
+of `profile_diurnal_long`, over the 14-day window 2020-06-23 to 2020-07-07, which shares no sample time
+with it. The window and the volume set were fixed and written before any reward on it existed. The
+three main models were evaluated as they are, without retraining, with the same configuration as
+section 3 (`v1,eval-fleet,sigma=0.25`, 20 scenarios). Seeds averaged per scenario.
+
+| Policy | vs `SeasonalForecastRule` | Scenarios better/worse | vs rule | Violation fraction |
+| --- | --- | --- | --- | --- |
+| `residual_q` seed 0 (margin 0.1) | -55.22 | 2 / 18 | -50.76 | 0.0319 |
+| `residual_q` seed 1 (margin 0.25) | -36.38 | 4 / 16 | -31.92 | 0.0289 |
+| `residual_q` seed 2 (margin 0.1) | -58.20 | 2 / 18 | -53.74 | 0.0326 |
+| **seeds averaged per scenario** | **-49.93 ± 8.09 (t = -6.17)** | 2 / 18 | **-45.47 ± 7.51 (t = -6.05)** | |
+| `SeasonalForecastRule` | | | +4.46 ± 2.01 (t = 2.22, 15 / 20 scenarios) | 0.0221 |
+| `risk_aware_rule_based` | | | | 0.0226 |
+
+Oracle headroom on both populations (per-seed paired differences, 20 scenarios):
+
+| | original profile (44 disks) | altB (150 disks) |
+| --- | --- | --- |
+| oracle vs `SeasonalForecastRule` | +8.165 ± 1.362 (t = 6.00) | +24.787 ± 2.371 (t = 10.46) |
+| oracle vs `risk_aware_rule_based` | +11.850 ± 1.496 (t = 7.92) | +29.246 ± 2.924 (t = 10.00) |
+| `SeasonalForecastRule` vs `risk_aware_rule_based` | +3.685 ± 0.276 (t = 13.36, 20 / 20) | +4.459 ± 2.008 (t = 2.22, 15 / 20) |
+
+- **Headroom.** altB has 2.5 to 3 times the exploitable headroom of the original profile on both
+  bases. The narrow ceiling of section 3 is a property of that one disk population.
+- **Where the loss is.** Of the -49.93, -50.25 is the latency terms and +0.32 the degraded-state
+  term. The policy takes 4.38 more violations per episode than the rule (18 of 20 scenarios worse),
+  which is -43.83 at `gamma = 10`; the rest is the degradation term (-6.41). It moves away from the
+  rule's action on about 20% of intervals (47.3 up, 46.0 down per episode), and 65% of the gap
+  accrues before step 288 (-32.29 before, -17.64 after, both significant). On the holdout the violation
+  fraction was 0.0462 for both policies; here it is 0.0312 against 0.0221.
+- **Not a load-scale shift.** Foreground MB/s: mean 69.8 / 70.2 / 63.9, p90 94.4 / 95.0 / 94.0, p99
+  107.7 / 107.3 / 108.2, max 116.8 / 116.3 / 120.8 (train / holdout / altB). No interval of any profile is
+  above the 182.2 MB/s threshold. The median of altB is lower (63.8 against 78.0 and 78.9).
+- **Feature coverage.** Against the min and max of the training feature vectors, 1.0% of holdout states
+  and 67.8% of altB states have at least one feature outside the range. `fg_read_iops` is outside in
+  59.6% (mean read IOPS 28,126 against 4,536; write IOPS 57,524 against 5,794), `level_change_vs_yday` in
+  10.8%, the 12 load-change features in 1.0% to 3.4% each. Trees treat a value outside the training range
+  as the nearest extreme bin.
+- **Repeatability.** RMSE of the same-time-yesterday load against the next interval: 2.74 / 2.01 / 13.45 MB/s
+  (train / holdout / altB), against 10.12 / 10.36 / 9.02 for the last value. Correlation of step changes
+  with the step changes one day earlier: 0.970 / 0.987 / 0.585. The same-time-yesterday features
+  (`residual_features.py`, "Why same time yesterday") rest on the first two figures.
+- **What this does not separate.** The two differing input groups, the IOPS features and the
+  yesterday features, were not ablated, so the loss is not attributed to one of them. The figures
+  do not distinguish "learned something specific to the 44 disks" from "relied on inputs whose
+  relation to the target differs". No feature-scaling change is indicated, because the bandwidth
+  scale matches.
+- **Harness.** With `margin = 1e9` the policy on altB is identical to `SeasonalForecastRule` in actions and
+  per-step rewards on all 20 seeds, and in every column returned by `evaluate()` except the policy name.
+
 ### 4. Mechanism (holdout, per-policy totals from `holdout/episodes.csv`)
 
 Reward gap versus `SeasonalForecastRule`, split into the rebuild-time term (`beta` x
@@ -119,7 +183,10 @@ intervals) and the latency term (`alpha * D + gamma * V` summed):
 ### 5. Replication on the three rolling-origin folds (`sfold1/` to `sfold3/`)
 
 Retrained from scratch on each `profile_diurnal_long_sfold<k>_train.csv`, same protocol,
-evaluated on `profile_diurnal_long_sfold<k>_holdout.csv`:
+evaluated on `profile_diurnal_long_sfold<k>_holdout.csv`. All four partitions are windows of the same
+14 days of the same 44 disks. These folds test which days are held out within one 44-disk population;
+they do not test generalisation across populations. Section 3b shows the result they replicate did not
+hold on another population:
 
 | Fold | vs `SeasonalForecastRule` | t | Scenarios better | Per seed | vs rule | Oracle vs rule |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -134,6 +201,9 @@ evaluated on `profile_diurnal_long_sfold<k>_holdout.csv`:
 - **Latency:** the violation fraction equals the forecast rule's within 0.0003 on every fold.
 - **Not cross-validation:** the folds overlap by about 75%, so this is a
   boundary-sensitivity check, as in `FORECAST_PPO_DECISION.md`.
+- **Not independent evidence of generalisation:** every fold shares the 44 disks and the window of
+  `profile_diurnal_long`. Agreement across the folds measured sensitivity to the cut point within that
+  population. It did not predict the altB result.
 
 ### 6. Out of distribution (`ood/`)
 
@@ -161,8 +231,9 @@ phase shift, the degraded fleet), plus the real Tencent holdouts from
 
 ## Verdict
 
-- **Under honest evaluation the policy beats `rule_seasonal_forecast`,** the project's
-  strongest surviving controller.
+- **On the population it was trained on, the policy beats `rule_seasonal_forecast`; on an
+  independent population it loses to it** (section 3b: -49.93 ± 8.09, t -6.17). The claims below
+  hold for the 44-disk `profile_diurnal_long` population and are not established beyond it.
   - **Main holdout:** +3.83 ± 1.07 (t 3.57, 18 of 20 scenarios). That is +7.51 over
     `risk_aware_rule_based`, 63% of the oracle headroom.
   - **Replication:** the result repeats on all three rolling-origin folds (+3.87, +5.87,
@@ -170,8 +241,10 @@ phase shift, the degraded fleet), plus the real Tencent holdouts from
   - **Mechanism:** it finishes the rebuild faster and violates the latency limit less, both
     measured.
 - **It is not a general controller.** It is unsafe nowhere tested, but it loses to both
-  rules on workloads without a usable daily cycle, including real bursty Tencent volumes.
-  The claim is scoped to strongly periodic load like `profile_diurnal_long`.
+  rules on workloads without a usable daily cycle, including real bursty Tencent volumes, and on
+  altB, whose aggregate is selected by the same daily-cycle rule but repeats from day to day far less
+  (step-change correlation 0.585 against 0.970). The claim is scoped to the 44-disk population of
+  `profile_diurnal_long`.
 - **What did not work, and why:**
   - **PPO-family methods** (`PPO_COLLAPSE_DECISION.md`, `L3_DECISION.md`,
     `BARRIER_DECISION.md`, `FORECAST_PPO_DECISION.md`): their returns carry the scenario
@@ -204,6 +277,10 @@ phase shift, the degraded fleet), plus the real Tencent holdouts from
   gaps are lower.
 - **Seeds.** Seeds vary the rollout and exploration randomness and the tree seeds, not the
   data window. Between-seed sd within a scenario is 1.2.
+- **One training population.** Every trained model, every fold and the holdout use the same 44
+  disks. Generalisation to unseen disks was tested once (section 3b) and failed. A claim of
+  generalisation needs a test on a population no model or selection has touched; the altB profile has
+  now been evaluated and cannot serve as that test again.
 - **Holdout history.** The holdout window has shaped earlier lanes' work
   (`FORECAST_PPO_DECISION.md`, Limits). This method was designed from the training days,
   the inner validation days and the committed decision records, and evaluated on the

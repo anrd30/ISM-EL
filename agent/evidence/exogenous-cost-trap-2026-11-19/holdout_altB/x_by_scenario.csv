@@ -1,0 +1,401 @@
+profile,policy,seed,steps,X,C,f,X_above_d
+diurnal_long_holdout,fixed_20,0,2000,0,0,,False
+diurnal_long_holdout,fixed_20,1,2000,0,0,,False
+diurnal_long_holdout,fixed_20,2,1760,0,0,,False
+diurnal_long_holdout,fixed_20,3,1144,0.00174825,0.00174825,1,False
+diurnal_long_holdout,fixed_20,4,2000,0,0,,False
+diurnal_long_holdout,fixed_20,5,2000,0,0,,False
+diurnal_long_holdout,fixed_20,6,2000,0,0,,False
+diurnal_long_holdout,fixed_20,7,2000,0,0,,False
+diurnal_long_holdout,fixed_20,8,2000,0,0,,False
+diurnal_long_holdout,fixed_20,9,582,0.30756,0.30756,1,True
+diurnal_long_holdout,fixed_20,10,2000,0,0,,False
+diurnal_long_holdout,fixed_20,11,2000,0,0,,False
+diurnal_long_holdout,fixed_20,12,2000,0,0,,False
+diurnal_long_holdout,fixed_20,13,2000,0,0,,False
+diurnal_long_holdout,fixed_20,14,2000,0,0,,False
+diurnal_long_holdout,fixed_20,15,2000,0,0,,False
+diurnal_long_holdout,fixed_20,16,1862,0,0,,False
+diurnal_long_holdout,fixed_20,17,647,0.140649,0.140649,1,True
+diurnal_long_holdout,fixed_20,18,1921,0,0,,False
+diurnal_long_holdout,fixed_20,19,842,0.104513,0.104513,1,True
+diurnal_long_holdout,fixed_50,0,800,0,0,,False
+diurnal_long_holdout,fixed_50,1,800,0,0,,False
+diurnal_long_holdout,fixed_50,2,800,0,0,,False
+diurnal_long_holdout,fixed_50,3,748,0.0026738,0.0026738,1,False
+diurnal_long_holdout,fixed_50,4,800,0,0,,False
+diurnal_long_holdout,fixed_50,5,800,0,0,,False
+diurnal_long_holdout,fixed_50,6,800,0,0,,False
+diurnal_long_holdout,fixed_50,7,800,0,0,,False
+diurnal_long_holdout,fixed_50,8,800,0,0,,False
+diurnal_long_holdout,fixed_50,9,474,0.377637,0.377637,1,True
+diurnal_long_holdout,fixed_50,10,800,0,0,,False
+diurnal_long_holdout,fixed_50,11,800,0,0,,False
+diurnal_long_holdout,fixed_50,12,800,0,0,,False
+diurnal_long_holdout,fixed_50,13,800,0,0,,False
+diurnal_long_holdout,fixed_50,14,800,0,0,,False
+diurnal_long_holdout,fixed_50,15,800,0,0,,False
+diurnal_long_holdout,fixed_50,16,800,0,0,,False
+diurnal_long_holdout,fixed_50,17,506,0.179842,0.179842,1,True
+diurnal_long_holdout,fixed_50,18,800,0,0,,False
+diurnal_long_holdout,fixed_50,19,612,0.143791,0.143791,1,True
+diurnal_long_holdout,fixed_80,0,500,0,0.032,0,False
+diurnal_long_holdout,fixed_80,1,500,0,0.036,0,False
+diurnal_long_holdout,fixed_80,2,501,0,0.0399202,0,False
+diurnal_long_holdout,fixed_80,3,500,0.004,0.032,0.125,False
+diurnal_long_holdout,fixed_80,4,501,0,0.0359281,0,False
+diurnal_long_holdout,fixed_80,5,501,0,0.0339321,0,False
+diurnal_long_holdout,fixed_80,6,500,0,0.038,0,False
+diurnal_long_holdout,fixed_80,7,501,0,0.0439122,0,False
+diurnal_long_holdout,fixed_80,8,500,0,0.032,0,False
+diurnal_long_holdout,fixed_80,9,407,0.439803,0.447174,0.983516,True
+diurnal_long_holdout,fixed_80,10,501,0,0.0339321,0,False
+diurnal_long_holdout,fixed_80,11,500,0,0.022,0,False
+diurnal_long_holdout,fixed_80,12,501,0,0.0299401,0,False
+diurnal_long_holdout,fixed_80,13,500,0,0.04,0,False
+diurnal_long_holdout,fixed_80,14,501,0,0.0319361,0,False
+diurnal_long_holdout,fixed_80,15,500,0,0.028,0,False
+diurnal_long_holdout,fixed_80,16,500,0,0.032,0,False
+diurnal_long_holdout,fixed_80,17,417,0.218225,0.223022,0.978495,True
+diurnal_long_holdout,fixed_80,18,500,0,0.04,0,False
+diurnal_long_holdout,fixed_80,19,467,0.188437,0.207709,0.907216,True
+diurnal_long_holdout,fixed_120,0,352,0,0.622159,0,False
+diurnal_long_holdout,fixed_120,1,354,0,0.742938,0,False
+diurnal_long_holdout,fixed_120,2,355,0,0.743662,0,False
+diurnal_long_holdout,fixed_120,3,348,0,0.643678,0,False
+diurnal_long_holdout,fixed_120,4,354,0,0.666667,0,False
+diurnal_long_holdout,fixed_120,5,354,0,0.742938,0,False
+diurnal_long_holdout,fixed_120,6,348,0,0.635057,0,False
+diurnal_long_holdout,fixed_120,7,354,0,0.714689,0,False
+diurnal_long_holdout,fixed_120,8,351,0,0.581197,0,False
+diurnal_long_holdout,fixed_120,9,348,0.514368,0.603448,0.852381,True
+diurnal_long_holdout,fixed_120,10,352,0,0.661932,0,False
+diurnal_long_holdout,fixed_120,11,347,0,0.56196,0,False
+diurnal_long_holdout,fixed_120,12,353,0,0.74221,0,False
+diurnal_long_holdout,fixed_120,13,353,0,0.74221,0,False
+diurnal_long_holdout,fixed_120,14,355,0,0.743662,0,False
+diurnal_long_holdout,fixed_120,15,347,0,0.567723,0,False
+diurnal_long_holdout,fixed_120,16,351,0,0.729345,0,False
+diurnal_long_holdout,fixed_120,17,347,0.253602,0.582133,0.435644,True
+diurnal_long_holdout,fixed_120,18,350,0,0.682857,0,False
+diurnal_long_holdout,fixed_120,19,353,0.249292,0.74221,0.335878,True
+diurnal_long_holdout,workload_only_throttle,0,535,0,0,,False
+diurnal_long_holdout,workload_only_throttle,1,520,0,0,,False
+diurnal_long_holdout,workload_only_throttle,2,536,0,0.00186567,0,False
+diurnal_long_holdout,workload_only_throttle,3,552,0.00181159,0.00181159,1,False
+diurnal_long_holdout,workload_only_throttle,4,544,0,0.00183824,0,False
+diurnal_long_holdout,workload_only_throttle,5,530,0,0,,False
+diurnal_long_holdout,workload_only_throttle,6,561,0,0,,False
+diurnal_long_holdout,workload_only_throttle,7,559,0,0.00178891,0,False
+diurnal_long_holdout,workload_only_throttle,8,562,0,0,,False
+diurnal_long_holdout,workload_only_throttle,9,390,0.458974,0.458974,1,True
+diurnal_long_holdout,workload_only_throttle,10,540,0,0.00185185,0,False
+diurnal_long_holdout,workload_only_throttle,11,524,0,0,,False
+diurnal_long_holdout,workload_only_throttle,12,513,0,0,,False
+diurnal_long_holdout,workload_only_throttle,13,544,0,0,,False
+diurnal_long_holdout,workload_only_throttle,14,529,0,0.00189036,0,False
+diurnal_long_holdout,workload_only_throttle,15,555,0,0,,False
+diurnal_long_holdout,workload_only_throttle,16,544,0,0,,False
+diurnal_long_holdout,workload_only_throttle,17,397,0.229219,0.229219,1,True
+diurnal_long_holdout,workload_only_throttle,18,558,0,0.00179211,0,False
+diurnal_long_holdout,workload_only_throttle,19,471,0.186837,0.186837,1,True
+diurnal_long_holdout,risk_aware_rule_based,0,535,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,1,520,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,2,536,0,0.00186567,0,False
+diurnal_long_holdout,risk_aware_rule_based,3,552,0.00181159,0.00181159,1,False
+diurnal_long_holdout,risk_aware_rule_based,4,544,0,0.00183824,0,False
+diurnal_long_holdout,risk_aware_rule_based,5,530,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,6,561,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,7,559,0,0.00178891,0,False
+diurnal_long_holdout,risk_aware_rule_based,8,562,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,9,390,0.458974,0.458974,1,True
+diurnal_long_holdout,risk_aware_rule_based,10,540,0,0.00185185,0,False
+diurnal_long_holdout,risk_aware_rule_based,11,524,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,12,513,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,13,544,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,14,529,0,0.00189036,0,False
+diurnal_long_holdout,risk_aware_rule_based,15,555,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,16,544,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based,17,397,0.229219,0.229219,1,True
+diurnal_long_holdout,risk_aware_rule_based,18,558,0,0.00179211,0,False
+diurnal_long_holdout,risk_aware_rule_based,19,471,0.186837,0.186837,1,True
+diurnal_long_holdout,ORACLE_lookahead (not deployable),0,428,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),1,458,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),2,461,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),3,456,0.00219298,0.00219298,1,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),4,430,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),5,463,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),6,457,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),7,475,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),8,448,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),9,366,0.489071,0.489071,1,True
+diurnal_long_holdout,ORACLE_lookahead (not deployable),10,427,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),11,427,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),12,443,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),13,477,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),14,444,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),15,439,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),16,474,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),17,379,0.240106,0.240106,1,True
+diurnal_long_holdout,ORACLE_lookahead (not deployable),18,466,0,0,,False
+diurnal_long_holdout,ORACLE_lookahead (not deployable),19,429,0.205128,0.205128,1,True
+diurnal_long_holdout,slowest_risk_feasible (literal spec),0,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),1,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),2,1760,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),3,1144,0.00174825,0.00174825,1,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),4,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),5,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),6,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),7,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),8,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),9,582,0.30756,0.30756,1,True
+diurnal_long_holdout,slowest_risk_feasible (literal spec),10,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),11,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),12,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),13,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),14,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),15,2000,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),16,1862,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),17,647,0.140649,0.140649,1,True
+diurnal_long_holdout,slowest_risk_feasible (literal spec),18,1921,0,0,,False
+diurnal_long_holdout,slowest_risk_feasible (literal spec),19,842,0.104513,0.104513,1,True
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),0,415,0,0.060241,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),1,448,0,0.0513393,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),2,450,0,0.0577778,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),3,442,0.00226244,0.0497738,0.0454545,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),4,418,0,0.0550239,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),5,453,0,0.0507726,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),6,442,0,0.0520362,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),7,456,0,0.0570175,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),8,433,0,0.0600462,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),9,362,0.494475,0.51105,0.967568,True
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),10,417,0,0.0551559,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),11,415,0,0.0506024,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),12,435,0,0.0482759,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),13,463,0,0.0475162,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),14,435,0,0.0505747,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),15,425,0,0.0447059,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),16,458,0,0.0480349,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),17,378,0.240741,0.248677,0.968085,True
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),18,450,0,0.0511111,0,False
+diurnal_long_holdout,risk_aware_ceiling_persistence (literal spec),19,422,0.208531,0.248815,0.838095,True
+diurnal_long_holdout,risk_aware_rule_based k=1,0,535,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,1,520,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,2,536,0,0.00186567,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,3,461,0,0.175705,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,4,544,0,0.00183824,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,5,530,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,6,561,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,7,559,0,0.00178891,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,8,562,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,9,390,0.458974,0.458974,1,True
+diurnal_long_holdout,risk_aware_rule_based k=1,10,540,0,0.00185185,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,11,524,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,12,513,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,13,544,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,14,529,0,0.00189036,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,15,555,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,16,544,0,0,,False
+diurnal_long_holdout,risk_aware_rule_based k=1,17,382,0.232984,0.311518,0.747899,True
+diurnal_long_holdout,risk_aware_rule_based k=1,18,558,0,0.00179211,0,False
+diurnal_long_holdout,risk_aware_rule_based k=1,19,453,0.19426,0.284768,0.682171,True
+diurnal_long_altB,fixed_20,0,2000,0,0,,False
+diurnal_long_altB,fixed_20,1,2000,0,0,,False
+diurnal_long_altB,fixed_20,2,1760,0,0,,False
+diurnal_long_altB,fixed_20,3,1144,0,0,,False
+diurnal_long_altB,fixed_20,4,2000,0,0,,False
+diurnal_long_altB,fixed_20,5,2000,0,0,,False
+diurnal_long_altB,fixed_20,6,2000,0,0,,False
+diurnal_long_altB,fixed_20,7,2000,0,0,,False
+diurnal_long_altB,fixed_20,8,2000,0,0,,False
+diurnal_long_altB,fixed_20,9,575,0.158261,0.158261,1,True
+diurnal_long_altB,fixed_20,10,2000,0,0,,False
+diurnal_long_altB,fixed_20,11,2000,0,0,,False
+diurnal_long_altB,fixed_20,12,2000,0,0,,False
+diurnal_long_altB,fixed_20,13,2000,0,0,,False
+diurnal_long_altB,fixed_20,14,2000,0,0,,False
+diurnal_long_altB,fixed_20,15,2000,0,0,,False
+diurnal_long_altB,fixed_20,16,1862,0,0,,False
+diurnal_long_altB,fixed_20,17,643,0.0653188,0.0653188,1,True
+diurnal_long_altB,fixed_20,18,1921,0,0,,False
+diurnal_long_altB,fixed_20,19,838,0.0143198,0.0143198,1,False
+diurnal_long_altB,fixed_50,0,800,0,0,,False
+diurnal_long_altB,fixed_50,1,800,0,0,,False
+diurnal_long_altB,fixed_50,2,800,0,0,,False
+diurnal_long_altB,fixed_50,3,748,0,0,,False
+diurnal_long_altB,fixed_50,4,800,0,0,,False
+diurnal_long_altB,fixed_50,5,800,0,0,,False
+diurnal_long_altB,fixed_50,6,800,0,0,,False
+diurnal_long_altB,fixed_50,7,800,0,0,,False
+diurnal_long_altB,fixed_50,8,800,0,0,,False
+diurnal_long_altB,fixed_50,9,466,0.195279,0.195279,1,True
+diurnal_long_altB,fixed_50,10,800,0,0,,False
+diurnal_long_altB,fixed_50,11,800,0,0,,False
+diurnal_long_altB,fixed_50,12,800,0,0,,False
+diurnal_long_altB,fixed_50,13,800,0,0,,False
+diurnal_long_altB,fixed_50,14,800,0,0,,False
+diurnal_long_altB,fixed_50,15,800,0,0,,False
+diurnal_long_altB,fixed_50,16,800,0,0,,False
+diurnal_long_altB,fixed_50,17,502,0.0836653,0.0836653,1,True
+diurnal_long_altB,fixed_50,18,800,0,0,,False
+diurnal_long_altB,fixed_50,19,607,0.0197694,0.0197694,1,False
+diurnal_long_altB,fixed_80,0,501,0,0.0479042,0,False
+diurnal_long_altB,fixed_80,1,501,0,0.0698603,0,False
+diurnal_long_altB,fixed_80,2,500,0,0.062,0,False
+diurnal_long_altB,fixed_80,3,500,0,0.012,0,False
+diurnal_long_altB,fixed_80,4,500,0,0.042,0,False
+diurnal_long_altB,fixed_80,5,500,0,0,,False
+diurnal_long_altB,fixed_80,6,501,0,0.0459082,0,False
+diurnal_long_altB,fixed_80,7,501,0,0.0878244,0,False
+diurnal_long_altB,fixed_80,8,501,0,0.0718563,0,False
+diurnal_long_altB,fixed_80,9,398,0.228643,0.286432,0.798246,True
+diurnal_long_altB,fixed_80,10,500,0,0.014,0,False
+diurnal_long_altB,fixed_80,11,500,0,0.014,0,False
+diurnal_long_altB,fixed_80,12,500,0,0.002,0,False
+diurnal_long_altB,fixed_80,13,501,0,0.115768,0,False
+diurnal_long_altB,fixed_80,14,500,0,0.032,0,False
+diurnal_long_altB,fixed_80,15,501,0,0.0459082,0,False
+diurnal_long_altB,fixed_80,16,500,0,0.006,0,False
+diurnal_long_altB,fixed_80,17,413,0.101695,0.101695,1,True
+diurnal_long_altB,fixed_80,18,501,0,0.0618762,0,False
+diurnal_long_altB,fixed_80,19,462,0.025974,0.025974,1,False
+diurnal_long_altB,fixed_120,0,340,0,0.470588,0,False
+diurnal_long_altB,fixed_120,1,353,0,0.501416,0,False
+diurnal_long_altB,fixed_120,2,363,0,0.694215,0,False
+diurnal_long_altB,fixed_120,3,344,0,0.593023,0,False
+diurnal_long_altB,fixed_120,4,361,0,0.66759,0,False
+diurnal_long_altB,fixed_120,5,340,0,0.511765,0,False
+diurnal_long_altB,fixed_120,6,351,0,0.527066,0,False
+diurnal_long_altB,fixed_120,7,368,0,0.725543,0,False
+diurnal_long_altB,fixed_120,8,354,0,0.542373,0,False
+diurnal_long_altB,fixed_120,9,353,0.25779,0.634561,0.40625,True
+diurnal_long_altB,fixed_120,10,338,0,0.402367,0,False
+diurnal_long_altB,fixed_120,11,347,0,0.631124,0,False
+diurnal_long_altB,fixed_120,12,339,0,0.474926,0,False
+diurnal_long_altB,fixed_120,13,352,0,0.667614,0,False
+diurnal_long_altB,fixed_120,14,352,0,0.502841,0,False
+diurnal_long_altB,fixed_120,15,339,0,0.525074,0,False
+diurnal_long_altB,fixed_120,16,340,0,0.535294,0,False
+diurnal_long_altB,fixed_120,17,338,0.12426,0.33432,0.371681,True
+diurnal_long_altB,fixed_120,18,349,0,0.461318,0,False
+diurnal_long_altB,fixed_120,19,339,0.0353982,0.460177,0.0769231,False
+diurnal_long_altB,workload_only_throttle,0,496,0,0.00403226,0,False
+diurnal_long_altB,workload_only_throttle,1,472,0,0.00211864,0,False
+diurnal_long_altB,workload_only_throttle,2,521,0,0.00575816,0,False
+diurnal_long_altB,workload_only_throttle,3,476,0,0.00210084,0,False
+diurnal_long_altB,workload_only_throttle,4,501,0,0.00798403,0,False
+diurnal_long_altB,workload_only_throttle,5,457,0,0.00218818,0,False
+diurnal_long_altB,workload_only_throttle,6,459,0,0.00653595,0,False
+diurnal_long_altB,workload_only_throttle,7,534,0,0.00561798,0,False
+diurnal_long_altB,workload_only_throttle,8,550,0,0.00545455,0,False
+diurnal_long_altB,workload_only_throttle,9,405,0.224691,0.22963,0.978495,True
+diurnal_long_altB,workload_only_throttle,10,471,0,0.00212314,0,False
+diurnal_long_altB,workload_only_throttle,11,468,0,0.0042735,0,False
+diurnal_long_altB,workload_only_throttle,12,456,0,0.00438596,0,False
+diurnal_long_altB,workload_only_throttle,13,497,0,0.00603622,0,False
+diurnal_long_altB,workload_only_throttle,14,555,0,0.0018018,0,False
+diurnal_long_altB,workload_only_throttle,15,478,0,0.00627615,0,False
+diurnal_long_altB,workload_only_throttle,16,440,0,0.00681818,0,False
+diurnal_long_altB,workload_only_throttle,17,376,0.111702,0.114362,0.976744,True
+diurnal_long_altB,workload_only_throttle,18,491,0,0.00610998,0,False
+diurnal_long_altB,workload_only_throttle,19,420,0.0285714,0.0285714,1,False
+diurnal_long_altB,risk_aware_rule_based,0,496,0,0.00403226,0,False
+diurnal_long_altB,risk_aware_rule_based,1,472,0,0.00211864,0,False
+diurnal_long_altB,risk_aware_rule_based,2,521,0,0.00575816,0,False
+diurnal_long_altB,risk_aware_rule_based,3,476,0,0.00210084,0,False
+diurnal_long_altB,risk_aware_rule_based,4,501,0,0.00798403,0,False
+diurnal_long_altB,risk_aware_rule_based,5,457,0,0.00218818,0,False
+diurnal_long_altB,risk_aware_rule_based,6,459,0,0.00653595,0,False
+diurnal_long_altB,risk_aware_rule_based,7,534,0,0.00561798,0,False
+diurnal_long_altB,risk_aware_rule_based,8,550,0,0.00545455,0,False
+diurnal_long_altB,risk_aware_rule_based,9,405,0.224691,0.22963,0.978495,True
+diurnal_long_altB,risk_aware_rule_based,10,471,0,0.00212314,0,False
+diurnal_long_altB,risk_aware_rule_based,11,468,0,0.0042735,0,False
+diurnal_long_altB,risk_aware_rule_based,12,456,0,0.00438596,0,False
+diurnal_long_altB,risk_aware_rule_based,13,497,0,0.00603622,0,False
+diurnal_long_altB,risk_aware_rule_based,14,555,0,0.0018018,0,False
+diurnal_long_altB,risk_aware_rule_based,15,478,0,0.00627615,0,False
+diurnal_long_altB,risk_aware_rule_based,16,440,0,0.00681818,0,False
+diurnal_long_altB,risk_aware_rule_based,17,376,0.111702,0.114362,0.976744,True
+diurnal_long_altB,risk_aware_rule_based,18,491,0,0.00610998,0,False
+diurnal_long_altB,risk_aware_rule_based,19,420,0.0285714,0.0285714,1,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),0,444,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),1,436,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),2,461,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),3,444,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),4,438,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),5,398,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),6,412,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),7,454,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),8,449,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),9,393,0.231552,0.231552,1,True
+diurnal_long_altB,ORACLE_lookahead (not deployable),10,420,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),11,417,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),12,425,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),13,466,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),14,435,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),15,441,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),16,405,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),17,360,0.116667,0.116667,1,True
+diurnal_long_altB,ORACLE_lookahead (not deployable),18,421,0,0,,False
+diurnal_long_altB,ORACLE_lookahead (not deployable),19,400,0.03,0.03,1,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),0,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),1,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),2,1760,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),3,1144,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),4,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),5,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),6,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),7,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),8,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),9,575,0.158261,0.158261,1,True
+diurnal_long_altB,slowest_risk_feasible (literal spec),10,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),11,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),12,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),13,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),14,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),15,2000,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),16,1862,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),17,643,0.0653188,0.0653188,1,True
+diurnal_long_altB,slowest_risk_feasible (literal spec),18,1921,0,0,,False
+diurnal_long_altB,slowest_risk_feasible (literal spec),19,838,0.0143198,0.0143198,1,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),0,418,0,0.0574163,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),1,419,0,0.0692124,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),2,440,0,0.075,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),3,430,0,0.0627907,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),4,420,0,0.0595238,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),5,392,0,0.0510204,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),6,402,0,0.0646766,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),7,437,0,0.0869565,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),8,428,0,0.0607477,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),9,388,0.234536,0.270619,0.866667,True
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),10,397,0,0.0730479,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),11,409,0,0.0366748,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),12,411,0,0.0729927,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),13,454,0,0.0814978,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),14,410,0,0.0609756,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),15,427,0,0.0772834,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),16,396,0,0.0656566,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),17,359,0.116992,0.122563,0.954545,True
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),18,403,0,0.0794045,0,False
+diurnal_long_altB,risk_aware_ceiling_persistence (literal spec),19,390,0.0307692,0.0820513,0.375,False
+diurnal_long_altB,risk_aware_rule_based k=1,0,496,0,0.00403226,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,1,472,0,0.00211864,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,2,521,0,0.00575816,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,3,420,0,0.259524,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,4,501,0,0.00798403,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,5,457,0,0.00218818,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,6,459,0,0.00653595,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,7,534,0,0.00561798,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,8,550,0,0.00545455,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,9,405,0.224691,0.22963,0.978495,True
+diurnal_long_altB,risk_aware_rule_based k=1,10,471,0,0.00212314,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,11,468,0,0.0042735,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,12,456,0,0.00438596,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,13,497,0,0.00603622,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,14,555,0,0.0018018,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,15,478,0,0.00627615,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,16,440,0,0.00681818,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,17,364,0.115385,0.186813,0.617647,True
+diurnal_long_altB,risk_aware_rule_based k=1,18,491,0,0.00610998,0,False
+diurnal_long_altB,risk_aware_rule_based k=1,19,372,0.0322581,0.22043,0.146341,False

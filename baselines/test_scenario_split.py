@@ -17,6 +17,8 @@ from baselines.evaluate import (
     _pinned_config,
     compare,
     evaluate,
+    controllable_sensitivity,
+    forced_masks,
     forced_seed_sets,
     main,
     pareto_table,
@@ -25,7 +27,7 @@ from baselines.evaluate import (
 )
 from baselines.policies import FixedRate
 from contracts.contracts import ACTIONS_MBPS, BW_TOTAL_MBPS, CONTROL_INTERVAL_S, Observation
-from sim.config import v0_config, v1_eval_config
+from sim.config import SimConfig, v0_config, v1_eval_config
 from sim.recovery_env import RecoveryEnv
 from sim.safety_filter import apply_safety_filter
 
@@ -103,23 +105,68 @@ def test_fixed_20_exogenous_violations_equal_its_violations_when_the_floor_is_un
     assert (frame["exogenous_violations"] > 0).any()
 
 
-@needs_holdout
-@needs_v1
-def test_floor_from_the_observation_equals_the_applied_floor_when_the_hazard_is_below_the_scale() -> None:
-    config, _ = _pinned_config(EVAL, HOLDOUT)
+def _floors_match_the_environment(config: SimConfig, seeds: list[int]) -> int:
+    """Steps checked: the floor from the reported hazard and the observed work equals the applied action of fixed_20."""
     env = RecoveryEnv(config)
     checked = 0
-    for seed in (0, 3):
-        obs, _ = env.reset(seed=seed)
+    for seed in seeds:
+        obs, reset_info = env.reset(seed=seed)
+        hazard = float(reset_info["hazard_reported_per_hour"])
         while True:
             seen = Observation.from_vector(obs)
-            floor = apply_safety_filter(0, seen.hazard, seen.work_remaining).applied_index
+            floor = apply_safety_filter(0, hazard, seen.work_remaining).applied_index
             obs, _, terminated, truncated, info = env.step(0)
-            assert float(ACTIONS_MBPS[floor]) == info["alloc_applied_mbps"]
+            hazard = float(info["hazard_reported_per_hour"])
+            assert float(ACTIONS_MBPS[floor]) == info["alloc_applied_mbps"], (seed, checked)
             checked += 1
             if terminated or truncated:
                 break
-    assert checked > 300
+    return checked
+
+
+@needs_holdout
+@needs_v1
+def test_recomputed_floor_equals_the_applied_floor_on_every_interval_of_the_forced_seeds() -> None:
+    config, _ = _pinned_config(EVAL, HOLDOUT)
+    assert _floors_match_the_environment(config, [9, 17, 19, 0, 3]) > 1500
+
+
+@needs_holdout
+@needs_v1
+def test_fixed_20_exogenous_violations_equal_its_violations_on_every_pinned_seed() -> None:
+    frame = evaluate(FixedRate(20), profile=HOLDOUT, seeds=PINNED_SEEDS, config=EVAL)
+    for _, row in frame.iterrows():
+        assert row["exogenous_violations"] == round(row["latency_violation_fraction"] * row["steps"]), row["seed"]
+    assert frame.set_index("seed").loc[9, "exogenous_violations"] > 100
+
+
+def test_recomputed_floor_equals_the_applied_floor_under_the_v0_config() -> None:
+    config, _ = _pinned_config(v0_config(), "bursty")
+    assert _floors_match_the_environment(config, [0, 1, 2]) > 300
+
+
+def test_flag_columns_of_a_fixed_20_run_are_consistent_under_the_v0_config() -> None:
+    frame = evaluate(FixedRate(20), profile="peak", seeds=[0, 1, 2], config=v0_config())
+    assert frame["fixed20_clip_fraction"].tolist() == pytest.approx(frame["clip_fraction"].tolist())
+    assert frame["fixed20_latency_cost"].tolist() == pytest.approx(frame["latency_cost"].tolist())
+    assert frame["filter_forced"].tolist() == (frame["clip_fraction"] >= FILTER_FORCED_CLIP_FRACTION).tolist()
+
+
+def test_controllable_sensitivity_reports_every_definition() -> None:
+    frame = _two_policy_frame()
+    table = controllable_sensitivity(frame, "fixed_120", "fixed_80")
+    assert set(table["definition"]) == {"primary", "clip_0.01", "clip_0.25", "fixed20_cost"}
+    for profile in ("idle", "peak"):
+        block = frame[frame["profile"] == profile]
+        a = block[block["policy"] == "fixed_120"].set_index("seed")["total_reward"]
+        b = block[block["policy"] == "fixed_80"].set_index("seed")["total_reward"]
+        row = table[(table["profile"] == profile) & (table["definition"] == "primary")].iloc[0]
+        keep = ~(block[block["policy"] == "fixed_80"].set_index("seed")["fixed20_clip_fraction"] >= 0.10)
+        expected = (a - b)[keep]
+        assert row["n_controllable"] == len(expected)
+        assert row["mean_diff"] == pytest.approx(expected.mean())
+    masks = forced_masks(frame)
+    assert (masks["clip_0.01"] | ~masks["primary"]).all()  # a lower threshold flags a superset
 
 
 @needs_holdout

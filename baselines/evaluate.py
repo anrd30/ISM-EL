@@ -109,7 +109,9 @@ __all__ = [
     "compare",
     "summarise",
     "scenario_blocks",
+    "forced_masks",
     "forced_seed_sets",
+    "controllable_sensitivity",
     "pareto_table",
     "recovery_time_distribution",
     "paired_delta",
@@ -230,12 +232,13 @@ def _run_episode(
     synthetic flag and the start row come from the reset ``info``.
 
     ``exogenous_violations`` counts the intervals in which the smallest action the safety filter allows
-    would also have violated latency. The floor is ``apply_safety_filter(0, hazard, work_remaining)`` on
-    the observation the policy saw before the step (de-normalised with ``Observation.from_vector``), the
-    load is ``info["fg_bw_mbps"]`` of the step; the hazard and the remaining work are those of the
-    policy's own trajectory. The observation's hazard field is clipped at ``OBS_SCALES["hazard"]``; where
-    the reported hazard exceeds it the recovered floor can be lower than the environment's, and the count
-    is then a lower bound. ``data_loss_probability`` is ``P(N >= 2)`` for ``N`` Poisson with mean the
+    would also have violated latency. The floor is ``apply_safety_filter(0, hazard, work_remaining)``;
+    ``hazard`` is the reported hazard the environment's filter uses at the start of the interval
+    (``info["hazard_reported_per_hour"]`` of the reset, then of the previous step; the observation's
+    hazard field is clipped at ``OBS_SCALES["hazard"]`` and is not used), ``work_remaining`` comes from
+    the observation the policy saw (de-normalised with ``Observation.from_vector``), and the load is
+    ``info["fg_bw_mbps"]`` of the step. Hazard and remaining work are those of the policy's own
+    trajectory. ``data_loss_probability`` is ``P(N >= 2)`` for ``N`` Poisson with mean the
     sum of ``info["hazard_true_per_hour"]`` over the realised intervals times the interval length in hours.
     """
     obs, reset_info = env.reset(seed=seed)
@@ -256,14 +259,16 @@ def _run_episode(
     delivered: list[float] = []
     exogenous: list[bool] = []
     true_hazard: list[float] = []
+    hazard_now = float(reset_info["hazard_reported_per_hour"])
     total_reward = 0.0
     final_info: dict[str, Any] = reset_info
 
     for _ in range(MAX_EPISODE_STEPS + 1):
         action = int(policy(obs))
         seen = Observation.from_vector(obs)
-        floor_index = apply_safety_filter(0, seen.hazard, seen.work_remaining).applied_index
+        floor_index = apply_safety_filter(0, hazard_now, seen.work_remaining).applied_index
         obs, reward, terminated, truncated, info = env.step(action)
+        hazard_now = float(info["hazard_reported_per_hour"])
         total_reward += float(reward)
         exogenous.append(_minimum_action_violates(float(info["fg_bw_mbps"]), floor_index, config))
         true_hazard.append(float(info["hazard_true_per_hour"]))
@@ -679,6 +684,48 @@ def scenario_blocks(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {"all": df, "controllable": df[~forced], "filter_forced": df[forced]}
 
 
+def forced_masks(df: pd.DataFrame) -> dict[str, pd.Series]:
+    """Boolean "filter-forced" masks, row-aligned with ``df``, for the primary and the sensitivity definitions.
+
+    ``primary``: ``fixed20_clip_fraction >= FILTER_FORCED_CLIP_FRACTION``; ``clip_<p>``: the same with another
+    threshold of ``SENSITIVITY_CLIP_FRACTIONS``; ``fixed20_cost``: ``fixed20_latency_cost >
+    FIXED20_LATENCY_COST_THRESHOLD``.
+    """
+    clip = df["fixed20_clip_fraction"].astype(float)
+    masks = {"primary": clip >= FILTER_FORCED_CLIP_FRACTION}
+    for threshold in SENSITIVITY_CLIP_FRACTIONS:
+        masks[f"clip_{threshold:g}"] = clip >= threshold
+    masks["fixed20_cost"] = df["fixed20_latency_cost"].astype(float) > FIXED20_LATENCY_COST_THRESHOLD
+    return masks
+
+
+def controllable_sensitivity(
+    df: pd.DataFrame, treatment: str, reference: str, metric: str = "total_reward"
+) -> pd.DataFrame:
+    """Paired ``treatment - reference`` on ``metric`` over the scenarios that are controllable under each definition.
+
+    One row per profile and definition: the number of controllable scenarios, the mean paired difference,
+    its standard error across scenarios, ``t`` = mean / sem and the counts better and worse.
+    """
+    rows: list[dict[str, Any]] = []
+    for profile in _first_appearance_order(df["profile"]):
+        block = df[df["profile"] == profile]
+        a = block[block["policy"] == treatment].set_index("seed")
+        b = block[block["policy"] == reference].set_index("seed")
+        common = a.index.intersection(b.index)
+        masks = forced_masks(b.loc[common])
+        diff = a.loc[common, metric].astype(float) - b.loc[common, metric].astype(float)
+        for name, forced in masks.items():
+            d = diff[~forced]
+            n = len(d)
+            sem = float(d.std(ddof=1) / math.sqrt(n)) if n > 1 else float("nan")
+            rows.append({"profile": profile, "definition": name, "n_controllable": n,
+                         "mean_diff": float(d.mean()) if n else float("nan"), "sem": sem,
+                         "t": float(d.mean() / sem) if n > 1 and sem > 0 else float("nan"),
+                         "better": int((d > 0).sum()), "worse": int((d < 0).sum())})
+    return pd.DataFrame(rows)
+
+
 def forced_seed_sets(df: pd.DataFrame) -> pd.DataFrame:
     """Seeds each definition of "filter-forced" flags, per profile.
 
@@ -1065,6 +1112,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"## Paired difference, controllable scenarios: {treatment} minus {reference}",
                     "",
                     to_markdown(paired_delta(blocks["controllable"], treatment, reference)),
+                    "",
+                    f"## Total reward difference by definition of controllable: {treatment} minus {reference}",
+                    "",
+                    to_markdown(controllable_sensitivity(episodes, treatment, reference)),
                 ]
     pareto_table(episodes).to_csv(args.out / "pareto.csv", index=False, lineterminator="\n")
     recovery_time_distribution(episodes).to_csv(args.out / "recovery_time_distribution.csv", index=False, lineterminator="\n")

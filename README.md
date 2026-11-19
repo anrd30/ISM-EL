@@ -299,7 +299,7 @@ a clone without the bulk data present.
 ## 8. Status
 
 As of 2026-11-19, on branch `eval/scenario-split-2026-11-19` (`main` plus the
-scenario-split harness change): a full `python -m pytest -q -rs` run passed 1,868
+scenario-split harness change): a full `python -m pytest -q -rs` run passed 1,872
 tests with 16 skips. On CI (`.github/workflows/ci.yml`, `-rs`), the same suite
 reports 34 skips: the 16 below plus 18 tests gated on gitignored files
 (`hazard/artifacts/v1/`, the processed Backblaze tables), confirmed from the log

@@ -76,16 +76,16 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 
 | profile | policy | n | completion_mean_h | completion_p50_h | completion_p95_h | completion_p99_h | viol_frac | lat_budget_met | latency_cost | exog_viol | p_fail_mean | p_fail_delivered | data_loss_prob |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| diurnal_long_holdout | fixed_20 | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.02772 | 0.85 | 272.6 | 8.9 | 0.001984 | 0.001994 | 2.942e-05 |
-| diurnal_long_holdout | fixed_50 | 20 | 63.08 | 66.67 | 66.67 | 66.67 | 0.0352 | 0.85 | 272.6 | 8.9 | 0.00123 | 0.001242 | 1.583e-05 |
-| diurnal_long_holdout | fixed_80 | 20 | 40.82 | 41.67 | 41.75 | 41.75 | 0.07297 | 0.85 | 449.6 | 8.9 | 0.0009776 | 0.0009923 | 1.053e-05 |
-| diurnal_long_holdout | fixed_120 | 20 | 29.27 | 29.33 | 29.58 | 29.58 | 0.6726 | 0 | 3594 | 8.8 | 0.0008022 | 0.000845 | 7.219e-06 |
-| diurnal_long_holdout | workload_only_throttle | 20 | 43.6 | 44.83 | 46.75 | 46.82 | 0.04439 | 0.85 | 277.9 | 8.85 | 0.001079 | 0.001094 | 9.878e-06 |
-| diurnal_long_holdout | risk_aware_rule_based | 20 | 43.6 | 44.83 | 46.75 | 46.82 | 0.04439 | 0.85 | 277.9 | 8.85 | 0.001079 | 0.001094 | 9.878e-06 |
-| diurnal_long_holdout | ORACLE_lookahead (not deployable) | 20 | 36.86 | 37.17 | 39.59 | 39.72 | 0.04682 | 0.85 | 274.1 | 8.85 | 0.0009537 | 0.00097 | 8.661e-06 |
-| diurnal_long_holdout | slowest_risk_feasible (literal spec) | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.02772 | 0.85 | 272.6 | 8.9 | 0.001984 | 0.001994 | 2.942e-05 |
-| diurnal_long_holdout | risk_aware_ceiling_persistence (literal spec) | 20 | 35.9 | 36.25 | 38.19 | 38.5 | 0.09493 | 0.25 | 532.1 | 8.85 | 0.0009362 | 0.0009528 | 8.514e-06 |
-| diurnal_long_holdout | risk_aware_rule_based k=1 | 20 | 43.08 | 44.62 | 46.75 | 46.82 | 0.0621 | 0.8 | 390.8 | 8.8 | 0.00101 | 0.001029 | 9.36e-06 |
+| diurnal_long_holdout | fixed_20 | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.02772 | 0.85 | 272.6 | 18 | 0.001984 | 0.001994 | 2.942e-05 |
+| diurnal_long_holdout | fixed_50 | 20 | 63.08 | 66.67 | 66.67 | 66.67 | 0.0352 | 0.85 | 272.6 | 18 | 0.00123 | 0.001242 | 1.583e-05 |
+| diurnal_long_holdout | fixed_80 | 20 | 40.82 | 41.67 | 41.75 | 41.75 | 0.07297 | 0.85 | 449.6 | 18 | 0.0009776 | 0.0009923 | 1.053e-05 |
+| diurnal_long_holdout | fixed_120 | 20 | 29.27 | 29.33 | 29.58 | 29.58 | 0.6726 | 0 | 3594 | 17.75 | 0.0008022 | 0.000845 | 7.219e-06 |
+| diurnal_long_holdout | workload_only_throttle | 20 | 43.6 | 44.83 | 46.75 | 46.82 | 0.04439 | 0.85 | 277.9 | 17.95 | 0.001079 | 0.001094 | 9.878e-06 |
+| diurnal_long_holdout | risk_aware_rule_based | 20 | 43.6 | 44.83 | 46.75 | 46.82 | 0.04439 | 0.85 | 277.9 | 17.95 | 0.001079 | 0.001094 | 9.878e-06 |
+| diurnal_long_holdout | ORACLE_lookahead (not deployable) | 20 | 36.86 | 37.17 | 39.59 | 39.72 | 0.04682 | 0.85 | 274.1 | 17.95 | 0.0009537 | 0.00097 | 8.661e-06 |
+| diurnal_long_holdout | slowest_risk_feasible (literal spec) | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.02772 | 0.85 | 272.6 | 18 | 0.001984 | 0.001994 | 2.942e-05 |
+| diurnal_long_holdout | risk_aware_ceiling_persistence (literal spec) | 20 | 35.9 | 36.25 | 38.19 | 38.5 | 0.09493 | 0.25 | 532.1 | 17.95 | 0.0009362 | 0.0009528 | 8.514e-06 |
+| diurnal_long_holdout | risk_aware_rule_based k=1 | 20 | 43.08 | 44.62 | 46.75 | 46.82 | 0.0621 | 0.8 | 390.8 | 17.8 | 0.00101 | 0.001029 | 9.36e-06 |
 
 ORACLE rows read the next interval's foreground load from the trace; no deployable controller can.
 
@@ -130,6 +130,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_holdout | p_failure_mean | risk_aware_rule_based | workload_only_throttle | 0 | 0 | 16 |
 | diurnal_long_holdout | clip_fraction | risk_aware_rule_based | workload_only_throttle | 0 | 0 | 16 |
 
+## Total reward difference by definition of controllable: risk_aware_rule_based minus workload_only_throttle
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_holdout | primary | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_holdout | clip_0.01 | 13 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_holdout | clip_0.25 | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_holdout | fixed20_cost | 17 | 0 | 0 | n/a | 0 | 0 |
+
 ## Paired difference: ORACLE_lookahead (not deployable) minus risk_aware_rule_based
 
 | profile | metric | treatment | reference | mean_diff | sem | n |
@@ -153,6 +162,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_holdout | mean_delivered_mbps | ORACLE_lookahead (not deployable) | risk_aware_rule_based | 14.81 | 0.8653 | 16 |
 | diurnal_long_holdout | p_failure_mean | ORACLE_lookahead (not deployable) | risk_aware_rule_based | -0.0001114 | 1.785e-05 | 16 |
 | diurnal_long_holdout | clip_fraction | ORACLE_lookahead (not deployable) | risk_aware_rule_based | 0 | 0 | 16 |
+
+## Total reward difference by definition of controllable: ORACLE_lookahead (not deployable) minus risk_aware_rule_based
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_holdout | primary | 16 | 13.75 | 1.472 | 9.345 | 16 | 0 |
+| diurnal_long_holdout | clip_0.01 | 13 | 13.25 | 1.618 | 8.188 | 13 | 0 |
+| diurnal_long_holdout | clip_0.25 | 16 | 13.75 | 1.472 | 9.345 | 16 | 0 |
+| diurnal_long_holdout | fixed20_cost | 17 | 13.51 | 1.404 | 9.621 | 17 | 0 |
 
 ## Paired difference: risk_aware_rule_based minus slowest_risk_feasible (literal spec)
 
@@ -178,6 +196,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_holdout | p_failure_mean | risk_aware_rule_based | slowest_risk_feasible (literal spec) | -0.001086 | 8.373e-05 | 16 |
 | diurnal_long_holdout | clip_fraction | risk_aware_rule_based | slowest_risk_feasible (literal spec) | 0 | 0 | 16 |
 
+## Total reward difference by definition of controllable: risk_aware_rule_based minus slowest_risk_feasible (literal spec)
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_holdout | primary | 16 | 136 | 2.53 | 53.77 | 16 | 0 |
+| diurnal_long_holdout | clip_0.01 | 13 | 139.7 | 1.552 | 90.06 | 13 | 0 |
+| diurnal_long_holdout | clip_0.25 | 16 | 136 | 2.53 | 53.77 | 16 | 0 |
+| diurnal_long_holdout | fixed20_cost | 17 | 132 | 4.671 | 28.26 | 17 | 0 |
+
 ## Paired difference: risk_aware_rule_based minus risk_aware_ceiling_persistence (literal spec)
 
 | profile | metric | treatment | reference | mean_diff | sem | n |
@@ -202,6 +229,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_holdout | p_failure_mean | risk_aware_rule_based | risk_aware_ceiling_persistence (literal spec) | 0.0001286 | 1.993e-05 | 16 |
 | diurnal_long_holdout | clip_fraction | risk_aware_rule_based | risk_aware_ceiling_persistence (literal spec) | 0 | 0 | 16 |
 
+## Total reward difference by definition of controllable: risk_aware_rule_based minus risk_aware_ceiling_persistence (literal spec)
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_holdout | primary | 16 | 270.2 | 5.54 | 48.77 | 16 | 0 |
+| diurnal_long_holdout | clip_0.01 | 13 | 269 | 6.091 | 44.16 | 13 | 0 |
+| diurnal_long_holdout | clip_0.25 | 16 | 270.2 | 5.54 | 48.77 | 16 | 0 |
+| diurnal_long_holdout | fixed20_cost | 17 | 268.9 | 5.357 | 50.2 | 17 | 0 |
+
 ## Paired difference: risk_aware_rule_based k=1 minus risk_aware_rule_based
 
 | profile | metric | treatment | reference | mean_diff | sem | n |
@@ -225,3 +261,12 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_holdout | mean_delivered_mbps | risk_aware_rule_based k=1 | risk_aware_rule_based | 0 | 0 | 16 |
 | diurnal_long_holdout | p_failure_mean | risk_aware_rule_based k=1 | risk_aware_rule_based | 0 | 0 | 16 |
 | diurnal_long_holdout | clip_fraction | risk_aware_rule_based k=1 | risk_aware_rule_based | 0 | 0 | 16 |
+
+## Total reward difference by definition of controllable: risk_aware_rule_based k=1 minus risk_aware_rule_based
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_holdout | primary | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_holdout | clip_0.01 | 13 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_holdout | clip_0.25 | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_holdout | fixed20_cost | 17 | -69.23 | 69.23 | -1 | 0 | 1 |

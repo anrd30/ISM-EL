@@ -27,9 +27,12 @@ intervals of that scenario. Controllable is the rest. Sensitivity definitions: t
 | holdout | 3 9 17 19 | 2 3 9 16 17 18 19 | 3 9 17 19 | 9 17 19 |
 | altB | 3 9 17 19 | 2 3 9 16 17 18 19 | 3 9 17 19 | 9 17 19 |
 
-The pre-registered expectation was {9, 17, 19} on the holdout and {9, 17} on altB. The primary definition
-flags seed 3 in both (clip fraction 0.42; `fixed_20` latency cost 21.8 on the holdout and 0.8 on altB) and
-altB seed 19 (clip fraction 0.54; cost 145.5). The definition is kept as registered.
+The expectation recorded before the run was {9, 17, 19} on the holdout and {9, 17} on altB for the
+"`fixed_20` cost > 50" variant. It flags {9, 17, 19} on the holdout and {9, 17, 19} on altB (altB seed 19:
+cost 145.5). The primary definition also flags seed 3 in both profiles (clip fraction 0.42; `fixed_20` latency
+cost 21.8 on the holdout and 0.8 on altB). Seed 3 separates filter activity from uncontrollability: the filter
+raises the allocation on 42% of its intervals and the latency consequence is small. The definition is kept as
+registered.
 
 ## Results
 
@@ -50,18 +53,33 @@ altB seed 19 (clip fraction 0.54; cost 145.5). The definition is kept as registe
   every scenario of both profiles.
 - **Latency cost on holdout seeds 9, 17, 19** (rule, oracle, `fixed_20`, `fixed_50`): 2744 / 2744 / 2743 / 2743,
   1350 / 1350 / 1350 / 1350, 1338 / 1338 / 1336 / 1336.
-- **Exogenous violations per episode** (mean over scenarios, as counted; see the limit below): holdout 8.8
-  for the rule and the oracle (8.9 for `fixed_20`), altB 4.4 for every policy.
+- **Exogenous violations per episode** (mean over scenarios): holdout 17.9 for the rule and the oracle (18.0
+  for `fixed_20`) against 18.2 violations of the rule; altB 7.2 for the rule, the oracle and `fixed_20`
+  against 9.3 violations of the rule.
 
-## Limit of `exogenous_violations`
+## Controllable-scenario gap under each definition
 
-The count uses the hazard field of the observation, which is clipped at 1.8e-4 per hour. On holdout seeds
-9 and 17 and altB seeds 9 and 17 the reported hazard is above that, the recovered risk floor is lower than the
-environment's, and the count is a lower bound. For `fixed_20`, whose violations all equal the exogenous ones:
-holdout 68 and 20 counted against 179 and 91 realised, altB 66 and 9 against 91 and 42. On every other
-scenario the count equals the realised violations of `fixed_20`
-(`baselines/test_scenario_split.py`). The counterfactual takes the hazard and the remaining work from the
-policy's own trajectory.
+`ORACLE_lookahead` minus `risk_aware_rule_based`, total reward:
+
+| Profile | Definition | n controllable | Gap | t | better / worse |
+| --- | --- | --- | --- | --- | --- |
+| holdout | primary (10%) | 16 | +13.753 +/- 1.472 | 9.35 | 16 / 0 |
+| holdout | 1% | 13 | +13.248 +/- 1.618 | 8.19 | 13 / 0 |
+| holdout | 25% | 16 | +13.753 +/- 1.472 | 9.35 | 16 / 0 |
+| holdout | `fixed_20` cost > 50 | 17 | +13.507 +/- 1.404 | 9.62 | 17 / 0 |
+| altB | primary (10%) | 16 | +33.165 +/- 2.716 | 12.21 | 16 / 0 |
+| altB | 1% | 13 | +31.585 +/- 3.195 | 9.89 | 13 / 0 |
+| altB | 25% | 16 | +33.165 +/- 2.716 | 12.21 | 16 / 0 |
+| altB | `fixed_20` cost > 50 | 17 | +32.296 +/- 2.695 | 11.98 | 17 / 0 |
+
+## `exogenous_violations`
+
+The hazard is taken from `info["hazard_reported_per_hour"]` (the observation's hazard field is clipped at
+1.8e-4 per hour and holdout and altB seeds 9 and 17 exceed it). A first version that read the observation
+counted, for `fixed_20`, 68 and 20 on holdout seeds 9 and 17 and 66 and 9 on altB seeds 9 and 17 against
+179, 91, 91 and 42 realised. The current count equals the realised violations of `fixed_20` on all 20 scenarios
+of both profiles, and the recomputed floor equals the applied floor on every interval of holdout seeds 9, 17
+and 19 (`baselines/test_scenario_split.py`).
 
 ## Files
 

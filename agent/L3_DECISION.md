@@ -203,6 +203,14 @@ intervals), holdout half, `v1,eval-fleet,sigma=0.25`, 20 scenarios:
   (`profile_diurnal_long_altB.csv`, see `RESIDUAL_Q_DECISION.md` where present)
   gives +33.165 +/- 2.716 (t 12.21) on 16 controllable scenarios, 42.2% of the
   rule's controllable cost of 78.58.
+- **Sensitivity of "controllable".** The same gap under the pre-registered
+  variants (`agent/SCENARIO_SPLIT_DECISION.md`): holdout, `fixed_20` clip
+  fraction at least 1% (13 scenarios) +13.248 +/- 1.618 (t 8.19), at least 25%
+  (16) +13.753 +/- 1.472, `fixed_20` latency cost above 50 (17) +13.507 +/- 1.404
+  (t 9.62); altB +31.585 +/- 3.195 (t 9.89), +33.165 +/- 2.716, +32.296 +/- 2.695
+  (t 11.98). Every definition gives a controllable-scenario edge of 13 to 14
+  (holdout) and 32 to 33 (altB), not the all-scenario 11.850 and 29.246 read as a
+  share of the whole.
 - **The 5.19% figure** (full long profile) was not re-derived; it has the same
   denominator problem and is withdrawn on the same grounds.
 - **Pre-registered check.** The primary definition flags {3, 9, 17, 19} on the

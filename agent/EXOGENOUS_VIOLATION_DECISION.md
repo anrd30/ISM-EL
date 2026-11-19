@@ -110,11 +110,19 @@ limited to the narrow action range one training run actually visited.
   19) and 4 on altB (3, 9, 17, 19). Seeds 9, 17 and 19 carry 84.2% of the
   rule's total reward cost on the holdout (80.4% of its latency cost on altB).
   Evidence: `agent/evidence/scenario-split-2026-11-19/`.
-- **Limit of the count.** The observation's hazard field is clipped at 1.8e-4
-  per hour. On the two scenarios where the reported hazard exceeds that (seeds
-  9 and 17) the recovered floor is lower than the environment's, and the count is
-  a lower bound: for `fixed_20`, whose own violations equal the exogenous ones,
-  68 and 20 counted against 179 and 91 realised on the holdout (66 and 9
-  against 91 and 42 on altB). On every other scenario the count equals the
-  realised violations of `fixed_20`. The counterfactual uses the policy's own
-  trajectory for the hazard and the remaining work.
+- **Hazard source.** The observation's hazard field is clipped at 1.8e-4 per
+  hour, and holdout and altB seeds 9 and 17 exceed it. A first version that read
+  the hazard from the observation recovered a floor lower than the
+  environment's there: for `fixed_20`, whose own violations equal the
+  exogenous ones, 68 and 20 counted against 179 and 91 realised on the holdout
+  (66 and 9 against 91 and 42 on altB). The count now takes the hazard from
+  `info["hazard_reported_per_hour"]` (the value the environment's filter uses at
+  the start of the interval), and the remaining work from the observation. For
+  `fixed_20` the count equals the realised violations on all 20 scenarios of
+  both profiles, and the recomputed floor equals the applied floor on every
+  interval of holdout seeds 9, 17 and 19 (`baselines/test_scenario_split.py`).
+  The counterfactual uses the policy's own trajectory for the hazard and the
+  remaining work.
+- **Share of the rule's violations.** Per episode, the rule has 18.2 latency
+  violations on the holdout, of which 17.9 would also occur under the smallest
+  allowed action (98%); on altB 9.3 and 7.2 (77%).

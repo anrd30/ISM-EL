@@ -76,16 +76,16 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 
 | profile | policy | n | completion_mean_h | completion_p50_h | completion_p95_h | completion_p99_h | viol_frac | lat_budget_met | latency_cost | exog_viol | p_fail_mean | p_fail_delivered | data_loss_prob |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| diurnal_long_altB | fixed_20 | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.01189 | 0.9 | 99.13 | 4.35 | 0.001984 | 0.001988 | 2.906e-05 |
-| diurnal_long_altB | fixed_50 | 20 | 63.01 | 66.67 | 66.67 | 66.67 | 0.01494 | 0.9 | 99.13 | 4.35 | 0.00123 | 0.001234 | 1.551e-05 |
-| diurnal_long_altB | fixed_80 | 20 | 40.75 | 41.67 | 41.75 | 41.75 | 0.05725 | 0.6 | 325.9 | 4.35 | 0.0009778 | 0.0009828 | 1.025e-05 |
-| diurnal_long_altB | fixed_120 | 20 | 29 | 29 | 30.27 | 30.59 | 0.5432 | 0 | 2731 | 4.35 | 0.0007958 | 0.0008224 | 7.08e-06 |
-| diurnal_long_altB | workload_only_throttle | 20 | 39.68 | 39.5 | 45.85 | 46.17 | 0.02261 | 0.9 | 125.3 | 4.35 | 0.001029 | 0.001034 | 9.347e-06 |
-| diurnal_long_altB | risk_aware_rule_based | 20 | 39.68 | 39.5 | 45.85 | 46.17 | 0.02261 | 0.9 | 125.3 | 4.35 | 0.001029 | 0.001034 | 9.347e-06 |
-| diurnal_long_altB | ORACLE_lookahead (not deployable) | 20 | 35.5 | 35.83 | 38.44 | 38.75 | 0.01891 | 0.9 | 101.1 | 4.35 | 0.0009611 | 0.0009662 | 8.603e-06 |
-| diurnal_long_altB | slowest_risk_feasible (literal spec) | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.01189 | 0.9 | 99.13 | 4.35 | 0.001984 | 0.001988 | 2.906e-05 |
-| diurnal_long_altB | risk_aware_ceiling_persistence (literal spec) | 20 | 34.29 | 34.21 | 36.73 | 37.61 | 0.08051 | 0.05 | 406.3 | 4.35 | 0.0009367 | 0.000942 | 8.423e-06 |
-| diurnal_long_altB | risk_aware_rule_based k=1 | 20 | 39.2 | 39.29 | 45.85 | 46.17 | 0.0487 | 0.8 | 262.4 | 4.35 | 0.0009691 | 0.0009756 | 8.87e-06 |
+| diurnal_long_altB | fixed_20 | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.01189 | 0.9 | 99.13 | 7.25 | 0.001984 | 0.001988 | 2.906e-05 |
+| diurnal_long_altB | fixed_50 | 20 | 63.01 | 66.67 | 66.67 | 66.67 | 0.01494 | 0.9 | 99.13 | 7.25 | 0.00123 | 0.001234 | 1.551e-05 |
+| diurnal_long_altB | fixed_80 | 20 | 40.75 | 41.67 | 41.75 | 41.75 | 0.05725 | 0.6 | 325.9 | 7.25 | 0.0009778 | 0.0009828 | 1.025e-05 |
+| diurnal_long_altB | fixed_120 | 20 | 29 | 29 | 30.27 | 30.59 | 0.5432 | 0 | 2731 | 7.25 | 0.0007958 | 0.0008224 | 7.08e-06 |
+| diurnal_long_altB | workload_only_throttle | 20 | 39.68 | 39.5 | 45.85 | 46.17 | 0.02261 | 0.9 | 125.3 | 7.25 | 0.001029 | 0.001034 | 9.347e-06 |
+| diurnal_long_altB | risk_aware_rule_based | 20 | 39.68 | 39.5 | 45.85 | 46.17 | 0.02261 | 0.9 | 125.3 | 7.25 | 0.001029 | 0.001034 | 9.347e-06 |
+| diurnal_long_altB | ORACLE_lookahead (not deployable) | 20 | 35.5 | 35.83 | 38.44 | 38.75 | 0.01891 | 0.9 | 101.1 | 7.25 | 0.0009611 | 0.0009662 | 8.603e-06 |
+| diurnal_long_altB | slowest_risk_feasible (literal spec) | 20 | 144.8 | 166.7 | 166.7 | 166.7 | 0.01189 | 0.9 | 99.13 | 7.25 | 0.001984 | 0.001988 | 2.906e-05 |
+| diurnal_long_altB | risk_aware_ceiling_persistence (literal spec) | 20 | 34.29 | 34.21 | 36.73 | 37.61 | 0.08051 | 0.05 | 406.3 | 7.25 | 0.0009367 | 0.000942 | 8.423e-06 |
+| diurnal_long_altB | risk_aware_rule_based k=1 | 20 | 39.2 | 39.29 | 45.85 | 46.17 | 0.0487 | 0.8 | 262.4 | 7.25 | 0.0009691 | 0.0009756 | 8.87e-06 |
 
 ORACLE rows read the next interval's foreground load from the trace; no deployable controller can.
 
@@ -130,6 +130,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_altB | p_failure_mean | risk_aware_rule_based | workload_only_throttle | 0 | 0 | 16 |
 | diurnal_long_altB | clip_fraction | risk_aware_rule_based | workload_only_throttle | 0 | 0 | 16 |
 
+## Total reward difference by definition of controllable: risk_aware_rule_based minus workload_only_throttle
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_altB | primary | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_altB | clip_0.01 | 13 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_altB | clip_0.25 | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_altB | fixed20_cost | 17 | 0 | 0 | n/a | 0 | 0 |
+
 ## Paired difference: ORACLE_lookahead (not deployable) minus risk_aware_rule_based
 
 | profile | metric | treatment | reference | mean_diff | sem | n |
@@ -153,6 +162,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_altB | mean_delivered_mbps | ORACLE_lookahead (not deployable) | risk_aware_rule_based | 10.72 | 0.965 | 16 |
 | diurnal_long_altB | p_failure_mean | ORACLE_lookahead (not deployable) | risk_aware_rule_based | -6.465e-05 | 9.744e-06 | 16 |
 | diurnal_long_altB | clip_fraction | ORACLE_lookahead (not deployable) | risk_aware_rule_based | 0 | 0 | 16 |
+
+## Total reward difference by definition of controllable: ORACLE_lookahead (not deployable) minus risk_aware_rule_based
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_altB | primary | 16 | 33.16 | 2.716 | 12.21 | 16 | 0 |
+| diurnal_long_altB | clip_0.01 | 13 | 31.59 | 3.195 | 9.887 | 13 | 0 |
+| diurnal_long_altB | clip_0.25 | 16 | 33.16 | 2.716 | 12.21 | 16 | 0 |
+| diurnal_long_altB | fixed20_cost | 17 | 32.3 | 2.695 | 11.98 | 17 | 0 |
 
 ## Paired difference: risk_aware_rule_based minus slowest_risk_feasible (literal spec)
 
@@ -178,6 +196,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_altB | p_failure_mean | risk_aware_rule_based | slowest_risk_feasible (literal spec) | -0.001146 | 9.205e-05 | 16 |
 | diurnal_long_altB | clip_fraction | risk_aware_rule_based | slowest_risk_feasible (literal spec) | 0 | 0 | 16 |
 
+## Total reward difference by definition of controllable: risk_aware_rule_based minus slowest_risk_feasible (literal spec)
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_altB | primary | 16 | 118.6 | 3.818 | 31.05 | 16 | 0 |
+| diurnal_long_altB | clip_0.01 | 13 | 122.9 | 3.501 | 35.11 | 13 | 0 |
+| diurnal_long_altB | clip_0.25 | 16 | 118.6 | 3.818 | 31.05 | 16 | 0 |
+| diurnal_long_altB | fixed20_cost | 17 | 114.5 | 5.407 | 21.18 | 17 | 0 |
+
 ## Paired difference: risk_aware_rule_based minus risk_aware_ceiling_persistence (literal spec)
 
 | profile | metric | treatment | reference | mean_diff | sem | n |
@@ -202,6 +229,15 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_altB | p_failure_mean | risk_aware_rule_based | risk_aware_ceiling_persistence (literal spec) | 8.904e-05 | 1.469e-05 | 16 |
 | diurnal_long_altB | clip_fraction | risk_aware_rule_based | risk_aware_ceiling_persistence (literal spec) | 0 | 0 | 16 |
 
+## Total reward difference by definition of controllable: risk_aware_rule_based minus risk_aware_ceiling_persistence (literal spec)
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_altB | primary | 16 | 300.4 | 16.83 | 17.85 | 16 | 0 |
+| diurnal_long_altB | clip_0.01 | 13 | 296.8 | 20.02 | 14.83 | 13 | 0 |
+| diurnal_long_altB | clip_0.25 | 16 | 300.4 | 16.83 | 17.85 | 16 | 0 |
+| diurnal_long_altB | fixed20_cost | 17 | 300.1 | 15.82 | 18.97 | 17 | 0 |
+
 ## Paired difference: risk_aware_rule_based k=1 minus risk_aware_rule_based
 
 | profile | metric | treatment | reference | mean_diff | sem | n |
@@ -225,3 +261,12 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_altB | mean_delivered_mbps | risk_aware_rule_based k=1 | risk_aware_rule_based | 0 | 0 | 16 |
 | diurnal_long_altB | p_failure_mean | risk_aware_rule_based k=1 | risk_aware_rule_based | 0 | 0 | 16 |
 | diurnal_long_altB | clip_fraction | risk_aware_rule_based k=1 | risk_aware_rule_based | 0 | 0 | 16 |
+
+## Total reward difference by definition of controllable: risk_aware_rule_based k=1 minus risk_aware_rule_based
+
+| profile | definition | n_controllable | mean_diff | sem | t | better | worse |
+|---|---|---|---|---|---|---|---|
+| diurnal_long_altB | primary | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_altB | clip_0.01 | 13 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_altB | clip_0.25 | 16 | 0 | 0 | n/a | 0 | 0 |
+| diurnal_long_altB | fixed20_cost | 17 | -88.25 | 88.25 | -1 | 0 | 1 |

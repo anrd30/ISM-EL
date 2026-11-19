@@ -64,6 +64,7 @@ optimistic.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -267,6 +268,13 @@ class RecoveryEnv:
 
         # Safety filter on the state at the start of the interval.
         decision = apply_safety_filter(int(action), self._hazard, self._work)
+        if not decision.any_feasible and not cfg.infeasible_budget_max_rate:
+            requested_mbps_now = float(ACTIONS_MBPS[int(action)])
+            p_requested = exposure_probability(self._hazard, self._work, requested_mbps_now)
+            decision = dataclasses.replace(
+                decision, applied_index=int(action), applied_mbps=requested_mbps_now, p_failure=p_requested,
+                clipped=False, violated_risk_budget=not p_requested < RISK_BUDGET_EPS,
+            )
         applied_mbps = decision.applied_mbps
         p_failure = decision.p_failure
         violated_risk_budget = decision.violated_risk_budget
@@ -334,6 +342,8 @@ class RecoveryEnv:
         # throughout the interval (a drive was down and the rebuild unfinished).
         d_term = latency_degradation(latency, cfg.latency_target_ms)
         c_term = degraded_cost(redundancy_before < GROUP_TOLERATED_FAILURES)
+        if cfg.risk_objective is not None:
+            c_term = c_term * true_hazard_now / cfg.risk_objective.hazard_ref_per_hour
         v_term = latency_violation(latency, cfg.latency_target_ms)
         reward = compute_reward(d_term, c_term, v_term, cfg.reward)
 

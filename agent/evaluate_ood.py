@@ -1,4 +1,4 @@
-"""Out-of-distribution evaluation of the forecast PPO agent against the rule.
+"""Out-of-distribution evaluation of learned agents against the rule.
 
 Usage::
 
@@ -6,6 +6,10 @@ Usage::
         --ppo-checkpoint agent/evidence/forecast-ppo-2026-11-11/training/bc/seed{0,1,2}/ckpt_best.pt \\
         --holdout-csv data_pipeline/profiles/profile_diurnal_long_holdout.csv \\
         --seeds 20 --out runs/eval_ood
+
+``--q-model`` adds run directories of ``agent.residual_q``; ``--extra-csv``
+adds further replay CSVs (for example a real workload built by
+``agent.workload_selection_check``), each as a condition named after its stem.
 
 The agent was trained on ``profile_diurnal_long``, a real trace selected for
 its daily cycle, with ``hazard_error_sigma=0.25`` and randomly degraded fleets.
@@ -51,6 +55,7 @@ import torch
 
 from agent.forecast_ppo import ForecastPPOPolicy
 from agent.residual_features import DAY_STEPS
+from agent.residual_q import ResidualQPolicy
 from agent.search_seasonal import CachedHazard
 from agent.seasonal_rule import SeasonalForecastRule
 from agent.train_residual import build_sim_config
@@ -104,8 +109,11 @@ def write_phase_shift(csv_path: Path, directory: Path) -> Path:
                       "holdout_phase_shift", False, note)
 
 
-def _policies(config: SimConfig, checkpoints: Sequence[Path]) -> list:
+def _policies(config: SimConfig, checkpoints: Sequence[Path], q_models: Sequence[Path] = ()) -> list:
     out = [RiskAwareRuleBased(config), OracleLookahead(config), SeasonalForecastRule(config)]
+    for run in q_models:
+        seed = int(json.loads((Path(run) / "meta.json").read_text(encoding="utf-8"))["seed"])
+        out.append(ResidualQPolicy.from_dir(run, config, f"residual_q seed{seed}"))
     for path in checkpoints:
         seed = int(torch.load(path, map_location="cpu", weights_only=True)["meta"]["seed"])
         out.append(ForecastPPOPolicy.from_checkpoint(path, config, f"forecast_ppo_bc seed{seed}"))
@@ -137,7 +145,10 @@ def _gaps(df: pd.DataFrame, condition: str) -> list[dict[str, object]]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point."""
     p = argparse.ArgumentParser(prog="python -m agent.evaluate_ood", description=__doc__.split("\n\n")[0])
-    p.add_argument("--ppo-checkpoint", type=Path, nargs="+", required=True)
+    p.add_argument("--ppo-checkpoint", type=Path, nargs="*", default=[])
+    p.add_argument("--q-model", type=Path, nargs="*", default=[], help="run directories written by agent.residual_q")
+    p.add_argument("--extra-csv", type=Path, nargs="*", default=[],
+                   help="further replay CSVs, each evaluated as a condition named after its stem")
     p.add_argument("--holdout-csv", type=Path, required=True)
     p.add_argument("--seeds", type=int, default=20)
     p.add_argument("--days", type=int, default=4)
@@ -165,9 +176,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                        dataclasses.replace(config, fleet_degradation=DEGRADED_LEVEL,
                                            label=f"v1,eval-fleet,sigma={args.hazard_error_sigma:g},level={DEGRADED_LEVEL:g}")))
 
+    for extra in args.extra_csv:
+        conditions.append((extra.stem, extra, config))
+    if not args.ppo_checkpoint and not args.q_model:
+        p.error("give at least one --ppo-checkpoint or --q-model")
     frames, gap_rows = [], []
     for condition, path, cfg in conditions:
-        df = compare(_policies(cfg, args.ppo_checkpoint), profiles=[path], seeds=seeds, config=cfg)
+        df = compare(_policies(cfg, args.ppo_checkpoint, args.q_model), profiles=[path], seeds=seeds, config=cfg)
         df.insert(0, "condition", condition)
         frames.append(df)
         gap_rows += _gaps(df, condition)

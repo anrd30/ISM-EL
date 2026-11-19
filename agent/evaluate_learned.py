@@ -7,6 +7,7 @@ Usage::
         --workload-csv data_pipeline/profiles/profile_diurnal_long_holdout.csv \\
         --seeds 20 --eval-fleet --hazard-error-sigma 0.25 --diagnostics --out runs/eval_search
 
+``--q-model`` takes run directories from ``agent.residual_q``;
 ``--ppo-checkpoint`` takes ``.pt`` files from ``agent.forecast_ppo``
 (``ckpt_best.pt`` is labelled ``forecast_ppo_<init>``, ``ckpt_init.pt`` of a
 ``bc`` run ``forecast_bc_only``); ``--search-result`` takes ``search.json``
@@ -48,6 +49,7 @@ import pandas as pd
 from agent.seasonal_rule import SeasonalForecastRule
 from agent.forecast_ppo import ForecastPPOPolicy
 from agent.residual_policy import ResidualPolicy, load_residual_checkpoint
+from agent.residual_q import ResidualQPolicy
 from agent.search_seasonal import make_policy
 from agent.train_residual import build_sim_config
 from baselines.evaluate import compare, paired_delta, summarise, to_markdown
@@ -121,6 +123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--checkpoint", type=Path, nargs="*", default=[])
     p.add_argument("--search-result", type=Path, nargs="*", default=[])
     p.add_argument("--ppo-checkpoint", type=Path, nargs="*", default=[])
+    p.add_argument("--q-model", type=Path, nargs="*", default=[],
+                   help="run directories written by agent.residual_q (model.pkl and meta.json)")
     p.add_argument("--workload-csv", type=Path, required=True)
     p.add_argument("--seeds", type=int, default=20)
     p.add_argument("--seed-start", type=int, default=0)
@@ -224,16 +228,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "params": f"bc_accuracy={float(meta['bc_accuracy']):.3f}" if meta["init"] == "bc" else "",
             }
         )
-    if not residuals and not searched and not ppo_policies:
-        p.error("give at least one --ppo-checkpoint, --checkpoint or --search-result")
-    names = [r.name for r in residuals] + [q.name for q in searched] + [q.name for q in ppo_policies]
+    q_policies = []
+    for run in args.q_model:
+        meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+        for key in ("trained_on_sha256", "fit_csv_sha256", "val_csv_sha256"):
+            if meta[key] in eval_forms and not args.no_strict_holdout:
+                p.error(f"{run} used the evaluation workload ({key}, sha256 {eval_sha[:12]}); see --no-strict-holdout")
+        if meta["hazard"] != args.hazard:
+            p.error(f"{run} was trained with hazard={meta['hazard']}, evaluation uses {args.hazard}")
+        if float(meta["hazard_error_sigma"]) != args.hazard_error_sigma:
+            p.error(f"{run} was trained with sigma={meta['hazard_error_sigma']}, evaluation uses {args.hazard_error_sigma}")
+        label = f"residual_q seed{int(meta['seed'])}"
+        q_policies.append(ResidualQPolicy.from_dir(run, config, label))
+        ckpt_rows.append(
+            {
+                "checkpoint": run.as_posix(),
+                "policy": label,
+                "iteration": 0,
+                "trained_on": meta["trained_on"],
+                "hazard": meta["hazard"],
+                "train_fleet": "train-fleet",
+                "sigma": meta["hazard_error_sigma"],
+                "val_gap": round(float(meta["val_gap"]), 3),
+                "val_gap_sem": round(float(meta["val_gap_sem"]), 3),
+                "val_seeds": meta["val_seeds"],
+                "params": f"margin={float(meta['margin']):g} (deterministic)",
+            }
+        )
+    if not residuals and not searched and not ppo_policies and not q_policies:
+        p.error("give at least one --q-model, --ppo-checkpoint, --checkpoint or --search-result")
+    names = ([r.name for r in residuals] + [q.name for q in searched] + [q.name for q in ppo_policies]
+             + [q.name for q in q_policies])
     if len(set(names)) != len(names):
         p.error(f"duplicate policy names {names}; checkpoints must come from different seeds")
 
     policies = list(baseline_policies(config))
     if args.diagnostics:
         policies.append(SeasonalForecastRule(config))
-    policies += residuals + searched + ppo_policies
+    policies += residuals + searched + ppo_policies + q_policies
     seeds = list(range(args.seed_start, args.seed_start + args.seeds))
     episodes = compare(policies, profiles=[args.workload_csv], seeds=seeds, config=config)
     summary = summarise(episodes)

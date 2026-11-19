@@ -154,6 +154,36 @@
       "file": "profiles/profile_diurnal_long_holdout.meta.json",
       "rows": null,
       "sha256": "63a5c4659368c4f8871a549b6a578037bbdc334b60f164c5471f0560e1a57943"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_altB.csv",
+      "rows": 4032,
+      "sha256": "bf19b148bdd47546d1029e8365dfc530dae6635f402ebfa814782ac7073acd7e"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_altB.meta.json",
+      "rows": null,
+      "sha256": "1253581950a01bf938cddf28aa967f1b3215b3376b987d74308e0de61954e6a0"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popC.csv",
+      "rows": 4032,
+      "sha256": "05e61ef61e2b7837595bcd7fbe5243c098300822658906c5190fc5336c775f69"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popC.meta.json",
+      "rows": null,
+      "sha256": "0c3060d8017e19bc108eaaf0b144ca4cbcea9a8f673d0bf6da23a7b8ad0755d5"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popD.csv",
+      "rows": 4032,
+      "sha256": "7d269f117151aa79a3f533417eb75ec38220b1ec25b7375ced1433874b12e63c"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popD.meta.json",
+      "rows": null,
+      "sha256": "9302ba20b5a129e5bc99797481e985fc639fa90ae79eff13b0fabe3622851511"
     }
   ],
   "sources": {

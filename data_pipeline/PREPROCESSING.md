@@ -319,6 +319,36 @@ shared 24 h window.
   the plot; whether the four profiles are visibly different is read from
   `profiles/profile_comparison.png`.
 
+## B5b — Independent periodic profile (diurnal_long_altB)
+
+- Additive profile `diurnal_long_altB`; `diurnal_long` and its splits are unchanged. Same construction as `diurnal_long`: the diurnal rule (highest `daily_strength`, the median-bytes-per-I/O eligibility rule, N the largest whose aggregate p95 is at most the diurnal target x 1.005) over a 14-day window (4032 samples), six-column replay schema, `t_seconds` from 0, `validate_replay_frame` before writing, no scaling factor
+- Window: the start covered by a gap-free run of that length in the most volumes among starts whose window shares no sample time with the `diurnal_long` window
+- Volumes: every `disk_uid` in `profile_diurnal_long.meta.json` is removed from the candidate pool before ranking. The record below also gives the selection without that removal
+- Files: `profiles/profile_diurnal_long_altB.csv` and `profiles/profile_diurnal_long_altB.meta.json` (volume list, window, counts, aggregate p95 and mean, excluded volumes, overlap figures). Produced by `tencent/build_profile_altB.py`
+- Counts and measurements from the last run of `tencent/build_profile_altB.py`:
+
+- `profile=diurnal_long_altB n_disks=150 start_ts=1592884800 start_utc=2020-06-23T04:00:00Z end_ts=1594094100 end_utc=2020-07-07T03:55:00Z rows=4032 requested_rows=4032`
+- `profile=diurnal_long_altB volumes_with_window=6046 ranked_candidates=5622 excluded_disks=44 scaling_factor=1 target_p95_mbps=100 p95_mbps=99.48 mean_mbps=63.9 max_mbps=120.8`
+- `profile=diurnal_long_altB reference=diurnal_long reference_start_ts=1594094400 shared_sample_times=0 overlap_with_reference_disks=0 without_exclusion_n_disks=109 without_exclusion_overlap_with_reference_disks=40`
+- `output=profiles/profile_diurnal_long_altB.csv rows=4032 sha256=bf19b148bdd47546d1029e8365dfc530dae6635f402ebfa814782ac7073acd7e`
+- `output=profiles/profile_diurnal_long_altB.meta.json sha256=1253581950a01bf938cddf28aa967f1b3215b3376b987d74308e0de61954e6a0`
+## B5c — Fresh periodic populations (diurnal_long_popC, diurnal_long_popD)
+
+- Two further 14-day profiles for a pre-registered evaluation; `diurnal_long`, `diurnal_long_altB` and their splits are unchanged. Each is the sum of N real volumes over one shared 14-day window (4032 samples, 300 s), six-column replay schema, `t_seconds` from 0, `validate_replay_frame` before writing, no scaling factor, N the largest whose aggregate p95 is at most the diurnal target x 1.005
+- Window: the best-covered 14-day window (most volumes with a gap-free run, earliest start on ties) that shares no sample time with the earlier profiles' windows. Volumes: those of the earlier profiles are removed from the pool
+- `diurnal_long_popC`: the volumes are ranked with the diurnal rule (highest `daily_strength`) of `build_profiles.py`
+- `diurnal_long_popD`: the eligible volumes (gap-free over the window, not `implausible_io`) are taken in the order of `numpy.random.default_rng(20261119).permutation` of their sorted `disk_uid` list; N is the largest prefix whose aggregate p95 is within the target. No ranking by daily-cycle strength, no volume skipped or swapped
+- Files: `profiles/profile_<name>.csv` and `.meta.json` (volume list, window, seed, counts, aggregate p95 and mean, excluded volumes), listed in `manifest.json`. Produced by `tencent/build_profile_altB.py --population C|D`
+- Counts and measurements from the last run:
+
+- `profile=diurnal_long_popC n_disks=14 rank=diurnal start_ts=1595390400 start_utc=2020-07-22T04:00:00Z end_ts=1596599700 end_utc=2020-08-05T03:55:00Z rows=4032 requested_rows=4032`
+- `profile=diurnal_long_popC volumes_with_window=5311 eligible_pool=4813 excluded_disks=194 overlap_with_excluded_disks=0 scaling_factor=1 target_p95_mbps=100 p95_mbps=100.5 mean_mbps=65.82 max_mbps=110.4`
+- `output=profiles/profile_diurnal_long_popC.csv rows=4032 sha256=05e61ef61e2b7837595bcd7fbe5243c098300822658906c5190fc5336c775f69`
+- `output=profiles/profile_diurnal_long_popC.meta.json sha256=0c3060d8017e19bc108eaaf0b144ca4cbcea9a8f673d0bf6da23a7b8ad0755d5`
+- `profile=diurnal_long_popD n_disks=336 rank=random start_ts=1591588800 start_utc=2020-06-08T04:00:00Z end_ts=1592798100 end_utc=2020-06-22T03:55:00Z rows=4032 requested_rows=4032 rng_seed=20261119`
+- `profile=diurnal_long_popD volumes_with_window=3818 eligible_pool=3455 excluded_disks=208 overlap_with_excluded_disks=0 scaling_factor=1 target_p95_mbps=100 p95_mbps=100.4 mean_mbps=74.76 max_mbps=156.5`
+- `output=profiles/profile_diurnal_long_popD.csv rows=4032 sha256=7d269f117151aa79a3f533417eb75ec38220b1ec25b7375ced1433874b12e63c`
+- `output=profiles/profile_diurnal_long_popD.meta.json sha256=9302ba20b5a129e5bc99797481e985fc639fa90ae79eff13b0fabe3622851511`
 ## A2 — Horizon labels and drive split
 
 - Inputs: `data/processed/backblaze_timelines.parquet`, `data/processed/backblaze_drive_index.parquet`; decision record: `data_pipeline/A2_DECISION.md`

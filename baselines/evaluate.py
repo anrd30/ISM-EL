@@ -70,6 +70,7 @@ import pandas as pd
 
 from baselines.policies import (
     NeedsEnv,
+    NeedsHistory,
     Policy,
     baseline_policies,
     diagnostic_policies,
@@ -79,6 +80,7 @@ from contracts.contracts import (
     CONTROL_INTERVAL_S,
     LATENCY_VIOLATION_FRACTION_MAX,
     MAX_EPISODE_STEPS,
+    RESET_HISTORY_INFO_KEYS,
     ContractViolation,
     TerminationReason,
     latency_degradation,
@@ -187,6 +189,10 @@ def _run_episode(
         raise RuntimeError(f"info['workload_synthetic'] must be a bool or None, got {synthetic!r}")
     start_row = int(reset_info["trace_start_row"])  # part of the scenario fingerprint
     policy.reset()
+    if isinstance(policy, NeedsHistory):
+        if RESET_HISTORY_INFO_KEYS[0] not in reset_info:
+            raise ValueError(f"policy {policy.name!r} needs load history; set SimConfig.history_rows")
+        policy.set_history(*(reset_info[key] for key in RESET_HISTORY_INFO_KEYS))
     initial_fg = float(obs[2]) * BW_TOTAL_MBPS  # field 2 (fg_bw) is normalised by BW_TOTAL_MBPS
 
     latency_now: list[float] = []

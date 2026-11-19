@@ -75,6 +75,7 @@ from contracts.contracts import (
     GROUP_TOLERATED_FAILURES,
     MAX_EPISODE_STEPS,
     REBUILD_WORK_GB,
+    RESET_HISTORY_INFO_KEYS,
     RISK_BUDGET_EPS,
     Observation,
     TerminationReason,
@@ -174,7 +175,15 @@ class RecoveryEnv:
 
         self._trace = self._load_trace(scenario_rng, episode_seed)
         n_rows = len(self._trace)
-        self._offset = int(scenario_rng.integers(0, n_rows)) if self.config.random_trace_offset else 0
+        drawn_offset = int(scenario_rng.integers(0, n_rows)) if self.config.random_trace_offset else 0
+        history_rows = self.config.history_rows
+        if history_rows > 0 and history_rows >= n_rows:
+            raise ValueError(f"history_rows={history_rows} needs a trace longer than it, got {n_rows} rows")
+        if 0 < history_rows and drawn_offset < history_rows:
+            # Deterministic map of the rows that would leave no full history onto [history_rows, n_rows).
+            self._offset = history_rows + (drawn_offset * (n_rows - history_rows)) // history_rows
+        else:
+            self._offset = drawn_offset
         self._fleet = sample_fleet(
             scenario_rng,
             self.config.hazard_model,
@@ -217,6 +226,18 @@ class RecoveryEnv:
             p_true_applied=p_best_true,
             p_true_effective=p_best_true,
         )
+        if history_rows > 0:
+            lo, hi = self._offset - history_rows, self._offset
+            info.update(
+                {
+                    "history_rows": int(history_rows),
+                    "trace_start_row_drawn": int(drawn_offset),
+                    "trace_start_row_remapped": bool(self._offset != drawn_offset),
+                    RESET_HISTORY_INFO_KEYS[0]: np.array(self._trace.fg_bw_mbps[lo:hi], dtype=np.float64),
+                    RESET_HISTORY_INFO_KEYS[1]: np.array(self._trace.fg_read_iops[lo:hi], dtype=np.float64),
+                    RESET_HISTORY_INFO_KEYS[2]: np.array(self._trace.fg_write_iops[lo:hi], dtype=np.float64),
+                }
+            )
         return obs, info
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:

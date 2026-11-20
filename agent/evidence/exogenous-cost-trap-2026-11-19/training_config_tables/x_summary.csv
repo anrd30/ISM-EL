@@ -1,0 +1,11 @@
+profile,policy,n,X_mean,C_mean,f_ratio_of_means,d,X_mean_above_d,n_scenarios_X_above_d,scenarios_X_above_d
+diurnal_long_train,fixed_20,20,0.0404989,0.0404989,1,0.05,False,2,11 18
+diurnal_long_train,fixed_50,20,0.0468295,0.0468295,1,0.05,False,2,11 18
+diurnal_long_train,fixed_80,20,0.0520766,0.0755587,0.689221,0.05,True,3,7 11 18
+diurnal_long_train,fixed_120,20,0.0569692,0.657656,0.0866246,0.05,True,3,7 11 18
+diurnal_long_train,workload_only_throttle,20,0.0489602,0.050387,0.971684,0.05,False,2,11 18
+diurnal_long_train,risk_aware_rule_based,20,0.0489602,0.050387,0.971684,0.05,False,2,11 18
+diurnal_long_train,ORACLE_lookahead (not deployable),20,0.0523118,0.0523118,1,0.05,True,3,7 11 18
+diurnal_long_train,slowest_risk_feasible (literal spec),20,0.0404989,0.0404989,1,0.05,False,2,11 18
+diurnal_long_train,risk_aware_ceiling_persistence (literal spec),20,0.0528597,0.0959431,0.550949,0.05,True,3,7 11 18
+diurnal_long_train,risk_aware_rule_based k=1,20,0.0491598,0.0596323,0.824382,0.05,False,3,7 11 18

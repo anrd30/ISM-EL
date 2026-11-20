@@ -1,0 +1,3 @@
+profile,f_fixed_20,f_fixed_50,f_fixed_80,f_fixed_120,f20_is_one,f_non_increasing,f_decreasing
+diurnal_long_holdout,1,1,0.582748,0.0756178,True,True,False
+diurnal_long_altB,1,1,0.311188,0.0384278,True,True,False

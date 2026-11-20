@@ -69,13 +69,13 @@ diurnal_long_popD,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (
 diurnal_long_popD,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),clip_0.01,13,55.6331,5.87478,9.46982,13,0,100,-0.00591933,0.000663137
 diurnal_long_popD,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),clip_0.25,16,59.3331,5.50433,10.7794,16,0,100,-0.00627666,0.000662565
 diurnal_long_popD,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),fixed20_cost,16,59.3331,5.50433,10.7794,16,0,100,-0.00627666,0.000662565
-diurnal_long_popD,residual_q (seeds averaged),risk_aware_rule_based,all,20,-50.7204,10.3859,-4.88356,0,20,-143.789,0.0080634,0.00140031
-diurnal_long_popD,residual_q (seeds averaged),risk_aware_rule_based,primary,16,-62.5748,11.1255,-5.62445,0,16,-165.089,0.00924126,0.00159075
-diurnal_long_popD,residual_q (seeds averaged),risk_aware_rule_based,clip_0.01,13,-53.8888,10.5152,-5.12487,0,13,-143.866,0.00798174,0.00153775
-diurnal_long_popD,residual_q (seeds averaged),risk_aware_rule_based,clip_0.25,16,-62.5748,11.1255,-5.62445,0,16,-165.089,0.00924126,0.00159075
-diurnal_long_popD,residual_q (seeds averaged),risk_aware_rule_based,fixed20_cost,16,-62.5748,11.1255,-5.62445,0,16,-165.089,0.00924126,0.00159075
-diurnal_long_popD,residual_q (seeds averaged),rule_seasonal_forecast (hand-built),all,20,-35.2044,6.7171,-5.24101,2,18,-69.3135,0.00816294,0.00143737
-diurnal_long_popD,residual_q (seeds averaged),rule_seasonal_forecast (hand-built),primary,16,-41.1453,7.64972,-5.37867,1,15,-69.3463,0.00714512,0.00112158
-diurnal_long_popD,residual_q (seeds averaged),rule_seasonal_forecast (hand-built),clip_0.01,13,-35.7134,8.05856,-4.43173,1,12,-64.1945,0.00633117,0.00117807
-diurnal_long_popD,residual_q (seeds averaged),rule_seasonal_forecast (hand-built),clip_0.25,16,-41.1453,7.64972,-5.37867,1,15,-69.3463,0.00714512,0.00112158
-diurnal_long_popD,residual_q (seeds averaged),rule_seasonal_forecast (hand-built),fixed20_cost,16,-41.1453,7.64972,-5.37867,1,15,-69.3463,0.00714512,0.00112158
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),risk_aware_rule_based,all,20,-50.7204,10.3859,-4.88356,0,20,-143.789,0.0080634,0.00140031
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),risk_aware_rule_based,primary,16,-62.5748,11.1255,-5.62445,0,16,-165.089,0.00924126,0.00159075
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),risk_aware_rule_based,clip_0.01,13,-53.8888,10.5152,-5.12487,0,13,-143.866,0.00798174,0.00153775
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),risk_aware_rule_based,clip_0.25,16,-62.5748,11.1255,-5.62445,0,16,-165.089,0.00924126,0.00159075
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),risk_aware_rule_based,fixed20_cost,16,-62.5748,11.1255,-5.62445,0,16,-165.089,0.00924126,0.00159075
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),rule_seasonal_forecast (hand-built),all,20,-35.2044,6.7171,-5.24101,2,18,-69.3135,0.00816294,0.00143737
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),rule_seasonal_forecast (hand-built),primary,16,-41.1453,7.64972,-5.37867,1,15,-69.3463,0.00714512,0.00112158
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),rule_seasonal_forecast (hand-built),clip_0.01,13,-35.7134,8.05856,-4.43173,1,12,-64.1945,0.00633117,0.00117807
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),rule_seasonal_forecast (hand-built),clip_0.25,16,-41.1453,7.64972,-5.37867,1,15,-69.3463,0.00714512,0.00112158
+diurnal_long_popD,residual-Q (zero-shot transfer from A, seeds averaged),rule_seasonal_forecast (hand-built),fixed20_cost,16,-41.1453,7.64972,-5.37867,1,15,-69.3463,0.00714512,0.00112158

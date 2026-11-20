@@ -1,0 +1,36 @@
+{
+  "profile": "diurnal_long_popC_train",
+  "synthetic": false,
+  "source": "Tencent Cloud Volume Workload Traces",
+  "label": "train half of diurnal_long_popC (aggregate of 14 strongest-daily-cycle volumes over a 14-day window disjoint in time and in volumes from diurnal_long, diurnal_long_altB (selected extremes, not a representative sample))",
+  "disclosure": "selected extremes, not a representative sample",
+  "parent_profile": "diurnal_long_popC",
+  "parent_rows": 4032,
+  "parent_row_range": [
+    0,
+    2880
+  ],
+  "rows": 2880,
+  "n_disks": 14,
+  "disk_uids": [
+    "836c6c1a-97b3-4650-aa9d-e3203ebf4b81",
+    "cf1cdb1f-18f8-4e9e-9544-af207b0c522f",
+    "fa49d104-cd64-4452-aeaf-6f1a24342d41",
+    "25eb3400-8a27-4eac-bfff-8400f4ae7356",
+    "84691207-5481-4583-a3b0-a2ac9d0e1650",
+    "94377eac-27a6-449f-b427-57005a946dbc",
+    "cfd51626-d447-4b44-b3db-06766cdd608d",
+    "eb53a8a0-b726-4d06-b61e-b55bbf923a45",
+    "dd650e9f-41c2-43a6-b502-16691e1cf819",
+    "b294ba92-f6c8-4868-bd3e-49aaa97a4cc9",
+    "50d42bc0-7b75-44d6-9588-57e4c998c25e",
+    "d4338d3c-da80-404a-9370-31da1fcdf9a1",
+    "1c50659c-a1e0-40e1-aeed-64d3dd6e3adc",
+    "6d2f40d1-c649-4353-afb7-2d6f36c42967"
+  ],
+  "selection_rule": "highest daily_strength (variance share of the time-of-day mean profile)",
+  "window_start_ts": 1595390400,
+  "window_end_ts": 1596254100,
+  "scaling_factor": 1.0,
+  "split_note": "Time-forward cut of a single continuous window. t_seconds is rebased to start at 0 as contracts.validate_replay_grid requires; the absolute window this half covers is window_start_ts..window_end_ts."
+}

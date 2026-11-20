@@ -105,13 +105,13 @@ ORACLE rows read the next interval's foreground load from the trace; no deployab
 | diurnal_long_popD | DP_hindsight_optimum (not deployable) | rule_seasonal_forecast (hand-built) | clip_0.01 | 13 | 55.63 | 5.875 | 9.47 | 13 | 0 | 100 | -0.005919 | 0.0006631 |
 | diurnal_long_popD | DP_hindsight_optimum (not deployable) | rule_seasonal_forecast (hand-built) | clip_0.25 | 16 | 59.33 | 5.504 | 10.78 | 16 | 0 | 100 | -0.006277 | 0.0006626 |
 | diurnal_long_popD | DP_hindsight_optimum (not deployable) | rule_seasonal_forecast (hand-built) | fixed20_cost | 16 | 59.33 | 5.504 | 10.78 | 16 | 0 | 100 | -0.006277 | 0.0006626 |
-| diurnal_long_popD | residual_q (seeds averaged) | risk_aware_rule_based | all | 20 | -50.72 | 10.39 | -4.884 | 0 | 20 | -143.8 | 0.008063 | 0.0014 |
-| diurnal_long_popD | residual_q (seeds averaged) | risk_aware_rule_based | primary | 16 | -62.57 | 11.13 | -5.624 | 0 | 16 | -165.1 | 0.009241 | 0.001591 |
-| diurnal_long_popD | residual_q (seeds averaged) | risk_aware_rule_based | clip_0.01 | 13 | -53.89 | 10.52 | -5.125 | 0 | 13 | -143.9 | 0.007982 | 0.001538 |
-| diurnal_long_popD | residual_q (seeds averaged) | risk_aware_rule_based | clip_0.25 | 16 | -62.57 | 11.13 | -5.624 | 0 | 16 | -165.1 | 0.009241 | 0.001591 |
-| diurnal_long_popD | residual_q (seeds averaged) | risk_aware_rule_based | fixed20_cost | 16 | -62.57 | 11.13 | -5.624 | 0 | 16 | -165.1 | 0.009241 | 0.001591 |
-| diurnal_long_popD | residual_q (seeds averaged) | rule_seasonal_forecast (hand-built) | all | 20 | -35.2 | 6.717 | -5.241 | 2 | 18 | -69.31 | 0.008163 | 0.001437 |
-| diurnal_long_popD | residual_q (seeds averaged) | rule_seasonal_forecast (hand-built) | primary | 16 | -41.15 | 7.65 | -5.379 | 1 | 15 | -69.35 | 0.007145 | 0.001122 |
-| diurnal_long_popD | residual_q (seeds averaged) | rule_seasonal_forecast (hand-built) | clip_0.01 | 13 | -35.71 | 8.059 | -4.432 | 1 | 12 | -64.19 | 0.006331 | 0.001178 |
-| diurnal_long_popD | residual_q (seeds averaged) | rule_seasonal_forecast (hand-built) | clip_0.25 | 16 | -41.15 | 7.65 | -5.379 | 1 | 15 | -69.35 | 0.007145 | 0.001122 |
-| diurnal_long_popD | residual_q (seeds averaged) | rule_seasonal_forecast (hand-built) | fixed20_cost | 16 | -41.15 | 7.65 | -5.379 | 1 | 15 | -69.35 | 0.007145 | 0.001122 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | risk_aware_rule_based | all | 20 | -50.72 | 10.39 | -4.884 | 0 | 20 | -143.8 | 0.008063 | 0.0014 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | risk_aware_rule_based | primary | 16 | -62.57 | 11.13 | -5.624 | 0 | 16 | -165.1 | 0.009241 | 0.001591 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | risk_aware_rule_based | clip_0.01 | 13 | -53.89 | 10.52 | -5.125 | 0 | 13 | -143.9 | 0.007982 | 0.001538 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | risk_aware_rule_based | clip_0.25 | 16 | -62.57 | 11.13 | -5.624 | 0 | 16 | -165.1 | 0.009241 | 0.001591 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | risk_aware_rule_based | fixed20_cost | 16 | -62.57 | 11.13 | -5.624 | 0 | 16 | -165.1 | 0.009241 | 0.001591 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | rule_seasonal_forecast (hand-built) | all | 20 | -35.2 | 6.717 | -5.241 | 2 | 18 | -69.31 | 0.008163 | 0.001437 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | rule_seasonal_forecast (hand-built) | primary | 16 | -41.15 | 7.65 | -5.379 | 1 | 15 | -69.35 | 0.007145 | 0.001122 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | rule_seasonal_forecast (hand-built) | clip_0.01 | 13 | -35.71 | 8.059 | -4.432 | 1 | 12 | -64.19 | 0.006331 | 0.001178 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | rule_seasonal_forecast (hand-built) | clip_0.25 | 16 | -41.15 | 7.65 | -5.379 | 1 | 15 | -69.35 | 0.007145 | 0.001122 |
+| diurnal_long_popD | residual-Q (zero-shot transfer from A, seeds averaged) | rule_seasonal_forecast (hand-built) | fixed20_cost | 16 | -41.15 | 7.65 | -5.379 | 1 | 15 | -69.35 | 0.007145 | 0.001122 |

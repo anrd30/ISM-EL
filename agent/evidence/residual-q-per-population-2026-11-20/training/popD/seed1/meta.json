@@ -1,0 +1,32 @@
+{
+  "seed": 1,
+  "margin": 0.5,
+  "feature_version": 2,
+  "hazard": "v1",
+  "eval_fleet": false,
+  "hazard_error_sigma": 0.25,
+  "trained_on": "data_pipeline/profiles/profile_diurnal_long_popD_train.csv",
+  "trained_on_sha256": "edd8f3863dacad9d9cbae9ec9e991c4c3a1936b59c15141056b38daa8032c1cf",
+  "fit_csv_sha256": "023eaa22fce859b53b07991f9e5b15541c02c4460fe751ad0b45225932426ae0",
+  "val_csv_sha256": "753d2316548e3fd765815b8eb1f84bc469a84c6d9a1c0059005bd873e9348917",
+  "val_gap": 11.758934276405663,
+  "val_gap_sem": 2.383158365520413,
+  "val_seeds": "5000..5039",
+  "samples_selection_fit": 47743,
+  "samples_final_fit": 61365,
+  "config": {
+    "seed": 1,
+    "workload_csv": "data_pipeline/profiles/profile_diurnal_long_popD_train.csv",
+    "hazard": "v1",
+    "hazard_error_sigma": 0.25,
+    "out_dir": "runs/rq_popD\\seed1",
+    "episodes": 80,
+    "explore": 0.1,
+    "val_days": 3,
+    "val_seeds": 40,
+    "val_seed_start": 5000,
+    "max_iter": 300,
+    "learning_rate": 0.05,
+    "min_samples_leaf": 200
+  }
+}

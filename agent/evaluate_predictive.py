@@ -166,7 +166,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         OPTIMUM: [OPTIMUM],
     }
     if q_names:
-        treatments[f"{Q_PREFIX} (seeds averaged)"] = q_names
+        treatments["residual-Q (zero-shot transfer from A, seeds averaged)"] = q_names
     references: dict[str, Sequence[str]] = {RULE: [RULE], SEASONAL: [SEASONAL]}
     table = gap_table(episodes, treatments, references)
     table.to_csv(args.out / "gaps.csv", index=False, lineterminator="\n", float_format="%.6g")

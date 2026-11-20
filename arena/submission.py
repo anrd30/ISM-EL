@@ -12,6 +12,7 @@ independent.
 
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import time
 from pathlib import Path
@@ -20,9 +21,10 @@ from typing import Any, Callable
 import numpy as np
 
 from arena.config import STEP_BUDGET_S
+from arena.restrict import submission_code
 from contracts.contracts import N_ACTIONS, OBS_DIM
 
-__all__ = ["SubmissionError", "load_policy_fn", "SubmittedPolicy"]
+__all__ = ["SubmissionError", "load_policy_fn", "load_policy_source", "SubmittedPolicy"]
 
 
 class SubmissionError(RuntimeError):
@@ -50,6 +52,27 @@ def load_policy_fn(path: str | Path) -> Callable[[np.ndarray, dict], int]:
     return fn
 
 
+def load_policy_source(source: str, label: str) -> Callable[[np.ndarray, dict], int]:
+    """Compile submission source and return its ``policy``.
+
+    Takes source text rather than a path because the sandbox reads the file before
+    restrictions go up: once inside, file access is denied and the normal import
+    machinery -- which opens the file itself -- cannot run.
+
+    Raises:
+        SubmissionError: if the source fails to execute or defines no ``policy``.
+    """
+    namespace: dict[str, Any] = {"__name__": f"submission_{label}", "__builtins__": builtins}
+    try:
+        exec(compile(source, f"<submission:{label}>", "exec"), namespace)  # noqa: S102
+    except Exception as exc:  # noqa: BLE001 - any failure at module scope is a bad submission
+        raise SubmissionError(f"submission raised at module scope: {exc!r}") from exc
+    fn = namespace.get("policy")
+    if not callable(fn):
+        raise SubmissionError("submission defines no callable named 'policy'")
+    return fn
+
+
 class SubmittedPolicy:
     """Adapter from a submitted function to the evaluation harness.
 
@@ -64,6 +87,17 @@ class SubmittedPolicy:
         self.n_calls: int = 0
         self.max_step_s: float = 0.0
         self.total_s: float = 0.0
+        self.action_counts: list[int] = [0] * N_ACTIONS
+
+    @property
+    def distinct_actions(self) -> int:
+        """How many of the four rates the policy ever selected."""
+        return sum(1 for c in self.action_counts if c)
+
+    @property
+    def modal_action_share(self) -> float:
+        """Share of decisions spent on the most-used action; 1.0 is a constant policy."""
+        return max(self.action_counts) / self.n_calls if self.n_calls else 0.0
 
     def reset(self) -> None:
         """Clear per-episode memory. Episodes are independent by construction."""
@@ -76,7 +110,8 @@ class SubmittedPolicy:
 
         start = time.perf_counter()
         try:
-            action = self._fn(arr.copy(), self._state)
+            with submission_code():
+                action = self._fn(arr.copy(), self._state)
         except Exception as exc:  # noqa: BLE001 - a raising policy is a failed submission
             raise SubmissionError(f"policy raised: {exc!r}") from exc
         elapsed = time.perf_counter() - start
@@ -94,4 +129,5 @@ class SubmittedPolicy:
         action = int(action)
         if not 0 <= action < N_ACTIONS:
             raise SubmissionError(f"action {action} outside [0, {N_ACTIONS})")
+        self.action_counts[action] += 1
         return action

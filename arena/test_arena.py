@@ -168,3 +168,70 @@ def test_extract_policy_ignores_fences_without_policy() -> None:
 def test_extract_policy_rejects_a_reply_with_no_policy() -> None:
     with pytest.raises(ValueError, match="no 'def policy'"):
         extract_policy("I am unable to help with that.")
+
+
+# --------------------------------------------------------------------------
+# Sandbox: a policy must not be able to read the future
+# --------------------------------------------------------------------------
+
+CHEATS = {
+    "open_trace": 'def policy(obs, state):\n'
+                  '    open("data_pipeline/profiles/profile_diurnal_long_holdout.csv").readline()\n'
+                  '    return 2\n',
+    "module_scope_open": 'T = open("data_pipeline/profiles/profile_diurnal_long_holdout.csv").read()\n'
+                         'def policy(obs, state):\n    return 2\n',
+    "import_os": 'def policy(obs, state):\n    import os\n    os.listdir(".")\n    return 2\n',
+    "import_sim": 'def policy(obs, state):\n'
+                  '    from sim.scenario import load_replay_csv\n    return 2\n',
+    "import_arena_reference": 'def policy(obs, state):\n'
+                              '    from arena.reference import reference_table\n    return 2\n',
+    "import_pandas": 'def policy(obs, state):\n    import pandas\n    return 2\n',
+    "importlib_escape": 'def policy(obs, state):\n'
+                        '    import importlib\n    importlib.import_module("os")\n    return 2\n',
+    "socket": 'def policy(obs, state):\n    import socket\n    return 2\n',
+}
+
+
+@pytest.mark.parametrize("name", sorted(CHEATS))
+def test_sandbox_blocks_reaching_outside_the_observation(name: str, tmp_path: Path) -> None:
+    """Each of these is a route to the workload trace or the reference optimum.
+
+    A policy that reads the trace is the lookahead oracle, so this is a validity
+    control, not only a security one.
+    """
+    from arena.sandbox import run_sandboxed
+
+    path = tmp_path / f"{name}.py"
+    path.write_text(CHEATS[name], encoding="utf-8")
+    result = run_sandboxed(path, "profile_diurnal_long_holdout.csv", name, timeout_s=300)
+    assert "error" in result, f"{name} was NOT blocked"
+    assert "Restriction" in result["error"], result["error"]
+
+
+def test_sandbox_allows_a_legitimate_policy(tmp_path: Path) -> None:
+    path = tmp_path / "ok.py"
+    path.write_text(
+        "import numpy as np\nimport math\n"
+        "def policy(obs, state):\n"
+        "    state['n'] = state.get('n', 0) + 1\n"
+        "    return int(np.clip(int(obs[11] * 4), 0, 3))\n",
+        encoding="utf-8",
+    )
+    from arena.sandbox import run_sandboxed
+
+    result = run_sandboxed(path, "profile_diurnal_long_holdout.csv", "ok", timeout_s=600)
+    assert "error" not in result, result.get("error")
+    assert result["n_decisions"] > 0
+
+
+def test_constant_policy_is_flagged_degenerate(tmp_path: Path) -> None:
+    """Two models produced constant policies that only identical scores revealed."""
+    from arena.sandbox import run_sandboxed
+
+    path = tmp_path / "const.py"
+    path.write_text("def policy(obs, state):\n    return 3\n", encoding="utf-8")
+    result = run_sandboxed(path, "profile_diurnal_long_holdout.csv", "const", timeout_s=600)
+    assert "error" not in result, result.get("error")
+    assert result["degenerate"] is True
+    assert result["distinct_actions"] == 1
+    assert result["modal_action_share"] == pytest.approx(1.0)

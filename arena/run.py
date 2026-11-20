@@ -27,47 +27,23 @@ from arena.config import (
     arena_config,
 )
 from arena.reference import reference_table
-from arena.score import ScenarioScore, aggregate, score_scenario
-from arena.submission import SubmissionError, SubmittedPolicy, load_policy_fn
+from arena.sandbox import run_sandboxed
+from arena.submission import SubmissionError
 
 __all__ = ["evaluate_submission", "main"]
 
 
 def evaluate_submission(path: str | Path, profile: str, name: str) -> dict:
-    """Run one submission on one profile and return its scored result."""
-    from arena.config import PROFILES
-    from baselines.evaluate import evaluate
+    """Score one submission on one profile, in a sandboxed subprocess.
 
-    ref = reference_table(profile).set_index("seed")
-    fn = load_policy_fn(path)
-    policy = SubmittedPolicy(fn, name=name)
-    cfg = arena_config()
-
-    frame = evaluate(policy, profile=PROFILES / profile, seeds=list(SEEDS), config=cfg)
-
-    scores: list[ScenarioScore] = []
-    for _, row in frame.iterrows():
-        seed = int(row["seed"])
-        scores.append(
-            score_scenario(
-                seed=seed,
-                j_policy=float(row["total_reward"]),
-                j_rule=float(ref.loc[seed, "j_rule"]),
-                j_star=float(ref.loc[seed, "j_star"]),
-                violation_fraction=float(row["latency_violation_fraction"]),
-                completion_hours=float(row["completion_hours"]),
-            )
-        )
-
-    agg = aggregate(scores)
-    return {
-        "profile": profile,
-        **agg.as_dict(),
-        "max_step_ms": policy.max_step_s * 1e3,
-        "mean_step_ms": (policy.total_s / policy.n_calls * 1e3) if policy.n_calls else 0.0,
-        "n_decisions": policy.n_calls,
-        "per_scenario": [s.__dict__ for s in scores],
-    }
+    Raises:
+        SubmissionError: if the submission could not be evaluated. The message is
+            the worker's, so a restriction violation says which import was refused.
+    """
+    result = run_sandboxed(path, profile, name)
+    if "error" in result:
+        raise SubmissionError(result["error"])
+    return result
 
 
 def _verify() -> int:
@@ -147,6 +123,13 @@ def _eval(args: argparse.Namespace) -> int:
             f"violations {block['mean_violation_fraction']:.4f}   "
             f"gap to dev {block['mean_g'] - dev_g:+.3f}"
         )
+        if block.get("degenerate"):
+            print(
+                f"  DEGENERATE: one action on all {block['n_decisions']} decisions "
+                "-- this is a constant policy, not a controller"
+            )
+        elif block.get("modal_action_share", 0.0) > 0.95:
+            print(f"  near-constant: modal action on {block['modal_action_share']:.1%} of decisions")
         if block["impossible_seeds"]:
             print(f"  WARNING G > 1 on seeds {block['impossible_seeds']} -- reference is wrong")
     print(f"written to {out}")
@@ -174,7 +157,9 @@ def _report() -> int:
                     "hours": round(block["mean_completion_hours"], 2),
                     "dev_gap": round(block["mean_g"] - r["dev"]["mean_g"], 3),
                     "max_ms": round(block["max_step_ms"], 2),
-                    "status": "ok",
+                    "acts": block.get("distinct_actions"),
+                    "modal": round(block.get("modal_action_share", 0.0), 2),
+                    "status": "degenerate" if block.get("degenerate") else "ok",
                 }
             )
     if not rows:

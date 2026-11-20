@@ -7,9 +7,15 @@ A model is given a storage recovery-bandwidth scheduling problem and writes a Py
 function. The arena runs it against the exact optimum computed by dynamic programming,
 and reports what fraction of the achievable gain it captured.
 
-Spec version **1.1.0**. Every result records the version it was produced under.
+Spec version **1.2.0**. Every result records the version it was produced under.
 
-> **1.0.0 results are void.** Its prompt described the observation in physical units
+> **Results before 1.2.0 are void.** 1.0.0's prompt described the observation in
+> physical units when every field is normalised; 1.1.0 then over-corrected by publishing
+> per-field statistics and naming three traps, which is coaching rather than
+> documentation. 1.2.0 states only the interface: the fields, and that they are
+> normalised. Do not compare scores across spec versions.
+>
+> **1.0.0 detail.** Its prompt described the observation in physical units
 > when every field is in fact normalised to roughly [0, 1]. A model that read it
 > literally and wrote `hazard > 0.001` had that branch fire on 100% of steps, collapsing
 > it to a constant policy. Models were being measured on a misleading stimulus rather

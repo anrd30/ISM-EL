@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SPEC_VERSION = "1.2.0"
+SPEC_VERSION = "1.3.0"
 
 #: Scenario seeds. Identical for every submission, so comparisons are paired.
 SEEDS: tuple[int, ...] = tuple(range(20))

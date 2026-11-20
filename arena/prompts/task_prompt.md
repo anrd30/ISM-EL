@@ -1,4 +1,4 @@
-# Task prompt (spec 1.2.0)
+# Task prompt (spec 1.3.0)
 
 Give this to the model verbatim. It is the experimental stimulus: changing it changes
 every score, so it is versioned with the spec and must not be edited per model.
@@ -18,6 +18,10 @@ Every 300 seconds you choose a rebuild rate from four options:
 ```
 ACTIONS_MBPS = [20, 50, 80, 120]      # you return the index 0, 1, 2 or 3
 ```
+
+`ACTIONS_MBPS` is shown here for explanation only. It is **not defined in your file**.
+Return the integer index directly. Likewise, every value you use must be read from
+`obs` -- nothing else is in scope.
 
 An episode ends when the rebuild completes, a second disk fails, or 2400 intervals pass.
 

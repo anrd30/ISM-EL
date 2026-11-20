@@ -9,3 +9,4 @@
 - Profiles: `data_pipeline/profiles/profile_diurnal_long_holdout.csv` (sha256 `94fe6bd6f8a5cb163cba7a9fafac1274d4ec6511113920a63d4993f03295a53d`) and
   `profile_diurnal_long_altB.csv` of `agent/residual-q-altb-check-2026-11-19`
   (sha256 `bf19b148bdd47546d1029e8365dfc530dae6635f402ebfa814782ac7073acd7e`). Reading: `agent/PREDICTIVE_CONTROLLER_DECISION.md`.
+- Integration commit the evidence was produced on: `8c13dbf6217b35324e8a5ae12e2aefc951fb7502`, pushed as the branch `integration/phase4-evidence-2026-11-19` (merge of #34, #35, #36 and this branch). `agent/evaluate_predictive.py` was not in that commit; the run used the file of commit `a524c43` (#38), added to the working tree.

@@ -8,3 +8,4 @@
 - `compare_holdout/`: `python -m agent.exogenous_trap compare --workload-csv data_pipeline/profiles/profile_diurnal_long_holdout.csv --ppo-label ppo_clean=runs/b2_244_clean ppo_c_prime=runs/l3_244 --seeds 20 --hazard-error-sigma 0.25 --out compare_holdout`.
   Produced on the local merge of #34, #35, #36, #37 and #38 plus this branch (the controller and the optimum are in those branches); the PPO checkpoints are
   `runs/{b2_244_clean,l3_244}/seed*/ckpt_final.pt` (gitignored). Reading: `agent/EXOGENOUS_COST_TRAP_DECISION.md`.
+- Integration commit the comparison was produced on: `b197c7dc099ed0e4061dba91839a7c528193adca`, pushed as the branch `integration/phase6-evidence-2026-11-19` (the fresh-populations branch, #38, with this branch merged in).

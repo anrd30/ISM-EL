@@ -81,8 +81,18 @@ violation fraction is 0.001 lower than the rule's on controllable scenarios and 
 
 - The exogenous share is measured per episode by the harness (`exogenous_violations`) and in training by
   `l3_stats.csv`; both are reported against `d`, overall and per scenario.
-- The figures 0.843 and lambda-to-0 are reproduced from committed or copied files; the lambda range is stated as
-  1.196 to 1.664 final (1.215 to 1.682 maximum), not as 1.20 to 1.68.
+- The figures 0.843 and lambda-to-0 are reproduced from committed or copied files. `lambda_latency` of the clean baseline ends at
+  1.196, 1.305 and 1.664 (maxima 1.215, 1.403 and 1.682), not "1.20 to 1.68"; the second multiplier is approximately unchanged
+  under `C'` (L3 0.546, 0.367, 0.606 against clean 0.554, 0.302, 0.615).
+- `f` is non-increasing in the aggressiveness of the action (`f = 1` at both `fixed_20` and `fixed_50`), not strictly decreasing.
+- `X = 0.0560` against `d = 0.05`, and the scenario-level `X` is concentrated in two or three scenarios per workload (training
+  workload seeds 11 and 18; holdout seeds 9, 17, 19; altB seeds 9, 17).
+- `C'` restores the convergence of the multiplier (`lambda_latency` ends at 0.0000 in all three seeds) but not the policy's quality:
+  PPO with `C'` still loses 18.9 (deterministic) and 83.3 (sampled) to the rule on the controllable holdout scenarios while the
+  predictive controller gains 14.55.
+- The infeasibility is the infeasible case of the standard constrained-MDP feasibility condition (Slater's condition: a
+  strictly feasible policy exists). What this record adds is the attribution argument (`C >= X`, `f = X / C`), the counterfactual
+  test that measures `X` per interval, and `C'`.
 
 ## Decisions made during execution
 

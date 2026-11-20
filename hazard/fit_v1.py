@@ -3,6 +3,13 @@
 Usage (from the repository root)::
 
     python -m hazard.fit_v1
+    python -m hazard.fit_v1 --drive-split <split.parquet> --out <artifact dir> --manifest <manifest.json>
+
+The three options are off by default; without them the inputs and outputs are those named
+below. ``--drive-split`` selects another drive-split table (same columns, ``train`` and
+``val`` rows fitted on), ``--out`` another artifact directory and ``--manifest`` the file the
+hashes are written to, so that a fit on another split never replaces ``hazard/artifacts/v1/``
+or ``hazard/manifest.json``.
 
 Inputs (``data_pipeline/data/processed``): ``backblaze_timelines.parquet``,
 ``backblaze_labels.parquet`` (same rows, same order, plus ``label``) and
@@ -32,6 +39,7 @@ and ``meta.json``.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import shutil
@@ -249,7 +257,11 @@ def write_manifest(out_dir: Path, manifest_path: Path = MANIFEST) -> dict:
     for path in sorted(out_dir.iterdir()):
         with path.open("rb") as fh:
             digest = hashlib.file_digest(fh, "sha256").hexdigest()
-        entries.append({"file": str(path.relative_to(REPO).as_posix()), "rows": None, "sha256": digest})
+        try:
+            name = str(path.relative_to(REPO).as_posix())
+        except ValueError:  # an artifact directory outside the repository keeps its full path
+            name = path.as_posix()
+        entries.append({"file": name, "rows": None, "sha256": digest})
     manifest = {"files": entries}
     staging = manifest_path.with_suffix(".json.tmp")
     staging.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -266,8 +278,18 @@ def brier(y: np.ndarray, p: np.ndarray) -> float:
     return float(np.mean((p.astype(np.float64) - y) ** 2))
 
 
-def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
-    """Run the full selection, fit, calibration and save; return the metadata written."""
+def fit(
+    out_dir: Path = ARTIFACT_DIR,
+    seeds: Sequence[int] = SEEDS,
+    *,
+    drive_split_path: Path | None = None,
+    manifest_path: Path | None = None,
+) -> dict:
+    """Run the full selection, fit, calibration and save; return the metadata written.
+
+    ``drive_split_path`` (default ``DRIVE_SPLIT``) and ``manifest_path`` (default ``MANIFEST``) name the
+    drive-split table read and the hash manifest written.
+    """
     started = time.time()
     xgb = _require_xgboost()
     SplitBatches = split_batches_class()
@@ -276,7 +298,9 @@ def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
           f"early_stopping_rounds={EARLY_STOPPING_ROUNDS}")
     print(f"seeds={list(seeds)}")
 
-    drive_split = pd.read_parquet(DRIVE_SPLIT, columns=["serial_number", "model", "split"])
+    drive_split = pd.read_parquet(
+        DRIVE_SPLIT if drive_split_path is None else drive_split_path, columns=["serial_number", "model", "split"]
+    )
     if drive_split["serial_number"].duplicated().any():
         raise ValueError("drive split has more than one row for a drive")
     drive_split = drive_split[drive_split["split"].isin(ALLOWED_SPLITS)].copy()
@@ -365,14 +389,25 @@ def fit(out_dir: Path = ARTIFACT_DIR, seeds: Sequence[int] = SEEDS) -> dict:
         shutil.rmtree(backup)
     total = sum(p.stat().st_size for p in out_dir.iterdir())
     print(f"artifacts={out_dir} files={len(list(out_dir.iterdir()))} bytes={total}")
-    write_manifest(out_dir)
-    print(f"manifest={MANIFEST}")
+    manifest_file = MANIFEST if manifest_path is None else manifest_path
+    write_manifest(out_dir, manifest_file)
+    print(f"manifest={manifest_file}")
     print(f"wall_clock_seconds={meta['wall_clock_seconds']}")
     return meta
 
 
-def main() -> int:
-    fit()
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--drive-split", type=Path, default=None, help="drive-split parquet to fit on (default: A2's)")
+    parser.add_argument("--out", type=Path, default=None, help="artifact directory to write (default: hazard/artifacts/v1)")
+    parser.add_argument("--manifest", type=Path, default=None, help="hash manifest to write (default: hazard/manifest.json)")
+    args = parser.parse_args(argv)
+    if (args.drive_split is None) != (args.out is None) or (args.out is not None and args.manifest is None):
+        parser.error("--drive-split, --out and --manifest are given together or not at all")
+    if args.out is None:
+        fit()
+    else:
+        fit(out_dir=args.out, drive_split_path=args.drive_split, manifest_path=args.manifest)
     return 0
 
 

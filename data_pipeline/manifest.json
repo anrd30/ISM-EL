@@ -184,6 +184,11 @@
       "file": "profiles/profile_diurnal_long_popD.meta.json",
       "rows": null,
       "sha256": "9302ba20b5a129e5bc99797481e985fc639fa90ae79eff13b0fabe3622851511"
+    },
+    {
+      "file": "data/processed/backblaze_drive_split_vendor_holdout.parquet",
+      "rows": 92525,
+      "sha256": "1dccf1628f35e30b9c98e924322ef14fcbe7ac1b510ebff69b6401f6cb09f170"
     }
   ],
   "sources": {

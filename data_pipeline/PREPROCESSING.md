@@ -380,3 +380,30 @@ shared 24 h window.
 - `a2_split_dates split=test date_min=2022-01-01 date_max=2022-12-31 positive_by_month=2022-01:516,2022-02:485,2022-03:510,2022-04:696,2022-05:860,2022-06:857,2022-07:1019,2022-08:825,2022-09:588,2022-10:677,2022-11:530,2022-12:191`
 - `output=data/processed/backblaze_labels.parquet rows=33052284 sha256=57067c5c8c3f3666cf94b21507d8af43162b70c6a0fd05e0b36b5ea8c1482263`
 - `output=data/processed/backblaze_drive_split.parquet rows=92525 sha256=537b52c54ebf8744532f3af1311efbc13b02f70d83196d850246d2354afd36a1`
+
+## A2v — Vendor-holdout drive split
+
+- A drive-level split parallel to A2 with one drive model held out entirely: every drive of `TOSHIBA MG07ACA14TA` is in `vendor_holdout`; the other models are split by `labels.assign_splits` (A2 seed and fractions) on their drives only, which reproduces A2's assignment of those drives. A2's outputs are unchanged. Script `backblaze/vendor_holdout_split.py`; tests `tests/test_vendor_holdout_split.py`
+- Output `data/processed/backblaze_drive_split_vendor_holdout.parquet` rows=92525 sha256=1dccf1628f35e30b9c98e924322ef14fcbe7ac1b510ebff69b6401f6cb09f170
+- Counts per bucket and model (label rows are the rows of `backblaze_labels.parquet`; censored rows are not used for fitting or evaluation):
+
+- `split=train model=ST12000NM0008 drives=14165 failed_drives=283 positive_rows=8522 negative_rows=4679379 censored_rows=402427`
+- `split=train model=ST4000DM000 drives=13258 failed_drives=443 positive_rows=13232 negative_rows=4289970 censored_rows=370514`
+- `split=train model=ST8000NM0055 drives=10340 failed_drives=244 positive_rows=7148 negative_rows=3351946 censored_rows=292354`
+- `split=train model=TOSHIBA MG07ACA14TA drives=0 failed_drives=0 positive_rows=0 negative_rows=0 censored_rows=0`
+- `split=train model=all drives=37763 failed_drives=970 positive_rows=28902 negative_rows=12321295 censored_rows=1065295`
+- `split=val model=ST12000NM0008 drives=3036 failed_drives=61 positive_rows=1725 negative_rows=1001902 censored_rows=86245`
+- `split=val model=ST4000DM000 drives=2841 failed_drives=95 positive_rows=2806 negative_rows=923164 censored_rows=79479`
+- `split=val model=ST8000NM0055 drives=2215 failed_drives=52 positive_rows=1477 negative_rows=718482 censored_rows=62608`
+- `split=val model=TOSHIBA MG07ACA14TA drives=0 failed_drives=0 positive_rows=0 negative_rows=0 censored_rows=0`
+- `split=val model=all drives=8092 failed_drives=208 positive_rows=6008 negative_rows=2643548 censored_rows=228332`
+- `split=test model=ST12000NM0008 drives=3035 failed_drives=60 positive_rows=1758 negative_rows=1003854 censored_rows=86262`
+- `split=test model=ST4000DM000 drives=2841 failed_drives=95 positive_rows=2835 negative_rows=919546 censored_rows=79523`
+- `split=test model=ST8000NM0055 drives=2215 failed_drives=52 positive_rows=1452 negative_rows=717292 censored_rows=62933`
+- `split=test model=TOSHIBA MG07ACA14TA drives=0 failed_drives=0 positive_rows=0 negative_rows=0 censored_rows=0`
+- `split=test model=all drives=8091 failed_drives=207 positive_rows=6045 negative_rows=2640692 censored_rows=228718`
+- `split=vendor_holdout model=ST12000NM0008 drives=0 failed_drives=0 positive_rows=0 negative_rows=0 censored_rows=0`
+- `split=vendor_holdout model=ST4000DM000 drives=0 failed_drives=0 positive_rows=0 negative_rows=0 censored_rows=0`
+- `split=vendor_holdout model=ST8000NM0055 drives=0 failed_drives=0 positive_rows=0 negative_rows=0 censored_rows=0`
+- `split=vendor_holdout model=TOSHIBA MG07ACA14TA drives=38579 failed_drives=385 positive_rows=11432 negative_rows=12764809 censored_rows=1107208`
+- `split=vendor_holdout model=all drives=38579 failed_drives=385 positive_rows=11432 negative_rows=12764809 censored_rows=1107208`

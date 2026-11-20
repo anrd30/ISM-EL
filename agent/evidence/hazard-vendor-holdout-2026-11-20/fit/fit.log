@@ -1,0 +1,58 @@
+device=cuda xgboost=3.2.0 rounds_max=2000 early_stopping_rounds=50
+seeds=[20220301, 20220302, 20220303, 20220304, 20220305, 20220306, 20220307, 20220308, 20220309, 20220310, 20220311, 20220312, 20220313, 20220314, 20220315, 20220316, 20220317, 20220318, 20220319, 20220320, 20220321, 20220322, 20220323, 20220324, 20220325]
+train_rows=12350197 train_positive=28902
+val_rows=2649556 val_positive=6008
+seed=20220301 rounds=2000 raw_val_logloss=0.074974
+seed=20220302 rounds=2000 raw_val_logloss=0.074026
+seed=20220303 rounds=2000 raw_val_logloss=0.074589
+seed=20220304 rounds=2000 raw_val_logloss=0.073106
+seed=20220305 rounds=2000 raw_val_logloss=0.074990
+seed=20220306 rounds=2000 raw_val_logloss=0.074540
+seed=20220307 rounds=2000 raw_val_logloss=0.075683
+seed=20220308 rounds=2000 raw_val_logloss=0.075154
+seed=20220309 rounds=2000 raw_val_logloss=0.072201
+seed=20220310 rounds=2000 raw_val_logloss=0.072893
+seed=20220311 rounds=2000 raw_val_logloss=0.076376
+seed=20220312 rounds=2000 raw_val_logloss=0.074599
+seed=20220313 rounds=2000 raw_val_logloss=0.074991
+seed=20220314 rounds=2000 raw_val_logloss=0.075609
+seed=20220315 rounds=2000 raw_val_logloss=0.073193
+seed=20220316 rounds=2000 raw_val_logloss=0.075902
+seed=20220317 rounds=2000 raw_val_logloss=0.075752
+seed=20220318 rounds=2000 raw_val_logloss=0.074637
+seed=20220319 rounds=2000 raw_val_logloss=0.075175
+seed=20220320 rounds=2000 raw_val_logloss=0.074314
+seed=20220321 rounds=2000 raw_val_logloss=0.074447
+seed=20220322 rounds=2000 raw_val_logloss=0.074677
+seed=20220323 rounds=2000 raw_val_logloss=0.074624
+seed=20220324 rounds=2000 raw_val_logloss=0.072234
+seed=20220325 rounds=2000 raw_val_logloss=0.076004
+seed=20220301 rounds=2000 val_logloss=0.012631 val_brier=0.002076
+seed=20220302 rounds=2000 val_logloss=0.012559 val_brier=0.002060
+seed=20220303 rounds=2000 val_logloss=0.012666 val_brier=0.002077
+seed=20220304 rounds=2000 val_logloss=0.012508 val_brier=0.002056
+seed=20220305 rounds=2000 val_logloss=0.012728 val_brier=0.002077
+seed=20220306 rounds=2000 val_logloss=0.012737 val_brier=0.002087
+seed=20220307 rounds=2000 val_logloss=0.012657 val_brier=0.002063
+seed=20220308 rounds=2000 val_logloss=0.012666 val_brier=0.002072
+seed=20220309 rounds=2000 val_logloss=0.012725 val_brier=0.002071
+seed=20220310 rounds=2000 val_logloss=0.012807 val_brier=0.002073
+seed=20220311 rounds=2000 val_logloss=0.012770 val_brier=0.002087
+seed=20220312 rounds=2000 val_logloss=0.012625 val_brier=0.002056
+seed=20220313 rounds=2000 val_logloss=0.012604 val_brier=0.002063
+seed=20220314 rounds=2000 val_logloss=0.012649 val_brier=0.002058
+seed=20220315 rounds=2000 val_logloss=0.012701 val_brier=0.002070
+seed=20220316 rounds=2000 val_logloss=0.012701 val_brier=0.002073
+seed=20220317 rounds=2000 val_logloss=0.012747 val_brier=0.002078
+seed=20220318 rounds=2000 val_logloss=0.012792 val_brier=0.002092
+seed=20220319 rounds=2000 val_logloss=0.012826 val_brier=0.002087
+seed=20220320 rounds=2000 val_logloss=0.012607 val_brier=0.002071
+seed=20220321 rounds=2000 val_logloss=0.012816 val_brier=0.002077
+seed=20220322 rounds=2000 val_logloss=0.012831 val_brier=0.002089
+seed=20220323 rounds=2000 val_logloss=0.012794 val_brier=0.002087
+seed=20220324 rounds=2000 val_logloss=0.012712 val_brier=0.002081
+seed=20220325 rounds=2000 val_logloss=0.012622 val_brier=0.002062
+ensemble val_logloss=0.012288 val_brier=0.002048
+artifacts=hazard\artifacts\v1_seagate_only files=27 bytes=224404473
+manifest=hazard\manifest_v1_seagate_only.json
+wall_clock_seconds=3497.9

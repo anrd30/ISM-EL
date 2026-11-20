@@ -1,0 +1,357 @@
+{
+  "horizon_hours": 720.0,
+  "feature_columns": [
+    "smart_5_raw",
+    "smart_5_raw_diff7d",
+    "smart_5_raw_diff30d",
+    "smart_9_raw",
+    "smart_9_raw_diff7d",
+    "smart_9_raw_diff30d",
+    "smart_12_raw",
+    "smart_12_raw_diff7d",
+    "smart_12_raw_diff30d",
+    "smart_187_raw",
+    "smart_187_raw_diff7d",
+    "smart_187_raw_diff30d",
+    "smart_188_raw_diff7d",
+    "smart_193_raw",
+    "smart_193_raw_diff7d",
+    "smart_193_raw_diff30d",
+    "smart_194_raw",
+    "smart_194_raw_diff7d",
+    "smart_194_raw_diff30d",
+    "smart_197_raw",
+    "smart_197_raw_diff7d",
+    "smart_197_raw_diff30d",
+    "smart_198_raw",
+    "smart_198_raw_diff7d",
+    "smart_198_raw_diff30d",
+    "smart_199_raw",
+    "smart_199_raw_diff7d",
+    "smart_199_raw_diff30d",
+    "smart_5_raw_missing",
+    "smart_5_raw_diff7d_missing",
+    "smart_5_raw_diff30d_missing",
+    "smart_9_raw_missing",
+    "smart_9_raw_diff7d_missing",
+    "smart_9_raw_diff30d_missing",
+    "smart_12_raw_missing",
+    "smart_12_raw_diff7d_missing",
+    "smart_12_raw_diff30d_missing",
+    "smart_187_raw_missing",
+    "smart_187_raw_diff7d_missing",
+    "smart_187_raw_diff30d_missing",
+    "smart_188_raw_diff7d_missing",
+    "smart_193_raw_missing",
+    "smart_193_raw_diff7d_missing",
+    "smart_193_raw_diff30d_missing",
+    "smart_194_raw_missing",
+    "smart_194_raw_diff7d_missing",
+    "smart_194_raw_diff30d_missing",
+    "smart_197_raw_missing",
+    "smart_197_raw_diff7d_missing",
+    "smart_197_raw_diff30d_missing",
+    "smart_198_raw_missing",
+    "smart_198_raw_diff7d_missing",
+    "smart_198_raw_diff30d_missing",
+    "smart_199_raw_missing",
+    "smart_199_raw_diff7d_missing",
+    "smart_199_raw_diff30d_missing",
+    "model"
+  ],
+  "value_columns": [
+    "smart_5_raw",
+    "smart_5_raw_diff7d",
+    "smart_5_raw_diff30d",
+    "smart_9_raw",
+    "smart_9_raw_diff7d",
+    "smart_9_raw_diff30d",
+    "smart_12_raw",
+    "smart_12_raw_diff7d",
+    "smart_12_raw_diff30d",
+    "smart_187_raw",
+    "smart_187_raw_diff7d",
+    "smart_187_raw_diff30d",
+    "smart_188_raw_diff7d",
+    "smart_193_raw",
+    "smart_193_raw_diff7d",
+    "smart_193_raw_diff30d",
+    "smart_194_raw",
+    "smart_194_raw_diff7d",
+    "smart_194_raw_diff30d",
+    "smart_197_raw",
+    "smart_197_raw_diff7d",
+    "smart_197_raw_diff30d",
+    "smart_198_raw",
+    "smart_198_raw_diff7d",
+    "smart_198_raw_diff30d",
+    "smart_199_raw",
+    "smart_199_raw_diff7d",
+    "smart_199_raw_diff30d"
+  ],
+  "flag_columns": [
+    "smart_5_raw_missing",
+    "smart_5_raw_diff7d_missing",
+    "smart_5_raw_diff30d_missing",
+    "smart_9_raw_missing",
+    "smart_9_raw_diff7d_missing",
+    "smart_9_raw_diff30d_missing",
+    "smart_12_raw_missing",
+    "smart_12_raw_diff7d_missing",
+    "smart_12_raw_diff30d_missing",
+    "smart_187_raw_missing",
+    "smart_187_raw_diff7d_missing",
+    "smart_187_raw_diff30d_missing",
+    "smart_188_raw_diff7d_missing",
+    "smart_193_raw_missing",
+    "smart_193_raw_diff7d_missing",
+    "smart_193_raw_diff30d_missing",
+    "smart_194_raw_missing",
+    "smart_194_raw_diff7d_missing",
+    "smart_194_raw_diff30d_missing",
+    "smart_197_raw_missing",
+    "smart_197_raw_diff7d_missing",
+    "smart_197_raw_diff30d_missing",
+    "smart_198_raw_missing",
+    "smart_198_raw_diff7d_missing",
+    "smart_198_raw_diff30d_missing",
+    "smart_199_raw_missing",
+    "smart_199_raw_diff7d_missing",
+    "smart_199_raw_diff30d_missing"
+  ],
+  "model_categories": [
+    "ST12000NM0008",
+    "ST4000DM000",
+    "ST8000NM0055"
+  ],
+  "seeds": [
+    20220301,
+    20220302,
+    20220303,
+    20220304,
+    20220305,
+    20220306,
+    20220307,
+    20220308,
+    20220309,
+    20220310,
+    20220311,
+    20220312,
+    20220313,
+    20220314,
+    20220315,
+    20220316,
+    20220317,
+    20220318,
+    20220319,
+    20220320,
+    20220321,
+    20220322,
+    20220323,
+    20220324,
+    20220325
+  ],
+  "device": "cuda",
+  "xgboost_version": "3.2.0",
+  "params": {
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "tree_method": "hist",
+    "learning_rate": 0.05,
+    "max_depth": 6,
+    "max_bin": 256,
+    "device": "cuda",
+    "scale_pos_weight": 426.3128849214587,
+    "num_boost_round_max": 2000,
+    "early_stopping_rounds": 50
+  },
+  "train_rows": 12350197,
+  "train_positive": 28902,
+  "val_rows": 2649556,
+  "val_positive": 6008,
+  "per_model": [
+    {
+      "seed": 20220301,
+      "rounds": 2000,
+      "val_logloss": 0.012630899442483471,
+      "val_brier": 0.0020764564211519444
+    },
+    {
+      "seed": 20220302,
+      "rounds": 2000,
+      "val_logloss": 0.01255921495884979,
+      "val_brier": 0.002059904127136655
+    },
+    {
+      "seed": 20220303,
+      "rounds": 2000,
+      "val_logloss": 0.012665502323128824,
+      "val_brier": 0.0020772644112213062
+    },
+    {
+      "seed": 20220304,
+      "rounds": 2000,
+      "val_logloss": 0.012507918116710487,
+      "val_brier": 0.002056392572993049
+    },
+    {
+      "seed": 20220305,
+      "rounds": 2000,
+      "val_logloss": 0.012727929118775076,
+      "val_brier": 0.0020774363569763966
+    },
+    {
+      "seed": 20220306,
+      "rounds": 2000,
+      "val_logloss": 0.012737499753950382,
+      "val_brier": 0.0020873327033291474
+    },
+    {
+      "seed": 20220307,
+      "rounds": 2000,
+      "val_logloss": 0.012657169593825434,
+      "val_brier": 0.0020629068435840123
+    },
+    {
+      "seed": 20220308,
+      "rounds": 2000,
+      "val_logloss": 0.012666011222360397,
+      "val_brier": 0.0020719346994350967
+    },
+    {
+      "seed": 20220309,
+      "rounds": 2000,
+      "val_logloss": 0.012725262806131244,
+      "val_brier": 0.0020713105264828073
+    },
+    {
+      "seed": 20220310,
+      "rounds": 2000,
+      "val_logloss": 0.01280669605030574,
+      "val_brier": 0.002072868834015612
+    },
+    {
+      "seed": 20220311,
+      "rounds": 2000,
+      "val_logloss": 0.012770308055018534,
+      "val_brier": 0.0020865193507233304
+    },
+    {
+      "seed": 20220312,
+      "rounds": 2000,
+      "val_logloss": 0.012625287417986106,
+      "val_brier": 0.0020557398312467568
+    },
+    {
+      "seed": 20220313,
+      "rounds": 2000,
+      "val_logloss": 0.012603573866576697,
+      "val_brier": 0.0020627531444484177
+    },
+    {
+      "seed": 20220314,
+      "rounds": 2000,
+      "val_logloss": 0.012648965900868933,
+      "val_brier": 0.0020578541389445703
+    },
+    {
+      "seed": 20220315,
+      "rounds": 2000,
+      "val_logloss": 0.012700908216516352,
+      "val_brier": 0.0020696563301314565
+    },
+    {
+      "seed": 20220316,
+      "rounds": 2000,
+      "val_logloss": 0.012700692655964643,
+      "val_brier": 0.0020732124477552257
+    },
+    {
+      "seed": 20220317,
+      "rounds": 2000,
+      "val_logloss": 0.01274659629604842,
+      "val_brier": 0.002078373372537884
+    },
+    {
+      "seed": 20220318,
+      "rounds": 2000,
+      "val_logloss": 0.012791673300932541,
+      "val_brier": 0.002092037318236202
+    },
+    {
+      "seed": 20220319,
+      "rounds": 2000,
+      "val_logloss": 0.012825589202853456,
+      "val_brier": 0.0020867809074373625
+    },
+    {
+      "seed": 20220320,
+      "rounds": 2000,
+      "val_logloss": 0.012607277475583706,
+      "val_brier": 0.002071064454482387
+    },
+    {
+      "seed": 20220321,
+      "rounds": 2000,
+      "val_logloss": 0.012815621841304773,
+      "val_brier": 0.0020773271106035527
+    },
+    {
+      "seed": 20220322,
+      "rounds": 2000,
+      "val_logloss": 0.01283067750137214,
+      "val_brier": 0.002089132089033785
+    },
+    {
+      "seed": 20220323,
+      "rounds": 2000,
+      "val_logloss": 0.012794085808627117,
+      "val_brier": 0.0020874011022188744
+    },
+    {
+      "seed": 20220324,
+      "rounds": 2000,
+      "val_logloss": 0.012712187005766772,
+      "val_brier": 0.0020813641280979234
+    },
+    {
+      "seed": 20220325,
+      "rounds": 2000,
+      "val_logloss": 0.012621606013973823,
+      "val_brier": 0.0020624567215213503
+    }
+  ],
+  "ensemble": {
+    "val_logloss": 0.012287822859263707,
+    "val_brier": 0.0020480318491622393
+  },
+  "boosters": [
+    "booster_00.ubj",
+    "booster_01.ubj",
+    "booster_02.ubj",
+    "booster_03.ubj",
+    "booster_04.ubj",
+    "booster_05.ubj",
+    "booster_06.ubj",
+    "booster_07.ubj",
+    "booster_08.ubj",
+    "booster_09.ubj",
+    "booster_10.ubj",
+    "booster_11.ubj",
+    "booster_12.ubj",
+    "booster_13.ubj",
+    "booster_14.ubj",
+    "booster_15.ubj",
+    "booster_16.ubj",
+    "booster_17.ubj",
+    "booster_18.ubj",
+    "booster_19.ubj",
+    "booster_20.ubj",
+    "booster_21.ubj",
+    "booster_22.ubj",
+    "booster_23.ubj",
+    "booster_24.ubj"
+  ],
+  "calibrators": "calibrators.npz",
+  "wall_clock_seconds": 3497.9
+}

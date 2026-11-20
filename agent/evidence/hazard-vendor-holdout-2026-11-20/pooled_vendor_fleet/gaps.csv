@@ -1,0 +1,71 @@
+profile,treatment,reference,block,n,mean_gain,sem,t,better,worse,percent_of_optimum,viol_frac_diff,viol_frac_diff_sem
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),risk_aware_rule_based,all,20,3.83546,0.19124,20.0557,20,0,27.2753,0.00225356,0.00126805
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),risk_aware_rule_based,primary,12,3.87913,0.224702,17.2635,12,0,24.4978,7.42316e-05,2.34355e-05
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),risk_aware_rule_based,clip_0.01,11,3.83203,0.240681,15.9217,11,0,23.5729,8.09799e-05,2.45849e-05
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),risk_aware_rule_based,clip_0.25,15,3.91371,0.192799,20.2994,15,0,25.0703,6.91114e-05,2.05008e-05
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),risk_aware_rule_based,fixed20_cost,17,3.96846,0.19362,20.4961,17,0,25.5564,9.69365e-05,3.70705e-05
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),rule_seasonal_forecast (hand-built),all,20,0,0,,0,0,0,0,0
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),rule_seasonal_forecast (hand-built),primary,12,0,0,,0,0,0,0,0
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),rule_seasonal_forecast (hand-built),clip_0.01,11,0,0,,0,0,0,0,0
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),rule_seasonal_forecast (hand-built),clip_0.25,15,0,0,,0,0,0,0,0
+diurnal_long_holdout,rule_seasonal_forecast (hand-built),rule_seasonal_forecast (hand-built),fixed20_cost,17,0,0,,0,0,0,0,0
+diurnal_long_holdout,rule+history,risk_aware_rule_based,all,20,3.84784,1.20696,3.18805,12,4,27.3634,-0.000658013,0.000205022
+diurnal_long_holdout,rule+history,risk_aware_rule_based,primary,12,5.4228,1.64827,3.28999,9,3,34.2465,-0.000940726,0.000283815
+diurnal_long_holdout,rule+history,risk_aware_rule_based,clip_0.01,11,5.92692,1.71907,3.44775,9,2,36.4596,-0.00102625,0.000296453
+diurnal_long_holdout,rule+history,risk_aware_rule_based,clip_0.25,15,5.14379,1.46833,3.50314,12,3,32.9499,-0.00087513,0.000250177
+diurnal_long_holdout,rule+history,risk_aware_rule_based,fixed20_cost,17,4.52687,1.35759,3.3345,12,4,29.1525,-0.000774133,0.000230446
+diurnal_long_holdout,rule+history,rule_seasonal_forecast (hand-built),all,20,0.0123784,1.20293,0.0102902,7,13,0.121042,-0.00291157,0.00122647
+diurnal_long_holdout,rule+history,rule_seasonal_forecast (hand-built),primary,12,1.54367,1.68774,0.914634,6,6,12.9118,-0.00101496,0.000306247
+diurnal_long_holdout,rule+history,rule_seasonal_forecast (hand-built),clip_0.01,11,2.09488,1.74745,1.19883,6,5,16.8615,-0.00110723,0.000319888
+diurnal_long_holdout,rule+history,rule_seasonal_forecast (hand-built),clip_0.25,15,1.23008,1.47235,0.835454,7,8,10.516,-0.000944241,0.00026996
+diurnal_long_holdout,rule+history,rule_seasonal_forecast (hand-built),fixed20_cost,17,0.558409,1.37518,0.406062,7,10,4.83063,-0.00087107,0.000244008
+diurnal_long_holdout,predictive_controller[seasonal]+history,risk_aware_rule_based,all,20,13.1464,1.44485,9.09886,20,0,93.4891,0.00256362,0.00198324
+diurnal_long_holdout,predictive_controller[seasonal]+history,risk_aware_rule_based,primary,12,14.9183,1.70718,8.73859,12,0,94.2135,-0.000940726,0.000283815
+diurnal_long_holdout,predictive_controller[seasonal]+history,risk_aware_rule_based,clip_0.01,11,15.3294,1.81511,8.44545,11,0,94.2993,-0.00102625,0.000296453
+diurnal_long_holdout,predictive_controller[seasonal]+history,risk_aware_rule_based,clip_0.25,15,14.6898,1.57593,9.32135,15,0,94.0995,-0.00087513,0.000250177
+diurnal_long_holdout,predictive_controller[seasonal]+history,risk_aware_rule_based,fixed20_cost,17,14.6502,1.40479,10.4287,17,0,94.3456,-0.000839097,0.000226517
+diurnal_long_holdout,predictive_controller[seasonal]+history,rule_seasonal_forecast (hand-built),all,20,9.31098,1.39658,6.66699,20,0,91.0471,0.000310061,0.000754255
+diurnal_long_holdout,predictive_controller[seasonal]+history,rule_seasonal_forecast (hand-built),primary,12,11.0392,1.70089,6.49026,12,0,92.3359,-0.00101496,0.000306247
+diurnal_long_holdout,predictive_controller[seasonal]+history,rule_seasonal_forecast (hand-built),clip_0.01,11,11.4974,1.79437,6.40747,11,0,92.541,-0.00110723,0.000319888
+diurnal_long_holdout,predictive_controller[seasonal]+history,rule_seasonal_forecast (hand-built),clip_0.25,15,10.7761,1.54023,6.9964,15,0,92.1253,-0.000944241,0.00026996
+diurnal_long_holdout,predictive_controller[seasonal]+history,rule_seasonal_forecast (hand-built),fixed20_cost,17,10.6817,1.3924,7.67144,17,0,92.4044,-0.000936034,0.000248839
+diurnal_long_holdout,predictive_controller[adaptive] (no history),risk_aware_rule_based,all,20,5.80139,1.40926,4.11661,19,1,41.2558,0.00164422,0.00128403
+diurnal_long_holdout,predictive_controller[adaptive] (no history),risk_aware_rule_based,primary,12,6.57829,2.13202,3.08547,11,1,41.5437,-0.000611189,0.000355698
+diurnal_long_holdout,predictive_controller[adaptive] (no history),risk_aware_rule_based,clip_0.01,11,6.90321,2.30823,2.9907,10,1,42.4653,-0.000666752,0.000384864
+diurnal_long_holdout,predictive_controller[adaptive] (no history),risk_aware_rule_based,clip_0.25,15,6.61235,1.84148,3.59079,14,1,42.3572,-0.000611501,0.000300424
+diurnal_long_holdout,predictive_controller[adaptive] (no history),risk_aware_rule_based,fixed20_cost,17,6.27945,1.63501,3.84062,16,1,40.4389,-0.00050811,0.000274259
+diurnal_long_holdout,predictive_controller[adaptive] (no history),rule_seasonal_forecast (hand-built),all,20,1.96593,1.36679,1.43835,8,12,19.2238,-0.000609336,0.000248821
+diurnal_long_holdout,predictive_controller[adaptive] (no history),rule_seasonal_forecast (hand-built),primary,12,2.69915,2.1018,1.28421,5,7,22.5767,-0.000685421,0.000374987
+diurnal_long_holdout,predictive_controller[adaptive] (no history),rule_seasonal_forecast (hand-built),clip_0.01,11,3.07118,2.26606,1.3553,5,6,24.7196,-0.000747732,0.000405067
+diurnal_long_holdout,predictive_controller[adaptive] (no history),rule_seasonal_forecast (hand-built),clip_0.25,15,2.69864,1.79547,1.50303,6,9,23.0708,-0.000680612,0.000317634
+diurnal_long_holdout,predictive_controller[adaptive] (no history),rule_seasonal_forecast (hand-built),fixed20_cost,17,2.31099,1.60006,1.44431,6,11,19.9916,-0.000605047,0.000283868
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,all,20,13.1464,1.44485,9.09886,20,0,93.4891,0.00256362,0.00198324
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,primary,12,14.9183,1.70718,8.73859,12,0,94.2135,-0.000940726,0.000283815
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,clip_0.01,11,15.3294,1.81511,8.44545,11,0,94.2993,-0.00102625,0.000296453
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,clip_0.25,15,14.6898,1.57593,9.32135,15,0,94.0995,-0.00087513,0.000250177
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,fixed20_cost,17,14.6502,1.40479,10.4287,17,0,94.3456,-0.000839097,0.000226517
+diurnal_long_holdout,predictive_controller (history),rule_seasonal_forecast (hand-built),all,20,9.31098,1.39658,6.66699,20,0,91.0471,0.000310061,0.000754255
+diurnal_long_holdout,predictive_controller (history),rule_seasonal_forecast (hand-built),primary,12,11.0392,1.70089,6.49026,12,0,92.3359,-0.00101496,0.000306247
+diurnal_long_holdout,predictive_controller (history),rule_seasonal_forecast (hand-built),clip_0.01,11,11.4974,1.79437,6.40747,11,0,92.541,-0.00110723,0.000319888
+diurnal_long_holdout,predictive_controller (history),rule_seasonal_forecast (hand-built),clip_0.25,15,10.7761,1.54023,6.9964,15,0,92.1253,-0.000944241,0.00026996
+diurnal_long_holdout,predictive_controller (history),rule_seasonal_forecast (hand-built),fixed20_cost,17,10.6817,1.3924,7.67144,17,0,92.4044,-0.000936034,0.000248839
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,all,20,12.9557,1.43612,9.0213,20,0,92.1326,0.002715,0.002074
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,primary,12,14.6923,1.69762,8.65464,12,0,92.7861,-0.000940726,0.000283815
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,clip_0.01,11,15.0889,1.8082,8.3447,11,0,92.8198,-0.00102625,0.000296453
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,clip_0.25,15,14.4709,1.57002,9.21704,15,0,92.6972,-0.00087513,0.000250177
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,fixed20_cost,17,14.4395,1.40098,10.3068,17,0,92.989,-0.000836159,0.000226294
+diurnal_long_holdout,ORACLE_lookahead (not deployable),rule_seasonal_forecast (hand-built),all,20,9.12024,1.38738,6.57373,20,0,89.182,0.000461447,0.000842434
+diurnal_long_holdout,ORACLE_lookahead (not deployable),rule_seasonal_forecast (hand-built),primary,12,10.8132,1.6902,6.39757,12,0,90.4454,-0.00101496,0.000306247
+diurnal_long_holdout,ORACLE_lookahead (not deployable),rule_seasonal_forecast (hand-built),clip_0.01,11,11.2569,1.7866,6.30073,11,0,90.6052,-0.00110723,0.000319888
+diurnal_long_holdout,ORACLE_lookahead (not deployable),rule_seasonal_forecast (hand-built),clip_0.25,15,10.5572,1.53323,6.88559,15,0,90.2538,-0.000944241,0.00026996
+diurnal_long_holdout,ORACLE_lookahead (not deployable),rule_seasonal_forecast (hand-built),fixed20_cost,17,10.4711,1.3881,7.54346,17,0,90.5821,-0.000933096,0.000248256
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,all,20,14.062,1.42579,9.86264,20,0,100,0.00221022,0.0018287
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,primary,12,15.8346,1.6945,9.34473,12,0,100,-0.000940726,0.000283815
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,clip_0.01,11,16.2561,1.79789,9.04177,11,0,100,-0.00102625,0.000296453
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,clip_0.25,15,15.6109,1.55836,10.0175,15,0,100,-0.00087513,0.000250177
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,fixed20_cost,17,15.5282,1.39173,11.1575,17,0,100,-0.000841994,0.000226774
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),all,20,10.2266,1.38112,7.40453,20,0,100,-4.33402e-05,0.000617961
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),primary,12,11.9555,1.69434,7.05613,12,0,100,-0.00101496,0.000306247
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),clip_0.01,11,12.4241,1.78367,6.96547,11,0,100,-0.00110723,0.000319888
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),clip_0.25,15,11.6972,1.52759,7.6573,15,0,100,-0.000944241,0.00026996
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),rule_seasonal_forecast (hand-built),fixed20_cost,17,11.5598,1.38503,8.3462,17,0,100,-0.000938931,0.000249447

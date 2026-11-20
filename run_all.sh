@@ -26,15 +26,21 @@ OLLAMA_MODELS=(
 )
 
 HF_MODELS=(
-  "Qwen/Qwen2.5-Coder-14B-Instruct"
-  "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"
-  "unsloth/DeepSeek-R1-Distill-Qwen-32B-bnb-4bit"
-  "Qwen/Qwen2.5-3B-Instruct"
-  "meta-llama/Llama-3.2-3B-Instruct"
-  "microsoft/Phi-3-mini-128k-instruct"
-  "google/gemma-3-4b-it"
-  "arcee-ai/AFM-4.5B"
-  "BioMistral/BioMistral-7B"
+  # Only models whose weights are fully present in the local HF cache. A partial
+  # download triggers a multi-gigabyte fetch mid-run, and a gated repo fails with a
+  # 401 -- neither is a statement about the model, so neither belongs in the table.
+  # Verify with: du -sh ~/.cache/huggingface/hub/models--*/
+  "unsloth/DeepSeek-R1-Distill-Qwen-32B-bnb-4bit"   # 18G, reasoning, emits <think>
+  "BioMistral/BioMistral-7B"                        # 14G, medical finetune, off-domain control
+  "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"     # 11G, code-tuned, 4-bit
+  "arcee-ai/AFM-4.5B"                               # 8.7G
+  "microsoft/Phi-3-mini-128k-instruct"              # 7.2G
+  "Qwen/Qwen2.5-3B-Instruct"                        # 5.9G
+  # Excluded, incomplete or gated locally:
+  #   Qwen/Qwen2.5-Coder-14B-Instruct   779M stub of ~28G
+  #   meta-llama/Llama-3.2-3B-Instruct  gated, 401
+  #   google/gemma-3-4b-it              3.0G of ~8.6G
+  #   unsloth/DeepSeek-R1-Distill-Qwen-32B  5.3G of ~65G
 )
 
 short_name() {

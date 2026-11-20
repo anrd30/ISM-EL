@@ -1,0 +1,17 @@
+profile,policy,n,X_mean,C_mean,f_ratio_of_means,d,X_mean_above_d,n_scenarios_X_above_d,scenarios_X_above_d
+diurnal_long_holdout,risk_aware_rule_based,20,0.057596,0.0582596,0.98861,0.05,True,3,7 11 18
+diurnal_long_holdout,predictive_controller (history),20,0.060193,0.060193,1,0.05,True,3,7 11 18
+diurnal_long_holdout,ORACLE_lookahead (not deployable),20,0.0602767,0.0602767,1,0.05,True,3,7 11 18
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),20,0.0600699,0.0600699,1,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_clean deterministic seed0,20,0.0504667,0.0504667,1,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_clean deterministic seed1,20,0.0507411,0.0507411,1,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_clean deterministic seed2,20,0.0500192,0.0500192,1,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_clean sampled seed0,20,0.0507854,0.0544648,0.932445,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_clean sampled seed1,20,0.050852,0.0542905,0.936666,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_clean sampled seed2,20,0.0504543,0.0532755,0.947046,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_c_prime deterministic seed0,20,0.0566037,0.0582541,0.971668,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_c_prime deterministic seed1,20,0.0433953,0.0433953,1,0.05,False,3,7 11 18
+diurnal_long_holdout,ppo_c_prime deterministic seed2,20,0.0556139,0.0560865,0.991574,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_c_prime sampled seed0,20,0.0537795,0.0597665,0.899826,0.05,True,3,7 11 18
+diurnal_long_holdout,ppo_c_prime sampled seed1,20,0.048152,0.0510076,0.944016,0.05,False,3,7 11 18
+diurnal_long_holdout,ppo_c_prime sampled seed2,20,0.0523215,0.0600547,0.871231,0.05,True,3,7 11 18

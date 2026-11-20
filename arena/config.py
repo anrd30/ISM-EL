@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SPEC_VERSION = "1.3.0"
+SPEC_VERSION = "1.4.0"
 
 #: Scenario seeds. Identical for every submission, so comparisons are paired.
 SEEDS: tuple[int, ...] = tuple(range(20))
@@ -31,6 +31,13 @@ SUBMISSION_BUDGET_S: float = 1800.0
 
 #: Maximum feedback rounds in the iterative track.
 MAX_ROUNDS: int = 5
+
+#: Generation budget, identical for every backend. Part of the protocol: a model
+#: truncated mid-thought is recorded as producing no policy, which is a property of
+#: this number rather than of the model. Before 1.4.0 the two backends disagreed --
+#: Ollama allowed 4096 and HuggingFace 2048 -- so results were not comparable across
+#: them. See arena.generate.DEFAULT_MAX_NEW_TOKENS.
+MAX_NEW_TOKENS: int = 8192
 
 #: Development population. The only one a model may receive feedback from.
 DEV_PROFILE = "profile_diurnal_long_train.csv"

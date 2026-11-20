@@ -84,3 +84,32 @@ Code: `baselines/dp_optimum.py` (`solve_hindsight`, `DPHindsightOptimum`), `agen
 - **Seeds of the noisy belief.** Episode `i` uses the stream `10000 + i`; the table depends on consecutive seeds
   from 0.
 - **Two profiles, 20 scenarios each**; the controllable subsets have 13 to 18 scenarios.
+
+## Validation (2026-11-20)
+
+Evidence: `agent/evidence/objective-sensitivity-2026-11-20/dp_validation/`.
+
+- **Planned equals executed.** Holdout seeds 0 and 2: planned and executed cost 44.228 and 47.043, equal to 1e-13. At the
+  1 GB and 0.5 GB grids the largest absolute difference between planned and executed cost over seeds 0 to 4 is below
+  0.0001 on A, B and C; on D it is 0.0961 (seed 3, an infeasible-budget scenario with cost 128) at 1 GB and 0.0922 at 0.5 GB.
+- **DP >= oracle >= rule on every seed.** Minimum margins over seeds 0 to 19 (history rows 576):
+
+| Population | DP minus oracle, min (seed) | Oracle minus rule, min (seed) | DP minus rule, min |
+| --- | --- | --- | --- |
+| A | +0.233 (17) | +1.727 (17) | +1.960 |
+| B | +0.362 (17) | +0.895 (17) | +1.257 |
+| C | +0.492 (17) | +0.530 (9) | +1.173 |
+| D | +0.223 (10) | +0.114 (19) | +0.625 |
+
+  Without history rows (the first evaluation, `agent/evidence/optimum-2026-11-19/`): DP minus oracle min +0.350 (A) and +0.337 (B),
+  oracle minus rule min +1.544 (A) and +1.390 (B). The inequalities hold on all 80 seeds of the history-on set and all 40 of the history-off set.
+- **Grid convergence** (seeds 0 to 4 per population, planned cost at 2, 1 and 0.5 GB): the 1 GB and 0.5 GB costs are equal to
+  four decimals in 19 of 20 cases and differ by 0.0039 in the other (D, seed 3); the 2 GB cost differs from the 0.5 GB cost by at most
+  0.0193 (A), 0.0256 (B), 0.0299 (C), 0.0265 (D). The 1 GB grid used throughout is converged to within 0.004.
+- **What the optimum assumes.** (1) No further drive failure during the episode: the plan holds the reported hazard at its reset
+  value and does not anticipate failures. (2) The future foreground trace, the trace offset and the hazard at reset are known in
+  hindsight (read from the environment). (3) The risk floor is the safety filter's at the planned work. It is a reference, not an
+  attainable policy.
+- **No terminal failures.** No episode in any committed evidence ended in `terminal_failure` or `horizon_expired`: 7620 episodes in
+  31 `episodes.csv` files under `agent/evidence/` and `baselines/evidence/` (0 terminal failures), and all 7280 episodes of the objective
+  sensitivity runs completed. The assumption of no failure during the episode therefore held in every evaluated scenario.

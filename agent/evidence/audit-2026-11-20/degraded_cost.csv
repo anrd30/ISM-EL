@@ -1,0 +1,9 @@
+population,policy,intervals,all_intervals_charge_beta,min_c,max_c
+A,risk_aware_rule_based,10405,True,1,1
+A,fixed_20,34761,True,1,1
+B,risk_aware_rule_based,9523,True,1,1
+B,fixed_20,34746,True,1,1
+C,risk_aware_rule_based,10570,True,1,1
+C,fixed_20,34763,True,1,1
+D,risk_aware_rule_based,11299,True,1,1
+D,fixed_20,34744,True,1,1

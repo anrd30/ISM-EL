@@ -1,0 +1,13 @@
+population,policy,intervals,within_5mbps_of_combined_threshold,above_threshold
+A,trace (fg only),1152,0,0
+A,risk_aware_rule_based (fg + delivered),10405,0.0153772,0.035752
+A,fixed_20 (fg + delivered),34761,0.00109318,0.0105003
+B,trace (fg only),4032,0,0
+B,risk_aware_rule_based (fg + delivered),9523,0.0192166,0.0279324
+B,fixed_20 (fg + delivered),34746,0.00284925,0.00647557
+C,trace (fg only),4032,0,0
+C,risk_aware_rule_based (fg + delivered),10570,0.0237465,0.0292337
+C,fixed_20 (fg + delivered),34763,0.00494779,0.00883123
+D,trace (fg only),4032,0,0
+D,risk_aware_rule_based (fg + delivered),11299,0.0204443,0.039207
+D,fixed_20 (fg + delivered),34744,0.00523831,0.011484

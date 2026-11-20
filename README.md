@@ -254,8 +254,8 @@ hazard/             The risk interface (PREDICT). v0.py is a constant annual
 
 baselines/          Non-learned controllers to compare against: the four fixed
                     rates, a risk-blind workload throttle, a risk-aware rule, and
-                    an oracle look-ahead that is an upper reference rather than a
-                    comparator. evaluate.py is the paired evaluation harness.
+                    a one-step look-ahead oracle that is a reference, not a bound and not
+                    a comparator. evaluate.py is the paired evaluation harness.
 
 workload/           Synthetic load-profile generator producing the same four
                     profile shapes. It is the simulator's default foreground
@@ -391,6 +391,20 @@ more widely at a given level than v0's did.
 
 ## 9. Known limitations and open items
 
+- **What the oracle is.** `ORACLE_lookahead` is the value of a perfect one-step forecast to the rule's control law. It is
+  not a performance bound: the exact hindsight optimum (`DP_hindsight_optimum`, `agent/OPTIMUM_DECISION.md`) exceeds it by
+  about 1 reward point. The headroom over the rule depends on the [ASSUMED] reward coefficients: across a one-factor grid it
+  is 1.7% to 15.9% of the rule's cost over all scenarios and 8.7% to 75.7% over the controllable ones
+  (`agent/OBJECTIVE_SENSITIVITY_DECISION.md`); every absolute magnitude quoted in this repository is for the default
+  coefficients.
+- **Reliability.** The risk floor binds: the rule's clip fraction is about 3%, and in the filter-forced scenarios (3 to 4 in
+  20, carrying about 84% of the rule's cost on population A) it decides the outcome. It acts through a safety filter that treats
+  every policy identically, so no policy can differ on it; this is why `risk_aware_rule_based` and `workload_only_throttle`
+  give identical outcomes. "At baseline hazard all four actions are feasible" applies to the baseline hazard only.
+- **Where the baseline comes from.** `risk_aware_rule_based` is the project's own design. The literal specification rule
+  (`SlowestRiskFeasible`, the slowest risk-feasible action) runs 20 MB/s for about 167 hours on every workload at baseline
+  hazard, any learned policy would beat it by rebuilding faster when load permits, and it was discarded as a comparator
+  (`baselines/policies.py`).
 - The latency model is an idealisation of one shared queue. It is not
   calibrated against any device. `sim/LIMITATIONS.md` is the authority.
 - The safe-action ladder rests on one 24-hour window per profile.

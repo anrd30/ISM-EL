@@ -38,7 +38,7 @@ from typing import Literal
 
 import numpy as np
 
-from baselines.policies import RiskAwareRuleBased
+from baselines.policies import DEFAULT_PROGRESS_VALUE, RiskAwareRuleBased
 from contracts.contracts import Observation
 from sim.config import SimConfig
 
@@ -80,10 +80,11 @@ class PredictiveController(RiskAwareRuleBased):
         *,
         mode: Mode = "adaptive",
         name: str | None = None,
+        progress_value: float = DEFAULT_PROGRESS_VALUE,
     ) -> None:
         if mode not in ("adaptive",) + FORECASTERS:
             raise ValueError(f"mode must be 'adaptive' or one of {FORECASTERS}, got {mode!r}")
-        super().__init__(config, name=name or f"predictive_controller[{mode}]")
+        super().__init__(config, progress_value=progress_value, name=name or f"predictive_controller[{mode}]")
         self.mode: Mode = mode
         self._clear()
 

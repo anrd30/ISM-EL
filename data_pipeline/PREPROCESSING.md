@@ -349,6 +349,24 @@ shared 24 h window.
 - `profile=diurnal_long_popD volumes_with_window=3818 eligible_pool=3455 excluded_disks=208 overlap_with_excluded_disks=0 scaling_factor=1 target_p95_mbps=100 p95_mbps=100.4 mean_mbps=74.76 max_mbps=156.5`
 - `output=profiles/profile_diurnal_long_popD.csv rows=4032 sha256=7d269f117151aa79a3f533417eb75ec38220b1ec25b7375ced1433874b12e63c`
 - `output=profiles/profile_diurnal_long_popD.meta.json sha256=9302ba20b5a129e5bc99797481e985fc639fa90ae79eff13b0fabe3622851511`
+## B5d — Train and holdout splits of populations C and D
+
+- `data_pipeline/tencent/split_long_profile.py --source profiles/profile_diurnal_long_popC.csv` (and `popD`), the splitter of `diurnal_long` with the output names taken from the source's stem: the first 10 of 14 days (rows [0, 2880)) are the train half and the last 4 days (rows [2880, 4032)) the holdout half, each rebased to `t_seconds` 0 and validated with `validate_replay_frame`. The cut is the `suggested_split` of the parent sidecar. Used by a post-registration comparator (`agent/RESIDUAL_Q_PER_POPULATION_DECISION.md`); the pre-registered evaluation of C and D does not use them
+- Files and hashes (listed in `manifest.json`):
+
+- `profile=diurnal_long_popC_train rows=2880 parent_row_range=[0, 2880] window_start_ts=1595390400 window_end_ts=1596254100`
+- `output=profiles/profile_diurnal_long_popC_train.csv rows=2880 sha256=48d65e0305b67c3662c0172708a891c1e1a0eca36fca5989c30a5b71e4100d5b`
+- `output=profiles/profile_diurnal_long_popC_train.meta.json sha256=60dc5ca7d82df963d4bc89a04f8bdc79fac66320242d8cee6f6a55c1c7cc125e`
+- `profile=diurnal_long_popC_holdout rows=1152 parent_row_range=[2880, 4032] window_start_ts=1596254400 window_end_ts=1596599700`
+- `output=profiles/profile_diurnal_long_popC_holdout.csv rows=1152 sha256=15c9c221cd9f17db590bbcab2a4c9f3be78fbe8b90da704670069c9e13469a09`
+- `output=profiles/profile_diurnal_long_popC_holdout.meta.json sha256=8799fb7e8865d233e59a4044203edcc202ea1ab8045a9b3faf4c6bc8cd72bde6`
+- `profile=diurnal_long_popD_train rows=2880 parent_row_range=[0, 2880] window_start_ts=1591588800 window_end_ts=1592452500`
+- `output=profiles/profile_diurnal_long_popD_train.csv rows=2880 sha256=edd8f3863dacad9d9cbae9ec9e991c4c3a1936b59c15141056b38daa8032c1cf`
+- `output=profiles/profile_diurnal_long_popD_train.meta.json sha256=2c373c6b0d581df9092d3ed50761d0171f644d113957bb6bda2dd66d4e2acc6e`
+- `profile=diurnal_long_popD_holdout rows=1152 parent_row_range=[2880, 4032] window_start_ts=1592452800 window_end_ts=1592798100`
+- `output=profiles/profile_diurnal_long_popD_holdout.csv rows=1152 sha256=8d25f8d6882d2bc9d708f6a4026d4a5c969ae5ea986b4e21981f2d08f1bc6dce`
+- `output=profiles/profile_diurnal_long_popD_holdout.meta.json sha256=6a56ef95b247fc9d3967334fb19310af93e979494baaa42192eb9e979feca8e8`
+
 ## A2 — Horizon labels and drive split
 
 - Inputs: `data/processed/backblaze_timelines.parquet`, `data/processed/backblaze_drive_index.parquet`; decision record: `data_pipeline/A2_DECISION.md`

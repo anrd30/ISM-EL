@@ -184,6 +184,46 @@
       "file": "profiles/profile_diurnal_long_popD.meta.json",
       "rows": null,
       "sha256": "9302ba20b5a129e5bc99797481e985fc639fa90ae79eff13b0fabe3622851511"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popC_train.csv",
+      "rows": 2880,
+      "sha256": "48d65e0305b67c3662c0172708a891c1e1a0eca36fca5989c30a5b71e4100d5b"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popC_train.meta.json",
+      "rows": null,
+      "sha256": "60dc5ca7d82df963d4bc89a04f8bdc79fac66320242d8cee6f6a55c1c7cc125e"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popC_holdout.csv",
+      "rows": 1152,
+      "sha256": "15c9c221cd9f17db590bbcab2a4c9f3be78fbe8b90da704670069c9e13469a09"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popC_holdout.meta.json",
+      "rows": null,
+      "sha256": "8799fb7e8865d233e59a4044203edcc202ea1ab8045a9b3faf4c6bc8cd72bde6"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popD_train.csv",
+      "rows": 2880,
+      "sha256": "edd8f3863dacad9d9cbae9ec9e991c4c3a1936b59c15141056b38daa8032c1cf"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popD_train.meta.json",
+      "rows": null,
+      "sha256": "2c373c6b0d581df9092d3ed50761d0171f644d113957bb6bda2dd66d4e2acc6e"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popD_holdout.csv",
+      "rows": 1152,
+      "sha256": "8d25f8d6882d2bc9d708f6a4026d4a5c969ae5ea986b4e21981f2d08f1bc6dce"
+    },
+    {
+      "file": "profiles/profile_diurnal_long_popD_holdout.meta.json",
+      "rows": null,
+      "sha256": "6a56ef95b247fc9d3967334fb19310af93e979494baaa42192eb9e979feca8e8"
     }
   ],
   "sources": {

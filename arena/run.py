@@ -136,6 +136,56 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _report_by_model() -> int:
+    """Aggregate repeats per model.
+
+    A result name of the form ``<model>#<k>`` is treated as repeat ``k`` of
+    ``<model>``. With repeats the interesting quantities are not one score but
+    three: how often the model produced runnable code at all, how good its runs
+    were on average, and how much they varied. A model whose best run is strong
+    and whose mean is poor has not solved the task, it has been lucky once.
+    """
+    import math
+    from collections import defaultdict
+
+    runs: dict[str, list[dict]] = defaultdict(list)
+    for path in sorted(RESULTS.glob("*.json")):
+        r = json.loads(path.read_text(encoding="utf-8"))
+        runs[r["name"].split("#")[0]].append(r)
+
+    rows = []
+    for model, results in sorted(runs.items()):
+        ok = [r for r in results if not r.get("error")]
+        gs = [r["eval"][0]["mean_g"] for r in ok if r.get("eval")]
+        viols = [r["eval"][0]["mean_violation_fraction"] for r in ok if r.get("eval")]
+        degen = sum(1 for r in ok if r.get("eval") and r["eval"][0].get("degenerate"))
+        breaches = sum(1 for v in viols if v > 0.05)
+        rows.append(
+            {
+                "model": model,
+                "runs": len(results),
+                "valid": len(gs),
+                "G_mean": round(sum(gs) / len(gs), 2) if gs else None,
+                "G_sd": round(
+                    math.sqrt(sum((g - sum(gs) / len(gs)) ** 2 for g in gs) / (len(gs) - 1)), 2
+                ) if len(gs) > 1 else None,
+                "G_best": round(max(gs), 2) if gs else None,
+                "G_worst": round(min(gs), 2) if gs else None,
+                "viol_mean": round(sum(viols) / len(viols), 4) if viols else None,
+                "over_budget": f"{breaches}/{len(gs)}" if gs else "-",
+                "degenerate": f"{degen}/{len(gs)}" if gs else "-",
+            }
+        )
+    if not rows:
+        print("no results yet")
+        return 0
+    frame = pd.DataFrame(rows).sort_values("G_mean", ascending=False, na_position="last")
+    print(frame.to_string(index=False))
+    print()
+    print("valid = produced runnable code; over_budget = violation fraction above 0.05")
+    return 0
+
+
 def _report() -> int:
     rows = []
     for path in sorted(RESULTS.glob("*.json")):
@@ -181,14 +231,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     ev.add_argument("--name", default=None, help="leaderboard name; defaults to the parent folder")
     ev.add_argument("--track", default="zero-shot", choices=["zero-shot", "iterative"])
 
-    sub.add_parser("report", help="print the leaderboard from arena/results/")
+    rep = sub.add_parser("report", help="print the leaderboard from arena/results/")
+    rep.add_argument(
+        "--by-model", action="store_true",
+        help="aggregate repeats named <model>#<k> into one row per model",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "verify":
         return _verify()
     if args.cmd == "eval":
         return _eval(args)
-    return _report()
+    return _report_by_model() if args.by_model else _report()
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ def extract_policy(text: str) -> str:
     raise ValueError("model reply contains no 'def policy'")
 
 
-def _call_ollama(model: str, prompt: str, host: str) -> str:
+def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: int) -> str:
     """One chat completion from a local Ollama server.
 
     Uses urllib so the arena gains no dependency: a participant with Ollama
@@ -68,8 +68,9 @@ def _call_ollama(model: str, prompt: str, host: str) -> str:
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            # Greedy, so a rerun of the same model reproduces the same submission.
-            "options": {"temperature": 0.0, "num_predict": 4096},
+            # Greedy at temperature 0, so a rerun reproduces the submission exactly.
+            # Above 0 the seed is what makes a given repeat reproducible.
+            "options": {"temperature": temperature, "seed": seed, "num_predict": 4096},
         }
     ).encode()
     request = urllib.request.Request(
@@ -114,7 +115,7 @@ def _call_api(provider: str, model: str, prompt: str) -> str:
     raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
 
 
-def _call_local(model_id: str, prompt: str) -> str:
+def _call_local(model_id: str, prompt: str, temperature: float, seed: int) -> str:
     """Greedy decode from a local transformers model."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -127,20 +128,38 @@ def _call_local(model_id: str, prompt: str) -> str:
         [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
     )
     inputs = tok(text, return_tensors="pt").to(model.device)
-    out = model.generate(**inputs, max_new_tokens=2048, do_sample=False)
+    torch.manual_seed(seed)
+    out = model.generate(
+        **inputs,
+        max_new_tokens=2048,
+        do_sample=temperature > 0.0,
+        **({"temperature": temperature, "top_p": 0.95} if temperature > 0.0 else {}),
+    )
     return tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
 
-def generate(model_spec: str, prompt: str, host: str = "http://localhost:11434") -> str:
-    """Dispatch to the right backend and return the raw reply."""
+def generate(
+    model_spec: str,
+    prompt: str,
+    host: str = "http://localhost:11434",
+    temperature: float = 0.0,
+    seed: int = 0,
+) -> str:
+    """Dispatch to the right backend and return the raw reply.
+
+    ``temperature = 0`` is greedy and reproducible, which is right for a single
+    submission. Repeats need ``temperature > 0``, where ``seed`` makes each repeat
+    individually reproducible while letting the set of repeats measure how much a
+    model's output varies.
+    """
     kind, _, rest = model_spec.partition(":")
     if kind == "ollama":
-        return _call_ollama(rest, prompt, host)
+        return _call_ollama(rest, prompt, host, temperature, seed)
     if kind == "api":
         provider, _, name = rest.partition("/")
         return _call_api(provider, name, prompt)
     if kind == "hf":
-        return _call_local(rest, prompt)
+        return _call_local(rest, prompt, temperature, seed)
     raise ValueError(f"--model must start with 'ollama:', 'api:' or 'hf:', got {model_spec!r}")
 
 
@@ -152,12 +171,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--host", default="http://localhost:11434", help="Ollama server, if not local"
     )
+    parser.add_argument(
+        "--temperature", type=float, default=0.0,
+        help="0 is greedy and reproducible; above 0 is needed for repeats to differ",
+    )
+    parser.add_argument("--seed", type=int, default=0, help="makes one repeat reproducible")
     parser.add_argument("--out", required=True, type=Path, help="submission directory")
     parser.add_argument("--prompt", type=Path, default=PROMPT)
     args = parser.parse_args(argv)
 
     prompt = args.prompt.read_text(encoding="utf-8")
-    reply = generate(args.model, prompt, host=args.host)
+    reply = generate(
+        args.model, prompt, host=args.host,
+        temperature=args.temperature, seed=args.seed,
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "raw_reply.md").write_text(reply, encoding="utf-8")

@@ -7,7 +7,14 @@ A model is given a storage recovery-bandwidth scheduling problem and writes a Py
 function. The arena runs it against the exact optimum computed by dynamic programming,
 and reports what fraction of the achievable gain it captured.
 
-Spec version **1.0.0**. Every result records the version it was produced under.
+Spec version **1.1.0**. Every result records the version it was produced under.
+
+> **1.0.0 results are void.** Its prompt described the observation in physical units
+> when every field is in fact normalised to roughly [0, 1]. A model that read it
+> literally and wrote `hazard > 0.001` had that branch fire on 100% of steps, collapsing
+> it to a constant policy. Models were being measured on a misleading stimulus rather
+> than on the task. 1.1.0 publishes the measured range of every field and names the three
+> traps. Do not compare scores across spec versions.
 
 ---
 

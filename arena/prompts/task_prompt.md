@@ -1,4 +1,4 @@
-# Task prompt (spec 1.0.0)
+# Task prompt (spec 1.1.0)
 
 Give this to the model verbatim. It is the experimental stimulus: changing it changes
 every score, so it is versioned with the spec and must not be edited per model.
@@ -47,25 +47,37 @@ or lose by trying to work around it. On some intervals it will override you enti
 
 ## Your observation
 
-A 12-element float32 vector:
+A 12-element float32 vector. **Every field is normalised to roughly [0, 1].** None of
+them are in physical units: there are no milliseconds, no IOPS and no per-hour rates in
+what you receive. Compare fields against each other and against the ranges below, never
+against a physical constant.
 
-| index | field | notes |
-|---|---|---|
-| 0 | `fg_read_iops` | foreground read rate |
-| 1 | `fg_write_iops` | foreground write rate |
-| 2 | `fg_bw` | foreground bandwidth, fraction of device total |
-| 3 | `latency_now` | current mean latency |
-| 4 | `latency_target` | the limit a violation is measured against |
-| 5 | `hazard` | estimated per-hour failure rate. **Saturates at 1.8e-4** — it cannot tell you how bad things are above that |
-| 6 | `hazard_uncertainty` | uncertainty on the above |
-| 7 | `redundancy_left` | how much redundancy remains |
-| 8 | `progress` | fraction of the rebuild done |
-| 9 | `work_remaining` | rebuild work left |
-| 10 | `alloc_current` | the rate currently applied |
-| 11 | `bw_available` | headroom: device capacity minus foreground load |
+Observed ranges, measured over the development workload:
 
-All values are normalised unless noted. You see only the present interval — **nothing
-about future load.**
+| index | field | min | median | max | notes |
+|---|---|---|---|---|---|
+| 0 | `fg_read_iops` | 0.06 | 0.22 | 0.59 | foreground read load |
+| 1 | `fg_write_iops` | 0.07 | 0.21 | 1.00 | foreground write load |
+| 2 | `fg_bw` | 0.12 | 0.40 | 0.58 | foreground bandwidth share |
+| 3 | `latency_now` | 0.07 | 0.20 | 1.00 | current latency |
+| 4 | `latency_target` | 0.30 | 0.30 | 0.30 | **constant**; a violation is `latency_now > latency_target` |
+| 5 | `hazard` | 0.16 | 0.25 | 0.33 | failure-rate estimate; saturated, so it never reaches the top of its range |
+| 6 | `hazard_uncertainty` | 0.01 | 0.02 | 0.03 | |
+| 7 | `redundancy_left` | 0.50 | 0.50 | 0.50 | **constant** in this configuration |
+| 8 | `progress` | 0.00 | 0.40 | 0.80 | fraction rebuilt; **never reaches 1.0 during an episode**, the episode ends instead |
+| 9 | `work_remaining` | 0.20 | 0.60 | 1.00 | |
+| 10 | `alloc_current` | 0.00 | 0.67 | 0.67 | the previously applied rate, as a fraction of 120 MB/s |
+| 11 | `bw_available` | 0.40 | 0.58 | 0.86 | headroom: capacity minus foreground load |
+
+Three traps worth avoiding:
+
+- `latency_target` and `redundancy_left` are constants here. Branching on them does
+  nothing.
+- `progress < 1` is true on every step of every episode. A branch on it is a constant
+  policy.
+- `hazard` never goes below 0.16. A threshold like `hazard > 0.001` fires always.
+
+You see only the present interval -- **nothing about future load.**
 
 ## What to write
 

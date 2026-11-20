@@ -41,6 +41,12 @@ def run_sandboxed(
         "name": name,
         "memory_mb": memory_mb,
         "cpu_seconds": int(timeout_s),
+        # The worker runs under -I, which implies -s and -E: no user site-packages and
+        # no PYTHONPATH. On a shared machine the arena's own dependencies usually live
+        # in ~/.local, so the parent's resolved path is handed over explicitly. This
+        # costs nothing in isolation -- the controls that matter are the separate
+        # process and the restrictions around submission code, not path discovery.
+        "sys_path": [entry for entry in sys.path if entry],
     }
     env = {"PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
     import os

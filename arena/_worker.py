@@ -34,6 +34,11 @@ def _limit_resources(memory_mb: int, cpu_seconds: int) -> None:
 
 def main() -> int:
     request = json.loads(sys.stdin.read())
+    # Restore the parent's import path before any project import: -I dropped user
+    # site-packages and PYTHONPATH, so numpy and pandas may be invisible without this.
+    for entry in reversed(request.get("sys_path", [])):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
     _limit_resources(request.get("memory_mb", 4096), request.get("cpu_seconds", 1800))
 
     response: dict[str, object]

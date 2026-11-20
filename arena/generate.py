@@ -28,6 +28,13 @@ from typing import Sequence
 
 PROMPT = Path(__file__).resolve().parent / "prompts" / "task_prompt.md"
 
+#: Generation budget. Must be generous: a reasoning model spends most of its output
+#: thinking before it writes any code, and a budget that truncates mid-thought records
+#: a capable model as producing no policy. DeepSeek-R1-Distill-32B exhausted 2048
+#: tokens reasoning and never reached the function on all five repeats, which is a
+#: property of this constant and not of the model.
+DEFAULT_MAX_NEW_TOKENS = 8192
+
 __all__ = ["extract_policy", "generate", "main"]
 
 _FENCE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
@@ -50,7 +57,8 @@ def extract_policy(text: str) -> str:
     raise ValueError("model reply contains no 'def policy'")
 
 
-def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: int) -> str:
+def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: int,
+                 max_new_tokens: int) -> str:
     """One chat completion from a local Ollama server.
 
     Uses urllib so the arena gains no dependency: a participant with Ollama
@@ -70,7 +78,7 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
             "stream": False,
             # Greedy at temperature 0, so a rerun reproduces the submission exactly.
             # Above 0 the seed is what makes a given repeat reproducible.
-            "options": {"temperature": temperature, "seed": seed, "num_predict": 4096},
+            "options": {"temperature": temperature, "seed": seed, "num_predict": max_new_tokens},
         }
     ).encode()
     request = urllib.request.Request(
@@ -115,7 +123,8 @@ def _call_api(provider: str, model: str, prompt: str) -> str:
     raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
 
 
-def _call_local(model_id: str, prompt: str, temperature: float, seed: int) -> str:
+def _call_local(model_id: str, prompt: str, temperature: float, seed: int,
+                max_new_tokens: int) -> str:
     """Greedy decode from a local transformers model."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -152,7 +161,7 @@ def _call_local(model_id: str, prompt: str, temperature: float, seed: int) -> st
     torch.manual_seed(seed)
     out = model.generate(
         **inputs,
-        max_new_tokens=2048,
+        max_new_tokens=max_new_tokens,
         do_sample=temperature > 0.0,
         **({"temperature": temperature, "top_p": 0.95} if temperature > 0.0 else {}),
     )
@@ -165,6 +174,7 @@ def generate(
     host: str = "http://localhost:11434",
     temperature: float = 0.0,
     seed: int = 0,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
 ) -> str:
     """Dispatch to the right backend and return the raw reply.
 
@@ -175,12 +185,12 @@ def generate(
     """
     kind, _, rest = model_spec.partition(":")
     if kind == "ollama":
-        return _call_ollama(rest, prompt, host, temperature, seed)
+        return _call_ollama(rest, prompt, host, temperature, seed, max_new_tokens)
     if kind == "api":
         provider, _, name = rest.partition("/")
         return _call_api(provider, name, prompt)
     if kind == "hf":
-        return _call_local(rest, prompt, temperature, seed)
+        return _call_local(rest, prompt, temperature, seed, max_new_tokens)
     raise ValueError(f"--model must start with 'ollama:', 'api:' or 'hf:', got {model_spec!r}")
 
 
@@ -197,6 +207,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="0 is greedy and reproducible; above 0 is needed for repeats to differ",
     )
     parser.add_argument("--seed", type=int, default=0, help="makes one repeat reproducible")
+    parser.add_argument(
+        "--max-new-tokens", type=int, default=DEFAULT_MAX_NEW_TOKENS,
+        help="generation budget; reasoning models need far more than chat models",
+    )
     parser.add_argument("--out", required=True, type=Path, help="submission directory")
     parser.add_argument("--prompt", type=Path, default=PROMPT)
     args = parser.parse_args(argv)
@@ -205,6 +219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     reply = generate(
         args.model, prompt, host=args.host,
         temperature=args.temperature, seed=args.seed,
+        max_new_tokens=args.max_new_tokens,
     )
 
     args.out.mkdir(parents=True, exist_ok=True)

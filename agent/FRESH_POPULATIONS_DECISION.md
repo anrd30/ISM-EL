@@ -56,7 +56,7 @@ Gain over `risk_aware_rule_based`, primary definition (16 scenarios), paired by 
 | Policy | C gain +/- sem (t; better/worse) | D gain +/- sem (t; better/worse) |
 | --- | --- | --- |
 | `rule_seasonal_forecast (hand-built)` | +3.454 +/- 0.361 (9.57; 16/0) | -21.429 +/- 6.049 (-3.54; 2/14) |
-| residual Q-policy, zero-shot (3 models) | -9.100 +/- 2.360 (-3.86; 3/13) | -62.575 +/- 11.126 (-5.62; 0/16) |
+| residual-Q (zero-shot transfer from A) (3 models) | -9.100 +/- 2.360 (-3.86; 3/13) | -62.575 +/- 11.126 (-5.62; 0/16) |
 | `rule+history` | +0.506 +/- 1.561 (0.32; 7/9) | +3.509 +/- 1.819 (1.93; 11/3) |
 | `predictive_controller[seasonal]+history` | +9.692 +/- 1.423 (6.81; 16/0) | +17.274 +/- 4.748 (3.64; 13/3) |
 | controller without history | +2.882 +/- 3.275 (0.88; 10/6) | +15.450 +/- 3.099 (4.99; 14/2) |
@@ -67,8 +67,9 @@ Gain over `risk_aware_rule_based`, primary definition (16 scenarios), paired by 
 - **Against the seasonal rule.** The controller beats `rule_seasonal_forecast` by +6.215 +/- 1.165 (t 5.34, 16/0) on C and
   +38.723 +/- 6.728 (t 5.76, 15/1) on D.
 - **The earlier winners fail on new populations.** On D, whose volumes are not selected for a daily cycle, the
-  seasonal rule loses 21 to the baseline and the residual Q-policy loses 63 in every scenario; on C the residual
-  Q-policy loses 9.
+  seasonal rule loses 21 to the baseline and the residual-Q zero-shot transfer from A loses 63 in every scenario; on C it loses 9. A
+  post-registration comparator retrained on each population's own training split is in
+  `agent/RESIDUAL_Q_PER_POPULATION_DECISION.md`; it does not alter this verdict.
 - **What carries the gain.** On D the history is not needed for the gain (the controller without history gains
   +15.45) and the belief is (the unchanged rule with the history gains +3.51). On C the history matters: without it
   the gain is +2.88 (t 0.88); with it +9.67.

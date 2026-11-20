@@ -1,0 +1,210 @@
+"""Arena CLI: verify, run, report.
+
+    python -m arena.run verify
+    python -m arena.run eval --submission arena/submissions/_template.py --name baseline
+    python -m arena.run report
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import platform
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Sequence
+
+import pandas as pd
+
+from arena.config import (
+    DEV_PROFILE,
+    EVAL_PROFILES,
+    RESULTS,
+    SEEDS,
+    SPEC_VERSION,
+    arena_config,
+)
+from arena.reference import reference_table
+from arena.score import ScenarioScore, aggregate, score_scenario
+from arena.submission import SubmissionError, SubmittedPolicy, load_policy_fn
+
+__all__ = ["evaluate_submission", "main"]
+
+
+def evaluate_submission(path: str | Path, profile: str, name: str) -> dict:
+    """Run one submission on one profile and return its scored result."""
+    from arena.config import PROFILES
+    from baselines.evaluate import evaluate
+
+    ref = reference_table(profile).set_index("seed")
+    fn = load_policy_fn(path)
+    policy = SubmittedPolicy(fn, name=name)
+    cfg = arena_config()
+
+    frame = evaluate(policy, profile=PROFILES / profile, seeds=list(SEEDS), config=cfg)
+
+    scores: list[ScenarioScore] = []
+    for _, row in frame.iterrows():
+        seed = int(row["seed"])
+        scores.append(
+            score_scenario(
+                seed=seed,
+                j_policy=float(row["total_reward"]),
+                j_rule=float(ref.loc[seed, "j_rule"]),
+                j_star=float(ref.loc[seed, "j_star"]),
+                violation_fraction=float(row["latency_violation_fraction"]),
+                completion_hours=float(row["completion_hours"]),
+            )
+        )
+
+    agg = aggregate(scores)
+    return {
+        "profile": profile,
+        **agg.as_dict(),
+        "max_step_ms": policy.max_step_s * 1e3,
+        "mean_step_ms": (policy.total_s / policy.n_calls * 1e3) if policy.n_calls else 0.0,
+        "n_decisions": policy.n_calls,
+        "per_scenario": [s.__dict__ for s in scores],
+    }
+
+
+def _verify() -> int:
+    """Check the environment, the reference values and determinism."""
+    ok = True
+    print(f"arena spec {SPEC_VERSION} | python {platform.python_version()}")
+
+    for profile in (DEV_PROFILE, *EVAL_PROFILES):
+        try:
+            ref = reference_table(profile)
+        except Exception as exc:  # noqa: BLE001 - verification reports, does not raise
+            print(f"  FAIL  {profile}: {exc}")
+            ok = False
+            continue
+        headroom = ref["j_star"] - ref["j_rule"]
+        n_ctl = int((headroom > 0).sum())
+        print(
+            f"  ok    {profile}: {len(ref)} scenarios, "
+            f"headroom mean {headroom.mean():.2f}, {n_ctl} with headroom > 0"
+        )
+
+    template = Path(__file__).resolve().parent / "submissions" / "_template.py"
+    if template.is_file():
+        try:
+            a = evaluate_submission(template, DEV_PROFILE, "verify-a")
+            b = evaluate_submission(template, DEV_PROFILE, "verify-b")
+            same = abs(a["mean_g"] - b["mean_g"]) < 1e-12
+            print(f"  {'ok   ' if same else 'FAIL '} determinism: template reproduces its score")
+            ok = ok and same
+        except Exception as exc:  # noqa: BLE001
+            print(f"  FAIL  template: {exc}")
+            ok = False
+
+    print("VERIFY PASS" if ok else "VERIFY FAIL -- results from this checkout are not comparable")
+    return 0 if ok else 1
+
+
+def _eval(args: argparse.Namespace) -> int:
+    name = args.name or Path(args.submission).parent.name
+    result = {
+        "name": name,
+        "spec_version": SPEC_VERSION,
+        "track": args.track,
+        "submission": str(args.submission),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "python": platform.python_version(),
+        "dev": None,
+        "eval": [],
+        "error": None,
+    }
+    try:
+        result["dev"] = evaluate_submission(args.submission, DEV_PROFILE, name)
+        for profile in EVAL_PROFILES:
+            result["eval"].append(evaluate_submission(args.submission, profile, name))
+    except SubmissionError as exc:
+        result["error"] = f"SubmissionError: {exc}"
+    except Exception as exc:  # noqa: BLE001 - record and keep going; a crash is a result
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["traceback"] = traceback.format_exc()
+
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / f"{name}.json"
+    out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+    if result["error"]:
+        print(f"{name}: FAILED -- {result['error']}")
+        print(f"written to {out}")
+        return 1
+
+    dev_g = result["dev"]["mean_g"]
+    for block in result["eval"]:
+        print(
+            f"{name} [{block['profile']}]  G = {block['mean_g']:+.3f} "
+            f"+/- {block['sem_g']:.3f}   "
+            f"({block['n_controllable']} controllable, {block['n_excluded']} excluded, "
+            f"{block['n_better_than_rule']} better than rule)   "
+            f"violations {block['mean_violation_fraction']:.4f}   "
+            f"gap to dev {block['mean_g'] - dev_g:+.3f}"
+        )
+        if block["impossible_seeds"]:
+            print(f"  WARNING G > 1 on seeds {block['impossible_seeds']} -- reference is wrong")
+    print(f"written to {out}")
+    return 0
+
+
+def _report() -> int:
+    rows = []
+    for path in sorted(RESULTS.glob("*.json")):
+        r = json.loads(path.read_text(encoding="utf-8"))
+        if r.get("error"):
+            rows.append({"model": r["name"], "track": r.get("track"), "G": None,
+                         "status": "error"})
+            continue
+        for block in r["eval"]:
+            rows.append(
+                {
+                    "model": r["name"],
+                    "track": r.get("track"),
+                    "profile": block["profile"],
+                    "G": round(block["mean_g"], 3),
+                    "sem": round(block["sem_g"], 3),
+                    "better": block["n_better_than_rule"],
+                    "viol": round(block["mean_violation_fraction"], 4),
+                    "hours": round(block["mean_completion_hours"], 2),
+                    "dev_gap": round(block["mean_g"] - r["dev"]["mean_g"], 3),
+                    "max_ms": round(block["max_step_ms"], 2),
+                    "status": "ok",
+                }
+            )
+    if not rows:
+        print("no results yet")
+        return 0
+    frame = pd.DataFrame(rows).sort_values("G", ascending=False, na_position="last")
+    print(frame.to_string(index=False))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m arena.run")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("verify", help="check references and determinism before running anything")
+
+    ev = sub.add_parser("eval", help="score one submission")
+    ev.add_argument("--submission", required=True, type=Path)
+    ev.add_argument("--name", default=None, help="leaderboard name; defaults to the parent folder")
+    ev.add_argument("--track", default="zero-shot", choices=["zero-shot", "iterative"])
+
+    sub.add_parser("report", help="print the leaderboard from arena/results/")
+
+    args = parser.parse_args(argv)
+    if args.cmd == "verify":
+        return _verify()
+    if args.cmd == "eval":
+        return _eval(args)
+    return _report()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

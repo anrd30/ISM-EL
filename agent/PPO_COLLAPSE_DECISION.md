@@ -71,16 +71,17 @@ operators on the same machine and verified to different depths:
 ### The symptom
 
 The policy under investigation had converged to a near-constant allocation and lost to
-`risk_aware_rule_based` on the held-out window. On that window the entire anticipatory
-headroom available to any controller is small: `ORACLE_lookahead` scores -318.3 against
+`risk_aware_rule_based` on the held-out window. On that window the gain of the one-step look-ahead oracle is small: `ORACLE_lookahead` scores -318.3 against
 the rule's -330.2, a difference of 11.9 reward, or **3.6% of the rule's magnitude**
 [verified, `runs/eval244/b2_3seed/summary.md`]. `agent/T_DECISION.md` records 5.2% on
 the full `profile_diurnal_long` window; the 3.6% figure here is the time-forward holdout
 half of that window, so the two are different windows and not in conflict.
 
 The oracle is not deployable (it reads the next interval's foreground load from the
-trace). So the deployable headroom is at most 3.6%, and the policy was moving the wrong
+trace). So what a deployable controller gains from knowing the next interval is of the order of 3.6%, and the policy was moving the wrong
 way inside it.
+
+**Correction (2026-11-20).** `ORACLE_lookahead` is the value of a perfect one-step forecast to the rule's control law; it is not a performance bound. The exact hindsight optimum exceeds it by about 1 reward point (+1.01 on the holdout, +1.13 on altB; `agent/OPTIMUM_DECISION.md`), and the headroom over the rule depends on the [ASSUMED] objective coefficients: across a one-factor grid it is 1.7% to 15.9% of the rule's cost over all scenarios and 8.7% to 75.7% over the controllable ones (`agent/OBJECTIVE_SENSITIVITY_DECISION.md`). The percentages and absolute magnitudes quoted in this record are properties of one setting of those coefficients, not of the problem. `risk_aware_rule_based` is the project's own design: the literal specification rule (`SlowestRiskFeasible`) runs 20 MB/s for about 167 hours at baseline hazard and was discarded as a comparator for that reason.
 
 ### Falsified hypothesis: reset-time latency infeasibility
 
@@ -295,8 +296,7 @@ Constrained PPO still does not beat `risk_aware_rule_based` on this problem. The
 collapse to a near-constant allocation was a real and fixable defect, and fixing it
 roughly halved the loss — from the 5.4% to 6.9% reported that morning to a reproducible
 -11.50 +- 1.05 on representative scenarios, against a rule magnitude of -330.2 and a
-total deployable headroom of 3.6%. **The remaining gap is larger than the headroom the
-method is competing for**, so this is not a near-miss.
+gain of the one-step look-ahead oracle of 3.6%. **The remaining gap is larger than that gain**, so this is not a near-miss (the oracle is not a bound; see the correction above).
 
 Three findings stand on their own and do not depend on PPO winning:
 

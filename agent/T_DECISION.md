@@ -1,4 +1,4 @@
-# T decision record: constrained PPO, the estimation-error parameter, and a negative upper bound
+# T decision record: constrained PPO, the estimation-error parameter, and a one-step look-ahead reference
 
 Status: proposed. Not yet reviewed by the other lanes.
 
@@ -206,15 +206,17 @@ uses this file, not `profile_diurnal.csv`.
 Constrained PPO, as currently configured, does not beat a risk-aware rule-based baseline
 on the recovery-bandwidth problem, in a setting rigged in its favour.
 
-How much headroom exists at all is now measured on a clean setup rather than inferred
+How much a perfect one-step forecast is worth is now measured on a clean setup rather than inferred
 from the contaminated one. On `profile_diurnal_long` with held-out fleets, 20 paired
 seeds (`baselines/evidence/diurnal-long-sigma0.25/`), the lookahead oracle beats
 `risk_aware_rule_based` by 15.25 reward (sem 1.90) against the rule's -293.3, which is
 **5.2%**. An earlier measurement on the tiled 24-hour window gave about 10.4%; that
 window is contaminated by the 288-step period, so 5.2% supersedes it.
 
-So the entire anticipatory headroom available to any deployable controller is about 5%,
-and the oracle reaching it is not deployable. PPO came in 2% to 6% *worse* than the rule.
+So a perfect one-step forecast is worth about 5% to the rule's control law, and the oracle that has it is
+not deployable; this is not a bound on what any controller could gain. PPO came in 2% to 6% *worse* than the rule.
+
+**Correction (2026-11-20).** `ORACLE_lookahead` is the value of a perfect one-step forecast to the rule's control law; it is not a performance bound. The exact hindsight optimum exceeds it by about 1 reward point (+1.01 on the holdout, +1.13 on altB; `agent/OPTIMUM_DECISION.md`), and the headroom over the rule depends on the [ASSUMED] objective coefficients: across a one-factor grid it is 1.7% to 15.9% of the rule's cost over all scenarios and 8.7% to 75.7% over the controllable ones (`agent/OBJECTIVE_SENSITIVITY_DECISION.md`). The percentages and absolute magnitudes quoted in this record are properties of one setting of those coefficients, not of the problem. `risk_aware_rule_based` is the project's own design: the literal specification rule (`SlowestRiskFeasible`) runs 20 MB/s for about 167 hours at baseline hazard and was discarded as a comparator for that reason.
 
 This is reported as a finding, not a failure. It is not yet a general claim about PPO:
 hyperparameters are untuned, the budget was 1M steps, one architecture, one profile. But

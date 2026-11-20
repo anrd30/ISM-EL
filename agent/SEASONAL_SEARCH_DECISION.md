@@ -45,7 +45,7 @@ Configuration `v1,eval-fleet,sigma=0.25`, holdout `profile_diurnal_long_holdout.
 
 **Baseline reproduction first:** every row of the baseline harness is identical to
 `agent/evidence/b2-3seed-2026-11-07/summary.md`. Rule -330.2, oracle -318.3, so the
-oracle headroom is +11.9.
+the gain of the one-step look-ahead oracle is +11.9.
 
 | Policy | Gap vs rule | sem | Scenarios better |
 | --- | --- | --- | --- |
@@ -56,7 +56,8 @@ oracle headroom is +11.9.
 | `rule_progress_search`, 3 seeds | -0.14 to -0.17 | 0.05 to 0.10 | 5 to 7 / 20 |
 | hand-built `SeasonalForecastRule` (all parameters neutral) | +3.69 | 0.28 | 20 / 20 |
 
-- **Headroom:** the pooled gain is 28% of the oracle's.
+- **Share of the oracle's gain:** the pooled gain is 28% of the gain of the one-step look-ahead oracle, a reference and not a bound.
+- **Correction (2026-11-20).** `ORACLE_lookahead` is the value of a perfect one-step forecast to the rule's control law; it is not a performance bound. The exact hindsight optimum exceeds it by about 1 reward point (+1.01 on the holdout, +1.13 on altB; `agent/OPTIMUM_DECISION.md`), and the headroom over the rule depends on the [ASSUMED] objective coefficients: across a one-factor grid it is 1.7% to 15.9% of the rule's cost over all scenarios and 8.7% to 75.7% over the controllable ones (`agent/OBJECTIVE_SENSITIVITY_DECISION.md`). The percentages and absolute magnitudes quoted in this record are properties of one setting of those coefficients, not of the problem. `risk_aware_rule_based` is the project's own design: the literal specification rule (`SlowestRiskFeasible`) runs 20 MB/s for about 167 hours at baseline hazard and was discarded as a comparator for that reason.
 - **Against the retuned rule:** +3.42, +3.00 and +3.86 (sem 0.24 to 0.26).
 - **Strata:** every seed is positive in every stratum, the pre-registered
   `initial_budget_infeasible` split and the post-hoc magnitude split alike.

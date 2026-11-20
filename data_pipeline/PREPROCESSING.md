@@ -319,6 +319,20 @@ shared 24 h window.
   the plot; whether the four profiles are visibly different is read from
   `profiles/profile_comparison.png`.
 
+## B5b — Independent periodic profile (diurnal_long_altB)
+
+- Additive profile `diurnal_long_altB`; `diurnal_long` and its splits are unchanged. Same construction as `diurnal_long`: the diurnal rule (highest `daily_strength`, the median-bytes-per-I/O eligibility rule, N the largest whose aggregate p95 is at most the diurnal target x 1.005) over a 14-day window (4032 samples), six-column replay schema, `t_seconds` from 0, `validate_replay_frame` before writing, no scaling factor
+- Window: the start covered by a gap-free run of that length in the most volumes among starts whose window shares no sample time with the `diurnal_long` window
+- Volumes: every `disk_uid` in `profile_diurnal_long.meta.json` is removed from the candidate pool before ranking. The record below also gives the selection without that removal
+- Files: `profiles/profile_diurnal_long_altB.csv` and `profiles/profile_diurnal_long_altB.meta.json` (volume list, window, counts, aggregate p95 and mean, excluded volumes, overlap figures). Produced by `tencent/build_profile_altB.py`
+- Counts and measurements from the last run of `tencent/build_profile_altB.py`:
+
+- `profile=diurnal_long_altB n_disks=150 start_ts=1592884800 start_utc=2020-06-23T04:00:00Z end_ts=1594094100 end_utc=2020-07-07T03:55:00Z rows=4032 requested_rows=4032`
+- `profile=diurnal_long_altB volumes_with_window=6046 ranked_candidates=5622 excluded_disks=44 scaling_factor=1 target_p95_mbps=100 p95_mbps=99.48 mean_mbps=63.9 max_mbps=120.8`
+- `profile=diurnal_long_altB reference=diurnal_long reference_start_ts=1594094400 shared_sample_times=0 overlap_with_reference_disks=0 without_exclusion_n_disks=109 without_exclusion_overlap_with_reference_disks=40`
+- `output=profiles/profile_diurnal_long_altB.csv rows=4032 sha256=bf19b148bdd47546d1029e8365dfc530dae6635f402ebfa814782ac7073acd7e`
+- `output=profiles/profile_diurnal_long_altB.meta.json sha256=1253581950a01bf938cddf28aa967f1b3215b3376b987d74308e0de61954e6a0`
+
 ## A2 — Horizon labels and drive split
 
 - Inputs: `data/processed/backblaze_timelines.parquet`, `data/processed/backblaze_drive_index.parquet`; decision record: `data_pipeline/A2_DECISION.md`

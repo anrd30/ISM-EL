@@ -1,0 +1,3 @@
+check,result
+"direct rollouts identical (actions, per-step rewards), 20 seeds",True
+"evaluate() frames identical except policy name, 20 seeds",True

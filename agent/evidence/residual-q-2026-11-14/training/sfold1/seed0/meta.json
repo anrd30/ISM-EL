@@ -1,0 +1,32 @@
+{
+  "seed": 0,
+  "margin": 0.25,
+  "feature_version": 2,
+  "hazard": "v1",
+  "eval_fleet": false,
+  "hazard_error_sigma": 0.25,
+  "trained_on": "data_pipeline/profiles/profile_diurnal_long_sfold1_train.csv",
+  "trained_on_sha256": "9b2391f0f14663b29d0527e48e664708a150da1f0ef25fcfdbbabfde747a6c27",
+  "fit_csv_sha256": "2db1b855c61cfded3f7f9706a3721c226b9c8fb2613f19b1dd4fab07a3ddb79e",
+  "val_csv_sha256": "87e1c46ae1b8fbcd54b3881942066e8e3f2784e759caa21959d1f5d417535356",
+  "val_gap": 6.367879295423078,
+  "val_gap_sem": 1.3631417526578162,
+  "val_seeds": "5000..5039",
+  "samples_selection_fit": 38045,
+  "samples_final_fit": 52526,
+  "config": {
+    "seed": 0,
+    "workload_csv": "data_pipeline/profiles/profile_diurnal_long_sfold1_train.csv",
+    "hazard": "v1",
+    "hazard_error_sigma": 0.25,
+    "out_dir": "runs/residual_q/sfold1/seed0",
+    "episodes": 80,
+    "explore": 0.1,
+    "val_days": 3,
+    "val_seeds": 40,
+    "val_seed_start": 5000,
+    "max_iter": 300,
+    "learning_rate": 0.05,
+    "min_samples_leaf": 200
+  }
+}

@@ -1,0 +1,4 @@
+profile,rmse_yesterday,rmse_last_value,step_change_corr_1day,mean_read_iops,mean_write_iops,p99_read_iops,mean_bw,std_bw,step_change_sd
+train,2.7386,10.124,0.97024,4535.8,5794.4,10907,69.793,23.149,10.117
+holdout,2.0131,10.358,0.98739,4741.8,6161.7,11267,70.23,23.125,10.308
+altB,13.45,9.0194,0.58479,28126,57524,97910,63.902,22.165,8.9572

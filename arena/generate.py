@@ -2,11 +2,13 @@
 
 Two backends, chosen by the ``--model`` prefix:
 
+    ollama:<model>            a local Ollama server (no extra dependency)
     api:<provider>/<model>    an HTTP API, key from the environment
     hf:<org>/<model>          a local transformers model, e.g. on a GPU
 
 Examples::
 
+    python -m arena.generate --model ollama:qwen2.5-coder:7b --out arena/submissions/qwen-7b
     python -m arena.generate --model api:openai/gpt-4o --out arena/submissions/gpt-4o
     python -m arena.generate --model hf:Qwen/Qwen2.5-Coder-7B-Instruct --out arena/submissions/qwen-7b
 
@@ -46,6 +48,44 @@ def extract_policy(text: str) -> str:
     if "def policy" in text:
         return text.strip() + "\n"
     raise ValueError("model reply contains no 'def policy'")
+
+
+def _call_ollama(model: str, prompt: str, host: str) -> str:
+    """One chat completion from a local Ollama server.
+
+    Uses urllib so the arena gains no dependency: a participant with Ollama
+    already running needs nothing else installed.
+
+    Raises:
+        RuntimeError: if the server is unreachable or returns no message.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    body = _json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            # Greedy, so a rerun of the same model reproduces the same submission.
+            "options": {"temperature": 0.0, "num_predict": 4096},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        f"{host.rstrip('/')}/api/chat", data=body, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=1800) as response:
+            payload = _json.loads(response.read())
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"cannot reach Ollama at {host}: {exc}. Is `ollama serve` running?"
+        ) from exc
+    message = payload.get("message", {}).get("content")
+    if not message:
+        raise RuntimeError(f"Ollama returned no message: {payload}")
+    return message
 
 
 def _call_api(provider: str, model: str, prompt: str) -> str:
@@ -91,26 +131,33 @@ def _call_local(model_id: str, prompt: str) -> str:
     return tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
 
-def generate(model_spec: str, prompt: str) -> str:
+def generate(model_spec: str, prompt: str, host: str = "http://localhost:11434") -> str:
     """Dispatch to the right backend and return the raw reply."""
     kind, _, rest = model_spec.partition(":")
+    if kind == "ollama":
+        return _call_ollama(rest, prompt, host)
     if kind == "api":
         provider, _, name = rest.partition("/")
         return _call_api(provider, name, prompt)
     if kind == "hf":
         return _call_local(rest, prompt)
-    raise ValueError(f"--model must start with 'api:' or 'hf:', got {model_spec!r}")
+    raise ValueError(f"--model must start with 'ollama:', 'api:' or 'hf:', got {model_spec!r}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m arena.generate")
-    parser.add_argument("--model", required=True, help="api:<provider>/<model> or hf:<org>/<model>")
+    parser.add_argument(
+        "--model", required=True, help="ollama:<model>, api:<provider>/<model> or hf:<org>/<model>"
+    )
+    parser.add_argument(
+        "--host", default="http://localhost:11434", help="Ollama server, if not local"
+    )
     parser.add_argument("--out", required=True, type=Path, help="submission directory")
     parser.add_argument("--prompt", type=Path, default=PROMPT)
     args = parser.parse_args(argv)
 
     prompt = args.prompt.read_text(encoding="utf-8")
-    reply = generate(args.model, prompt)
+    reply = generate(args.model, prompt, host=args.host)
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "raw_reply.md").write_text(reply, encoding="utf-8")

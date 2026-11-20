@@ -129,6 +129,27 @@ breaching the budget has not solved the task.
 
 ---
 
+## Getting a policy out of a model
+
+Optional. Anyone can write `policy.py` by hand or paste one from a chat window.
+
+```bash
+# local Ollama, no extra dependency
+python -m arena.generate --model ollama:qwen2.5-coder:7b --out arena/submissions/qwen-7b
+
+# a hosted API (needs OPENAI_API_KEY / ANTHROPIC_API_KEY and that provider's SDK)
+python -m arena.generate --model api:openai/gpt-4o --out arena/submissions/gpt-4o
+
+# a local transformers checkpoint on a GPU
+python -m arena.generate --model hf:Qwen/Qwen2.5-Coder-7B-Instruct --out arena/submissions/qwen-hf
+```
+
+Ollama on another machine: add `--host http://<server>:11434`.
+
+All backends decode greedily, so rerunning a model reproduces its submission. The raw
+reply is always kept at `<out>/raw_reply.md`, including when no policy could be
+extracted from it -- a model that refuses or rambles is itself a result.
+
 ## Collecting results
 
 Each participant commits `arena/results/<model-name>.json`. `python -m arena.run report`

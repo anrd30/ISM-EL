@@ -121,8 +121,29 @@ def _call_local(model_id: str, prompt: str, temperature: float, seed: int) -> st
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model_id)
+
+    # Place the whole model on one GPU rather than letting accelerate shard it.
+    # "auto" spreads layers across every visible device and silently falls back to
+    # CPU offload, which on a shared machine means either a non-Ampere card that
+    # cannot run FlashAttention, or a 32B model generating on CPU for hours. Both
+    # happened. Pin to a single device and fail loudly if it does not fit.
+    #
+    # Select the device with CUDA_VISIBLE_DEVICES; index 0 is then the only one the
+    # process can see.
+    if torch.cuda.is_available():
+        device_map: object = {"": 0}
+        free, total = torch.cuda.mem_get_info(0)
+        print(
+            f"[arena] loading {model_id} onto {torch.cuda.get_device_name(0)}, "
+            f"{free / 2**30:.1f} GiB free of {total / 2**30:.1f} GiB",
+            flush=True,
+        )
+    else:
+        device_map = None
+        print("[arena] no CUDA device visible; loading on CPU (slow)", flush=True)
+
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.bfloat16, device_map="auto"
+        model_id, torch_dtype=torch.bfloat16, device_map=device_map
     )
     text = tok.apply_chat_template(
         [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True

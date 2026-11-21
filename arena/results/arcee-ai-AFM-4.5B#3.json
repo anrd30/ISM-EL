@@ -1,10 +1,10 @@
 {
   "name": "arcee-ai-AFM-4.5B#3",
-  "spec_version": "1.4.0",
+  "spec_version": "1.5.0",
   "track": "zero-shot",
-  "submission": "arena/submissions/arcee-ai-AFM-4.5B#3/policy.py",
-  "timestamp": "2026-11-20T17:10:03.440404+00:00",
-  "python": "3.10.12",
+  "submission": "arena\\submissions\\arcee-ai-AFM-4.5B#3\\policy.py",
+  "timestamp": "2026-11-21T05:23:25.181339+00:00",
+  "python": "3.11.0",
   "dev": null,
   "eval": [],
   "error": "SubmissionError: SubmissionError: policy raised: KeyError('alloc_current')"

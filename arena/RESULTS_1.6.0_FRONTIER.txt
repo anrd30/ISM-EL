@@ -1,0 +1,189 @@
+headline: median over 8 environments of the per-environment G
+                                        model valid  G_median   G_min  G_max beat_sine
+                               _sine-nonsense   1/1     -0.62   -8.03   0.25         -
+                             _greedy-template   1/1     -1.68  -70.38   0.75       3/8
+                           openai-gpt-6.2-sol   5/5     -2.62 -147.56  -0.88       1/8
+                google-gemini-3.1-pro-preview   5/5     -2.82  -18.11  -0.56       0/8
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit   5/5     -6.95  -38.60  -2.39       0/8
+                     Qwen-Qwen2.5-3B-Instruct   2/5     -8.20  -34.54  -2.57       0/8
+            deepseek-deepseek-v4.1-flash-1017   5/5     -9.19  -83.80  -3.89       0/8
+       DeepSeek V4 Pro (0423, via OpenRouter)   5/5    -17.54  -92.42  -3.98       0/8
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit   3/4    -17.87  -66.72  -5.91       0/8
+                             qwen2.5-coder-7b   5/5    -21.36  -92.56  -7.26       0/8
+                 google-gemini-3.1-flash-lite   5/5    -28.60  -87.59  -4.75       0/8
+           microsoft-Phi-3-mini-128k-instruct   3/5    -31.22 -153.46 -12.16       0/8
+                            arcee-ai-AFM-4.5B   4/5    -62.94 -254.72 -13.75       0/8
+                                  llama3.1-8b   3/5    -65.92 -281.70 -15.15       0/8
+                           qwen2.5-coder-1.5b   2/5   -106.39 -481.66 -17.03       0/8
+                            openai-gpt-6-luna   5/5   -165.71 -643.03 -27.40       0/8
+
+per-environment G = mean over runnable repeats; beat_sine = environments where it exceeds the sine baseline's G
+
+=== profile_diurnal_long_holdout.csv
+                                        model  runs  valid  G_mean   G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                               _sine-nonsense     1      1   -0.89    NaN   -0.89    -0.89     0.0220         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5   -5.58   4.75   -1.75   -12.28     0.0243         0/5        0/5
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5   -8.14   0.00   -8.14    -8.14     0.0146         0/5        5/5
+                           openai-gpt-6.2-sol     5      5   -9.63   8.74   -1.93   -23.41     0.0410         2/5        0/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2   -9.88   2.46   -8.14   -11.62     0.0264         0/2        1/2
+                             _greedy-template     1      1  -11.01    NaN  -11.01   -11.01     0.0511         1/1        0/1
+            deepseek-deepseek-v4.1-flash-1017     5      5  -21.94  27.03   -5.15   -69.79     0.0528         2/5        0/5
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3  -27.50  37.72   -3.38   -70.97     0.0444         1/3        0/3
+                             qwen2.5-coder-7b     5      5  -29.97  45.40   -1.90  -110.17     0.0403         1/5        2/5
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5  -32.82  53.96   -0.40  -127.84     0.0713         3/5        0/5
+                 google-gemini-3.1-flash-lite     5      5  -39.15  38.55   -8.14  -103.82     0.0872         3/5        0/5
+           microsoft-Phi-3-mini-128k-instruct     5      3  -45.28  64.33   -8.14  -119.57     0.0367         1/3        2/3
+                            arcee-ai-AFM-4.5B     5      4  -89.61 161.54   -6.44  -331.90     0.1860         1/4        1/4
+                                  llama3.1-8b     5      3  -97.94  95.99  -10.33  -200.54     0.1652         2/3        0/3
+                           qwen2.5-coder-1.5b     5      2 -143.05 180.47  -15.44  -270.66     0.2478         2/2        1/2
+                            openai-gpt-6-luna     5      5 -227.15   6.29 -216.98  -233.76     0.3469         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_altB.csv
+                                        model  runs  valid  G_mean  G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                               _sine-nonsense     1      1    0.14   NaN    0.14     0.14     0.0131         0/1        0/1
+                             _greedy-template     1      1   -1.16   NaN   -1.16    -1.16     0.0274         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5   -1.25  1.29   -0.53    -3.54     0.0144         0/5        0/5
+                           openai-gpt-6.2-sol     5      5   -2.08  1.92   -0.60    -5.23     0.0258         0/5        0/5
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5   -3.44  0.00   -3.44    -3.44     0.0085         0/5        5/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2   -4.56  1.58   -3.44    -5.67     0.0219         0/2        1/2
+            deepseek-deepseek-v4.1-flash-1017     5      5   -7.04 10.10   -1.21   -25.01     0.0374         1/5        0/5
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5  -10.84 19.96    0.39   -46.12     0.0474         1/5        0/5
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3  -12.48 17.30   -1.57   -32.42     0.0282         1/3        0/3
+                             qwen2.5-coder-7b     5      5  -12.75 18.85   -0.93   -45.93     0.0293         1/5        2/5
+           microsoft-Phi-3-mini-128k-instruct     5      3  -17.17 23.77   -3.44   -44.61     0.0303         1/3        2/3
+                 google-gemini-3.1-flash-lite     5      5  -22.45 16.08   -2.86   -40.93     0.0778         3/5        0/5
+                            arcee-ai-AFM-4.5B     5      4  -35.47 63.88   -2.35  -131.27     0.1475         1/4        1/4
+                                  llama3.1-8b     5      3  -38.32 33.78   -4.68   -72.24     0.1278         2/3        0/3
+                           qwen2.5-coder-1.5b     5      2  -73.92 95.54   -6.36  -141.48     0.2936         2/2        1/2
+                            openai-gpt-6-luna     5      5  -81.82  1.69  -80.03   -84.32     0.2723         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_popC.csv
+                                        model  runs  valid  G_mean   G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                             _greedy-template     1      1    0.75    NaN    0.75     0.75     0.0182         0/1        0/1
+                               _sine-nonsense     1      1   -1.16    NaN   -1.16    -1.16     0.0149         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5   -3.13   1.05   -1.97    -4.66     0.0149         0/5        0/5
+                           openai-gpt-6.2-sol     5      5   -3.17   2.93   -1.48    -8.38     0.0204         0/5        0/5
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5  -10.95   0.00  -10.95   -10.95     0.0096         0/5        5/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2  -12.71   2.49  -10.95   -14.47     0.0204         0/2        1/2
+            deepseek-deepseek-v4.1-flash-1017     5      5  -15.77  23.14   -2.10   -56.74     0.0329         1/5        0/5
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5  -22.32  41.89    0.21   -96.38     0.0413         1/5        0/5
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3  -23.26  27.08   -4.51   -54.31     0.0264         1/3        0/3
+                 google-gemini-3.1-flash-lite     5      5  -33.69  39.17   -3.46  -100.00     0.0605         2/5        0/5
+                             qwen2.5-coder-7b     5      5  -37.70  58.16   -2.86  -140.96     0.0337         1/5        2/5
+           microsoft-Phi-3-mini-128k-instruct     5      3  -73.01 107.50  -10.95  -197.14     0.0401         1/3        2/3
+                                  llama3.1-8b     5      3 -105.95  96.45  -12.89  -205.46     0.1252         2/3        0/3
+                            arcee-ai-AFM-4.5B     5      4 -107.31 196.15   -5.67  -401.48     0.1560         1/4        1/4
+                           qwen2.5-coder-1.5b     5      2 -183.32 235.27  -16.95  -349.68     0.2247         1/2        1/2
+                            openai-gpt-6-luna     5      5 -235.21   5.32 -226.29  -240.21     0.2750         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_popD.csv
+                                        model  runs  valid  G_mean  G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                               _sine-nonsense     1      1   -0.36   NaN   -0.36    -0.36     0.0218         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5   -0.56  0.86   -0.07    -2.09     0.0214         0/5        0/5
+                           openai-gpt-6.2-sol     5      5   -1.83  1.91   -0.26    -5.12     0.0335         1/5        0/5
+                             _greedy-template     1      1   -2.20   NaN   -2.20    -2.20     0.0394         0/1        0/1
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5   -2.39  0.00   -2.39    -2.39     0.0140         0/5        5/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2   -4.56  3.06   -2.39    -6.72     0.0298         0/2        1/2
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3   -6.03  7.98   -0.52   -15.19     0.0393         1/3        0/3
+            deepseek-deepseek-v4.1-flash-1017     5      5   -9.75 16.33   -1.31   -38.80     0.0571         2/5        0/5
+                             qwen2.5-coder-7b     5      5  -11.75 19.13   -1.52   -45.79     0.0462         1/5        2/5
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5  -12.76 23.38    0.12   -54.23     0.0760         2/5        0/5
+           microsoft-Phi-3-mini-128k-instruct     5      3  -16.72 24.82   -2.39   -45.38     0.0375         1/3        2/3
+                 google-gemini-3.1-flash-lite     5      5  -23.52 23.31   -1.70   -48.75     0.1247         3/5        0/5
+                            arcee-ai-AFM-4.5B     5      4  -36.28 65.60   -2.28  -134.66     0.2284         1/4        1/4
+                                  llama3.1-8b     5      3  -41.75 41.24   -3.31   -85.31     0.2088         2/3        0/3
+                           qwen2.5-coder-1.5b     5      2  -59.36 73.70   -7.25  -111.48     0.3442         2/2        1/2
+                            openai-gpt-6-luna     5      5 -104.28  1.24 -102.82  -105.43     0.4330         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_holdout.csv@viol_cheap
+                                        model  runs  valid  G_mean  G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                               _sine-nonsense     1      1    0.00   NaN    0.00     0.00     0.0220         0/1        0/1
+                             _greedy-template     1      1   -0.54   NaN   -0.54    -0.54     0.0511         1/1        0/1
+                           openai-gpt-6.2-sol     5      5   -0.88  0.97   -0.18    -2.54     0.0410         2/5        0/5
+                google-gemini-3.1-pro-preview     5      5   -1.03  0.55   -0.46    -1.81     0.0243         0/5        0/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2   -2.57  1.84   -1.27    -3.87     0.0264         0/2        1/2
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5   -3.87  0.00   -3.87    -3.87     0.0146         0/5        5/5
+            deepseek-deepseek-v4.1-flash-1017     5      5   -3.89  5.74   -0.74   -14.11     0.0528         2/5        0/5
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3   -5.91  5.87   -1.33   -12.53     0.0444         1/3        0/3
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5   -6.12 11.55    0.43   -26.55     0.0713         3/5        0/5
+                 google-gemini-3.1-flash-lite     5      5   -6.59  8.44   -0.71   -21.18     0.0872         3/5        0/5
+                             qwen2.5-coder-7b     5      5   -7.26  9.51   -0.54   -24.07     0.0403         1/5        2/5
+           microsoft-Phi-3-mini-128k-instruct     5      3  -12.16 14.35   -3.87   -28.73     0.0367         1/3        2/3
+                            arcee-ai-AFM-4.5B     5      4  -19.51 34.88   -1.27   -71.81     0.1860         1/4        1/4
+                                  llama3.1-8b     5      3  -20.78 18.68   -4.22   -41.03     0.1652         2/3        0/3
+                           qwen2.5-coder-1.5b     5      2  -30.51 41.48   -1.18   -59.84     0.2478         2/2        1/2
+                            openai-gpt-6-luna     5      5  -48.00  1.61  -45.37   -49.66     0.3469         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_holdout.csv@degraded_costly
+                                        model  runs  valid  G_mean  G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                             _greedy-template     1      1   -0.73   NaN   -0.73    -0.73     0.0511         1/1        0/1
+                           openai-gpt-6.2-sol     5      5   -1.41  0.50   -0.74    -2.15     0.0410         2/5        0/5
+                               _sine-nonsense     1      1   -1.43   NaN   -1.43    -1.43     0.0220         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5   -3.15  0.77   -2.47    -4.15     0.0243         0/5        0/5
+            deepseek-deepseek-v4.1-flash-1017     5      5   -3.89  3.38   -1.28    -8.91     0.0528         2/5        0/5
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5   -3.98  6.32   -0.29   -15.19     0.0713         3/5        0/5
+                 google-gemini-3.1-flash-lite     5      5   -4.75  4.47   -1.78   -12.42     0.0872         3/5        0/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2   -6.51  5.65   -2.52   -10.51     0.0264         0/2        1/2
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3   -7.33  3.06   -4.41   -10.51     0.0444         1/3        0/3
+                             qwen2.5-coder-7b     5      5   -8.85  5.67   -2.66   -16.63     0.0403         1/5        2/5
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5  -10.51  0.00  -10.51   -10.51     0.0146         0/5        5/5
+                            arcee-ai-AFM-4.5B     5      4  -13.75 17.05   -3.41   -39.16     0.1860         1/4        1/4
+           microsoft-Phi-3-mini-128k-instruct     5      3  -14.24  6.47  -10.51   -21.71     0.0367         1/3        2/3
+                                  llama3.1-8b     5      3  -15.15  7.14  -10.48   -23.36     0.1652         2/3        0/3
+                           qwen2.5-coder-1.5b     5      2  -17.03 21.79   -1.62   -32.44     0.2478         2/2        1/2
+                            openai-gpt-6-luna     5      5  -27.40  0.78  -26.12   -28.22     0.3469         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_holdout.csv@ssd_latency
+                                        model  runs  valid  G_mean   G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                             _greedy-template     1      1   -3.39    NaN   -3.39    -3.39     0.0227         0/1        0/1
+                               _sine-nonsense     1      1   -8.03    NaN   -8.03    -8.03     0.0172         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5  -18.11  12.49   -8.52   -38.60     0.0167         0/5        1/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2  -23.92  20.76   -9.24   -38.60     0.0142         0/2        1/2
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5  -38.60   0.00  -38.60   -38.60     0.0116         0/5        5/5
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3  -66.72  67.29  -18.06  -143.51     0.0326         1/3        0/3
+            deepseek-deepseek-v4.1-flash-1017     5      5  -83.80 111.68  -15.87  -280.65     0.0497         2/5        0/5
+                 google-gemini-3.1-flash-lite     5      5  -87.59 126.70   -7.99  -309.67     0.0623         2/5        0/5
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5  -92.42 168.05   -3.59  -391.35     0.0588         1/5        0/5
+                             qwen2.5-coder-7b     5      5  -92.56 122.79  -12.40  -309.84     0.0344         1/5        2/5
+                           openai-gpt-6.2-sol     5      5 -147.56 163.40   -8.72  -414.18     0.0980         3/5        0/5
+           microsoft-Phi-3-mini-128k-instruct     5      3 -153.46 198.94  -38.60  -383.18     0.0336         1/3        2/3
+                            arcee-ai-AFM-4.5B     5      4 -254.72 468.84  -14.45  -957.91     0.1637         1/4        1/4
+                                  llama3.1-8b     5      3 -281.70 279.72  -43.71  -589.81     0.1508         2/3        0/3
+                           qwen2.5-coder-1.5b     5      2 -481.66 673.53   -5.40  -957.91     0.3170         1/2        2/2
+                            openai-gpt-6-luna     5      5 -643.03  11.97 -624.76  -651.97     0.3238         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+
+=== profile_diurnal_long_holdout.csv@hdd_tight
+                                        model  runs  valid  G_mean   G_sd  G_best  G_worst  viol_mean over_budget degenerate
+                               _sine-nonsense     1      1    0.25    NaN    0.25     0.25     0.0405         0/1        0/1
+                google-gemini-3.1-pro-preview     5      5   -2.52   0.41   -1.96    -3.12     0.0325         0/5        0/5
+  unsloth-Qwen2.5-Coder-14B-Instruct-bnb-4bit     5      5   -5.76   0.00   -5.76    -5.76     0.0265         0/5        5/5
+                           openai-gpt-6.2-sol     5      5   -8.10  12.22   -0.54   -29.64     0.0435         2/5        0/5
+            deepseek-deepseek-v4.1-flash-1017     5      5   -8.63   9.06   -2.03   -23.65     0.0476         2/5        0/5
+                     Qwen-Qwen2.5-3B-Instruct     5      2  -34.54  40.70   -5.76   -63.32     0.0955         1/2        1/2
+       DeepSeek V4 Pro (0423, via OpenRouter)     5      5  -36.71  34.53   -0.17   -78.94     0.1040         3/5        0/5
+unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit     4      3  -38.51  55.57   -5.76  -102.66     0.0815         1/3        0/3
+           microsoft-Phi-3-mini-128k-instruct     5      3  -47.90  72.99   -5.76  -132.18     0.0480         1/3        2/3
+                             qwen2.5-coder-7b     5      5  -54.08  85.84   -5.76  -206.35     0.0995         3/5        2/5
+                             _greedy-template     1      1  -70.38    NaN  -70.38   -70.38     0.2273         1/1        0/1
+                 google-gemini-3.1-flash-lite     5      5  -84.32  42.79  -35.78  -135.23     0.1772         5/5        0/5
+                                  llama3.1-8b     5      3  -90.09  73.37   -8.92  -151.69     0.1809         2/3        0/3
+                            arcee-ai-AFM-4.5B     5      4 -123.78 177.71  -30.88  -390.28     0.2523         4/4        1/4
+                           qwen2.5-coder-1.5b     5      2 -138.86  69.09  -90.00  -187.71     0.3147         2/2        1/2
+                            openai-gpt-6-luna     5      5 -270.88   4.42 -267.20  -277.42     0.3825         5/5        0/5
+
+valid = produced runnable code; over_budget = violation fraction above 0.05
+

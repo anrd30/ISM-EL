@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from arena.config import PROFILES, REFERENCE, SEEDS, arena_config
+from arena.config import PROFILES, REFERENCE, SEEDS, arena_config, reference_stem, split_env
 
 __all__ = ["reference_table", "build_reference"]
 
@@ -20,7 +20,7 @@ _COLUMNS = ["seed", "j_rule", "j_star", "rule_violation_fraction", "rule_complet
 
 
 def _path(profile: str) -> Path:
-    return REFERENCE / f"{Path(profile).stem}.csv"
+    return REFERENCE / f"{reference_stem(profile)}.csv"
 
 
 def build_reference(profile: str, *, force: bool = False) -> pd.DataFrame:
@@ -33,8 +33,9 @@ def build_reference(profile: str, *, force: bool = False) -> pd.DataFrame:
     from baselines.evaluate import evaluate
     from baselines.policies import RiskAwareRuleBased
 
-    cfg = arena_config()
-    csv = PROFILES / profile
+    base, variant = split_env(profile)
+    cfg = arena_config(variant)
+    csv = PROFILES / base
     seeds = list(SEEDS)
 
     rule = evaluate(RiskAwareRuleBased(cfg), profile=csv, seeds=seeds, config=cfg)
@@ -68,6 +69,7 @@ def reference_table(profile: str) -> pd.DataFrame:
     Raises:
         FileNotFoundError: if the profile does not exist.
     """
-    if not (PROFILES / profile).is_file():
-        raise FileNotFoundError(PROFILES / profile)
+    base, _ = split_env(profile)
+    if not (PROFILES / base).is_file():
+        raise FileNotFoundError(PROFILES / base)
     return build_reference(profile)

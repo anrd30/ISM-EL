@@ -235,3 +235,264 @@ def test_constant_policy_is_flagged_degenerate(tmp_path: Path) -> None:
     assert result["degenerate"] is True
     assert result["distinct_actions"] == 1
     assert result["modal_action_share"] == pytest.approx(1.0)
+
+
+
+def _id(var: str) -> str:
+    from arena.models import model_id
+
+    return model_id(var)
+
+
+# --------------------------------------------------------------------------
+# Environments (spec 1.5.0)
+# --------------------------------------------------------------------------
+
+
+def test_default_arena_config_is_unchanged_by_variants() -> None:
+    from arena.config import SPEC_VERSION, arena_config
+    from contracts.contracts import RewardConfig
+
+    base = arena_config()
+    assert base.label == f"arena-{SPEC_VERSION}"
+    assert base.reward == RewardConfig()
+    assert (base.latency_unloaded_ms, base.latency_target_ms) == (2.0, 15.0)
+    assert arena_config(None).label == base.label
+
+
+def test_every_environment_resolves_and_variants_differ_from_the_default() -> None:
+    from arena.config import ENV_VARIANTS, EVAL_PROFILES, PROFILES, arena_config, reference_stem, split_env
+
+    assert EVAL_PROFILES[0] == "profile_diurnal_long_holdout.csv"
+    assert len(set(EVAL_PROFILES)) == len(EVAL_PROFILES)
+    stems = set()
+    for env in EVAL_PROFILES:
+        base, variant = split_env(env)
+        assert (PROFILES / base).is_file()
+        stems.add(reference_stem(env))
+        if variant:
+            cfg, default = arena_config(variant), arena_config()
+            assert (cfg.reward, cfg.latency_unloaded_ms, cfg.latency_target_ms) != (
+                default.reward, default.latency_unloaded_ms, default.latency_target_ms)
+    assert len(stems) == len(EVAL_PROFILES)
+    assert set(ENV_VARIANTS) == {split_env(e)[1] for e in EVAL_PROFILES if "@" in e}
+
+
+def test_unknown_variant_is_rejected() -> None:
+    from arena.config import split_env
+
+    with pytest.raises(ValueError):
+        split_env("profile_diurnal_long_holdout.csv@nope")
+
+
+def test_reference_values_exist_for_every_environment_and_are_valid() -> None:
+    import pandas as pd
+    from arena.config import EVAL_PROFILES, REFERENCE, reference_stem
+
+    for env in EVAL_PROFILES:
+        path = REFERENCE / f"{reference_stem(env)}.csv"
+        assert path.is_file(), path
+        ref = pd.read_csv(path)
+        assert len(ref) == 20 and (ref["j_star"] >= ref["j_rule"] - 1e-9).all()
+
+
+# --------------------------------------------------------------------------
+# Cost ledger and API providers (no network)
+# --------------------------------------------------------------------------
+
+
+def test_cost_guard_requires_an_estimate_and_respects_the_ceiling(tmp_path) -> None:
+    from arena import cost_ledger as L
+
+    ledger = tmp_path / "ledger.json"
+    with pytest.raises(L.CostCeilingExceeded, match="estimate"):
+        L.check_before_call(_id("ARENA_MODEL_ANTHROPIC_HAIKU"), "p" * 300, 8192, ledger)
+    data = L.load(ledger)
+    data["estimate_printed"] = True
+    L._save(data, ledger)
+    L.check_before_call(_id("ARENA_MODEL_ANTHROPIC_HAIKU"), "p" * 300, 8192, ledger)
+    L.record("openai", _id("ARENA_MODEL_OPENAI_SOL"), 1_000_000, 1_500_000, ledger)  # 17 USD
+    with pytest.raises(L.CostCeilingExceeded, match="exceed"):
+        L.check_before_call(_id("ARENA_MODEL_ANTHROPIC_HAIKU"), "p" * 300, 8192, ledger)
+    with pytest.raises(L.CostCeilingExceeded, match="no price"):
+        L.check_before_call("unknown-model", "p", 10, ledger)
+
+
+def test_ledger_records_reported_usage_at_the_model_price(tmp_path) -> None:
+    from arena import cost_ledger as L
+
+    ledger = tmp_path / "ledger.json"
+    cost = L.record("anthropic", _id("ARENA_MODEL_ANTHROPIC_OPUS"), 1000, 2000, ledger)
+    assert cost == pytest.approx((1000 * 4.0 + 2000 * 20.0) / 1e6)
+    data = L.load(ledger)
+    assert L.total_usd(data) == pytest.approx(cost)
+    assert L.by_model(data)[_id("ARENA_MODEL_ANTHROPIC_OPUS")]["calls"] == 1
+
+
+def test_worst_case_estimate_of_the_planned_batch_is_under_the_ceiling() -> None:
+    from arena import cost_ledger as L
+    from arena.config import MAX_NEW_TOKENS
+    from arena.generate import PROMPT
+
+    from arena.models import batch_roster
+
+    PRICES_IN_BATCH = list(batch_roster().values())
+    est = L.estimate_batch(PROMPT.read_text(encoding="utf-8"), MAX_NEW_TOKENS, PRICES_IN_BATCH)
+    assert len(est["models"]) == len(PRICES_IN_BATCH) and est["total_usd"] < L.MAX_TOTAL_USD
+
+
+def test_missing_api_key_is_named_and_model_ids_come_from_the_env_file(monkeypatch) -> None:
+    from arena import models
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        models.key_for(models.API_PROVIDER)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert models.key_for("openrouter") == "k"
+    roster = models.roster()
+    assert all(v.startswith("ARENA_MODEL_") and "/" in m for v, m in roster.items())
+    assert models.provider_of("ARENA_MODEL_GOOGLE_PRO") == "google"
+    assert all(models.provider_of(v) not in models.DEFERRED_PROVIDERS for v in models.batch_roster())
+    monkeypatch.setenv("ARENA_MODEL_OPENAI_SOL", "other/id")
+    assert models.model_id("ARENA_MODEL_OPENAI_SOL") == "other/id"
+
+
+def test_env_example_has_one_empty_key_and_filled_model_slugs() -> None:
+    from dotenv import dotenv_values
+
+    values = dotenv_values(__import__("arena.models", fromlist=["x"]).EXAMPLE_FILE)
+    keys = {k: v for k, v in values.items() if k.endswith("_API_KEY")}
+    assert set(keys) == {"OPENROUTER_API_KEY"} and not keys["OPENROUTER_API_KEY"]
+    assert all(v for k, v in values.items() if k.startswith("ARENA_MODEL_"))
+
+
+def test_openrouter_branch_calls_the_sdk_with_a_price_cap_and_records_usage(monkeypatch, tmp_path) -> None:
+    """The branch sends slug, temperature, seed and token limit, caps the price, and records the reported cost."""
+    import sys
+    import types
+
+    from arena import cost_ledger as L
+    from arena import generate as g
+
+    ledger = tmp_path / "ledger.json"
+    L._save({"estimate_printed": True, "calls": []}, ledger)
+    monkeypatch.setattr(L, "LEDGER_PATH", ledger)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    seen: dict = {}
+
+    class _Completions:
+        def create(self, **kw):
+            seen.update(kw)
+            usage = types.SimpleNamespace(prompt_tokens=10, completion_tokens=20, cost=0.0123)
+            message = types.SimpleNamespace(content="def policy(o, s): return 1")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=usage)
+
+    class _OpenAI:
+        def __init__(self, **init):
+            seen["init"] = init
+            self.chat = types.SimpleNamespace(completions=_Completions())
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
+    slug = _id("ARENA_MODEL_OPENAI_SOL")
+    assert "def policy" in g._call_api("openrouter", slug, "prompt", 0.7, 8192, 3)
+    assert seen["init"]["base_url"] == "https://openrouter.ai/api/v1"
+    assert (seen["model"], seen["temperature"], seen["max_tokens"], seen["seed"]) == (slug, 0.7, 8192, 3)
+    cap = seen["extra_body"]["provider"]["max_price"]
+    assert (cap["prompt"], cap["completion"]) == L.PRICES[slug]
+    (call,) = L.load(ledger)["calls"]
+    assert (call["model"], call["input_tokens"], call["output_tokens"], call["cost_usd"]) == (slug, 10, 20, 0.0123)
+    for gone in ("openai", "google", "deepseek"):
+        with pytest.raises(ValueError):
+            g._call_api(gone, "m", "p")
+
+
+def test_frontier_driver_makes_no_call_while_a_key_is_missing(monkeypatch) -> None:
+    from arena import run_frontier
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    def _boom(args):
+        raise AssertionError(f"driver ran {args}")
+
+    monkeypatch.setattr(run_frontier, "_run", _boom)
+    assert len(run_frontier.missing_keys()) == 1
+    assert run_frontier.main() == 2
+
+
+def test_pinned_model_is_sent_to_one_provider_without_fallback_and_the_host_is_recorded(monkeypatch, tmp_path) -> None:
+    import sys
+    import types
+
+    from arena import cost_ledger as L
+    from arena import generate as g
+    from arena import models
+
+    ledger = tmp_path / "ledger.json"
+    L._save({"estimate_printed": True, "calls": []}, ledger)
+    monkeypatch.setattr(L, "LEDGER_PATH", ledger)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("ARENA_PROVIDER_DEEPSEEK_PRO", "HostX")
+    seen: dict = {}
+
+    class _Completions:
+        def create(self, **kw):
+            seen.update(kw)
+            usage = types.SimpleNamespace(prompt_tokens=1, completion_tokens=2)
+            message = types.SimpleNamespace(content="def policy(o, s): return 1")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=usage,
+                                         provider="HostX", model="vendor/served")
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(
+        OpenAI=lambda **init: types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions()))))
+    slug = _id("ARENA_MODEL_DEEPSEEK_PRO")
+    g._call_api("openrouter", slug, "prompt", 0.7, 100, 1)
+    prefs = seen["extra_body"]["provider"]
+    assert prefs["only"] == ["HostX"] and prefs["allow_fallbacks"] is False
+    assert g.LAST_CALL["served_by"] == "HostX" and g.LAST_CALL["pinned_provider"] == "HostX"
+    unpinned = _id("ARENA_MODEL_OPENAI_SOL")
+    monkeypatch.delenv("ARENA_PROVIDER_OPENAI_SOL", raising=False)
+    g._call_api("openrouter", unpinned, "prompt", 0.7, 100, 1)
+    assert "only" not in seen["extra_body"]["provider"]
+    assert models.display_label(slug).startswith("DeepSeek V4 Pro (0423")
+
+
+def test_generation_budget_is_one_value_across_config_and_generate() -> None:
+    from arena import generate
+    from arena.config import MAX_NEW_TOKENS, SPEC_VERSION
+
+    assert MAX_NEW_TOKENS == generate.DEFAULT_MAX_NEW_TOKENS == 32768
+    assert SPEC_VERSION == "1.6.0"
+
+
+def test_every_batch_model_is_pinned_to_one_host() -> None:
+    from pathlib import Path
+
+    from arena import models
+
+    lines = (Path(models.__file__).parent / ".env.example").read_text(encoding="utf-8").splitlines()
+    pinned = {l.split("=")[0] for l in lines if l.startswith("ARENA_PROVIDER_")}
+    for var in models.batch_roster():
+        assert "ARENA_PROVIDER_" + var[len("ARENA_MODEL_"):] in pinned, var
+
+
+def test_headline_report_is_the_median_over_environments_with_a_beat_sine_count(tmp_path, monkeypatch, capsys) -> None:
+    import json
+
+    from arena import run
+    from arena.config import EVAL_PROFILES
+
+    def result(name, gs):
+        return {"name": name, "error": None, "dev": {"mean_g": 0.0},
+                "eval": [{"profile": e, "mean_g": g, "mean_violation_fraction": 0.0} for e, g in zip(EVAL_PROFILES, gs)]}
+
+    n = len(EVAL_PROFILES)
+    for r in (result(run.SINE_RESULT, [0.0] * n), result("m#1", [1.0] * 3 + [-5.0] * (n - 3)),
+              result("m#2", [3.0] * 3 + [-5.0] * (n - 3))):
+        (tmp_path / f"{r['name']}.json").write_text(json.dumps(r), encoding="utf-8")
+    (tmp_path / "bad#1.json").write_text(json.dumps({"name": "bad#1", "error": "no policy", "eval": []}), encoding="utf-8")
+    monkeypatch.setattr(run, "RESULTS", tmp_path)
+    run._report_headline()
+    out = capsys.readouterr().out
+    line = next(l for l in out.splitlines() if l.split() and l.split()[0] == "m")
+    assert "-5.0" in line and "3/8" in line and "2/2" in line
+    assert next(l for l in out.splitlines() if l.split() and l.split()[0] == "bad").split()[-1] == "-"

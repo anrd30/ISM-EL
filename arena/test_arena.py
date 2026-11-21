@@ -329,54 +329,45 @@ def test_ledger_records_reported_usage_at_the_model_price(tmp_path) -> None:
     assert L.by_model(data)[_id("ARENA_MODEL_ANTHROPIC_OPUS")]["calls"] == 1
 
 
-def test_deepseek_off_peak_is_half_the_peak_rate() -> None:
-    from datetime import datetime, timezone
-    from arena import cost_ledger as L
-
-    peak = datetime(2026, 11, 23, 2, 0, tzinfo=timezone.utc)  # Monday 02:00 UTC
-    off = datetime(2026, 11, 22, 2, 0, tzinfo=timezone.utc)  # Sunday
-    assert L.deepseek_is_peak(peak) and not L.deepseek_is_peak(off)
-    assert L.price_per_token_usd(_id("ARENA_MODEL_DEEPSEEK_PRO"), off)[1] == pytest.approx(
-        L.price_per_token_usd(_id("ARENA_MODEL_DEEPSEEK_PRO"), peak)[1] / 2)
-    assert L.price_per_token_usd(_id("ARENA_MODEL_ANTHROPIC_OPUS"), off) == L.price_per_token_usd(_id("ARENA_MODEL_ANTHROPIC_OPUS"), peak)
-
-
 def test_worst_case_estimate_of_the_planned_batch_is_under_the_ceiling() -> None:
     from arena import cost_ledger as L
     from arena.config import MAX_NEW_TOKENS
     from arena.generate import PROMPT
 
-    est = L.estimate_batch(PROMPT.read_text(encoding="utf-8"), MAX_NEW_TOKENS)
-    assert len(est["models"]) == 8 and est["total_usd"] < L.MAX_TOTAL_USD
+    from arena.models import batch_roster
+
+    PRICES_IN_BATCH = list(batch_roster().values())
+    est = L.estimate_batch(PROMPT.read_text(encoding="utf-8"), MAX_NEW_TOKENS, PRICES_IN_BATCH)
+    assert len(est["models"]) == len(PRICES_IN_BATCH) and est["total_usd"] < L.MAX_TOTAL_USD
 
 
 def test_missing_api_key_is_named_and_model_ids_come_from_the_env_file(monkeypatch) -> None:
     from arena import models
 
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
-        models.key_for("google")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
-    assert models.key_for("deepseek") == "k"
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        models.key_for(models.API_PROVIDER)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert models.key_for("openrouter") == "k"
     roster = models.roster()
-    assert len(roster) == 8 and all(v.startswith("ARENA_MODEL_") for v in roster)
+    assert all(v.startswith("ARENA_MODEL_") and "/" in m for v, m in roster.items())
     assert models.provider_of("ARENA_MODEL_GOOGLE_PRO") == "google"
-    monkeypatch.setenv("ARENA_MODEL_OPENAI_SOL", "other-id")
-    assert models.model_id("ARENA_MODEL_OPENAI_SOL") == "other-id"
+    assert all(models.provider_of(v) not in models.DEFERRED_PROVIDERS for v in models.batch_roster())
+    monkeypatch.setenv("ARENA_MODEL_OPENAI_SOL", "other/id")
+    assert models.model_id("ARENA_MODEL_OPENAI_SOL") == "other/id"
 
 
-def test_env_example_has_four_empty_keys_and_filled_model_ids() -> None:
+def test_env_example_has_one_empty_key_and_filled_model_slugs() -> None:
     from dotenv import dotenv_values
 
     values = dotenv_values(__import__("arena.models", fromlist=["x"]).EXAMPLE_FILE)
     keys = {k: v for k, v in values.items() if k.endswith("_API_KEY")}
-    assert set(keys) == {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY"}
-    assert all(not v for v in keys.values())
+    assert set(keys) == {"OPENROUTER_API_KEY"} and not keys["OPENROUTER_API_KEY"]
     assert all(v for k, v in values.items() if k.startswith("ARENA_MODEL_"))
 
 
-def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) -> None:
-    """Each branch records the reported usage in the ledger and returns text only."""
+def test_openrouter_branch_calls_the_sdk_with_a_price_cap_and_records_usage(monkeypatch, tmp_path) -> None:
+    """The branch sends slug, temperature, seed and token limit, caps the price, and records the reported cost."""
     import sys
     import types
 
@@ -386,84 +377,43 @@ def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) 
     ledger = tmp_path / "ledger.json"
     L._save({"estimate_printed": True, "calls": []}, ledger)
     monkeypatch.setattr(L, "LEDGER_PATH", ledger)
-    for provider in ("openai", "deepseek", "anthropic", "google"):
-        monkeypatch.setenv(f"{provider.upper()}_API_KEY", "test")
-    seen: dict[str, dict] = {}
-
-    class _Msg:
-        def __init__(self, text):
-            self.content = text
-
-    class _Choice:
-        def __init__(self, text):
-            self.message = _Msg(text)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    seen: dict = {}
 
     class _Completions:
-        def __init__(self, init):
-            self.init = init
-
         def create(self, **kw):
-            seen[self.init.get("base_url") or "openai"] = kw
-            return types.SimpleNamespace(choices=[_Choice("def policy(o, s): return 1")],
-                                         usage=types.SimpleNamespace(prompt_tokens=10, completion_tokens=20))
+            seen.update(kw)
+            usage = types.SimpleNamespace(prompt_tokens=10, completion_tokens=20, cost=0.0123)
+            message = types.SimpleNamespace(content="def policy(o, s): return 1")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=usage)
 
     class _OpenAI:
         def __init__(self, **init):
-            self.chat = types.SimpleNamespace(completions=_Completions(init))
+            seen["init"] = init
+            self.chat = types.SimpleNamespace(completions=_Completions())
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
-
-    class _Anthropic:
-        def __init__(self, **init):
-            self.messages = types.SimpleNamespace(create=self.create)
-
-        def create(self, **kw):
-            seen["anthropic"] = kw
-            return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text="def policy(o, s): return 2")],
-                                         usage=types.SimpleNamespace(input_tokens=11, output_tokens=22))
-
-    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=_Anthropic))
-
-    class _Models:
-        def generate_content(self, **kw):
-            seen["google"] = kw
-            return types.SimpleNamespace(
-                text="def policy(o, s): return 3",
-                usage_metadata=types.SimpleNamespace(prompt_token_count=12, candidates_token_count=20,
-                                                     thoughts_token_count=30))
-
-    google = types.ModuleType("google")
-    genai = types.ModuleType("google.genai")
-    genai.Client = lambda **init: types.SimpleNamespace(models=_Models())
-    genai.types = types.SimpleNamespace(GenerateContentConfig=lambda **kw: kw)
-    google.genai = genai
-    monkeypatch.setitem(sys.modules, "google", google)
-    monkeypatch.setitem(sys.modules, "google.genai", genai)
-
-    for provider, model in (("openai", _id("ARENA_MODEL_OPENAI_SOL")), ("deepseek", _id("ARENA_MODEL_DEEPSEEK_PRO")),
-                            ("anthropic", _id("ARENA_MODEL_ANTHROPIC_HAIKU")), ("google", _id("ARENA_MODEL_GOOGLE_PRO"))):
-        assert "def policy" in g._call_api(provider, model, "prompt", 0.7, 8192)
-    assert seen["openai"]["max_completion_tokens"] == 8192 and seen["openai"]["temperature"] == 0.7
-    assert seen["https://api.deepseek.com"]["max_tokens"] == 8192
-    assert seen["anthropic"]["max_tokens"] == 8192
-    assert seen["google"]["config"]["max_output_tokens"] == 8192
-    calls = L.load(ledger)["calls"]
-    assert [(c["model"], c["input_tokens"], c["output_tokens"]) for c in calls] == [
-        (_id("ARENA_MODEL_OPENAI_SOL"), 10, 20), (_id("ARENA_MODEL_DEEPSEEK_PRO"), 10, 20), (_id("ARENA_MODEL_ANTHROPIC_HAIKU"), 11, 22),
-        (_id("ARENA_MODEL_GOOGLE_PRO"), 12, 50)]
-    with pytest.raises(ValueError):
-        g._call_api("nope", "m", "p")
+    slug = _id("ARENA_MODEL_OPENAI_SOL")
+    assert "def policy" in g._call_api("openrouter", slug, "prompt", 0.7, 8192, 3)
+    assert seen["init"]["base_url"] == "https://openrouter.ai/api/v1"
+    assert (seen["model"], seen["temperature"], seen["max_tokens"], seen["seed"]) == (slug, 0.7, 8192, 3)
+    cap = seen["extra_body"]["provider"]["max_price"]
+    assert (cap["prompt"], cap["completion"]) == L.PRICES[slug]
+    (call,) = L.load(ledger)["calls"]
+    assert (call["model"], call["input_tokens"], call["output_tokens"], call["cost_usd"]) == (slug, 10, 20, 0.0123)
+    for gone in ("openai", "google", "deepseek"):
+        with pytest.raises(ValueError):
+            g._call_api(gone, "m", "p")
 
 
 def test_frontier_driver_makes_no_call_while_a_key_is_missing(monkeypatch) -> None:
     from arena import run_frontier
 
-    for provider in ("anthropic", "openai", "google", "deepseek"):
-        monkeypatch.delenv(f"{provider.upper()}_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     def _boom(args):
         raise AssertionError(f"driver ran {args}")
 
     monkeypatch.setattr(run_frontier, "_run", _boom)
-    assert len(run_frontier.missing_keys()) == 4
+    assert len(run_frontier.missing_keys()) == 1
     assert run_frontier.main() == 2

@@ -1,12 +1,12 @@
 """Frontier batch: generate and evaluate every roster model, five repeats each.
 
-Reads keys and model ids from ``arena/.env`` (via ``arena.models``) before anything else.
-Preconditions, each checked before the first call: every provider key is set, the worst-case
+Reads the key and the model slugs from ``arena/.env`` (via ``arena.models``) before anything else;
+every call goes through OpenRouter. Preconditions, each checked before the first call: the key is set, the worst-case
 cost estimate has been printed and is under the ceiling, and ``arena.run verify`` passes.
 
 For each model and each seed in ``SEEDS``::
 
-    python -m arena.generate --model api:<provider>/<id> --out arena/submissions/<id>#<seed> \\
+    python -m arena.generate --model api:openrouter/<slug> --out arena/submissions/<slug with / as ->#<seed> \\
         --seed <seed> --temperature 0.7
     python -m arena.run eval --submission arena/submissions/<id>#<seed>/policy.py --name <id>#<seed>
 
@@ -53,19 +53,17 @@ def _record_no_policy(name: str, out: Path) -> None:
 
 
 def missing_keys() -> list[str]:
-    """Messages for every provider of the roster whose key is not set."""
+    """Message naming the key when it is not set."""
     out: list[str] = []
-    for var in models.roster():
-        try:
-            models.key_for(models.provider_of(var))
-        except RuntimeError as exc:
-            if str(exc) not in out:
-                out.append(str(exc))
+    try:
+        models.key_for(models.API_PROVIDER)
+    except RuntimeError as exc:
+        out.append(str(exc))
     return out
 
 
 def main() -> int:
-    roster = models.roster()
+    roster = models.batch_roster()
     missing = missing_keys()
     if missing:
         print("\n".join(missing))
@@ -76,15 +74,14 @@ def main() -> int:
         print("verify failed")
         return 2
 
-    for var, model in roster.items():
-        provider = models.provider_of(var)
+    for model in roster.values():
         for seed in SEEDS:
-            name = f"{model}#{seed}"
+            name = f"{model.replace('/', '-')}#{seed}"
             out = SUBMISSIONS / name
             if (out / "raw_reply.md").exists():
                 print(f"skip {name}: reply already kept")
                 continue
-            code = _run(["arena.generate", "--model", f"api:{provider}/{model}", "--out", str(out),
+            code = _run(["arena.generate", "--model", f"api:{models.API_PROVIDER}/{model}", "--out", str(out),
                          "--seed", str(seed), "--temperature", str(TEMPERATURE)])
             if code == EXIT_NO_POLICY and (out / "raw_reply.md").exists():
                 _record_no_policy(name, out)

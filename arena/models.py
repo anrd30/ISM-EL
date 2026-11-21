@@ -5,8 +5,8 @@ module loads it, over the defaults of the committed ``arena/.env.example``; a va
 already set in the process environment wins over both. Empty values are ignored, so an
 unfilled key line is "not set".
 
-Naming: ``ARENA_MODEL_<PROVIDER>_<TIER>`` holds a model id, and the provider's key is
-``<PROVIDER>_API_KEY``.
+Naming: ``ARENA_MODEL_<PROVIDER>_<TIER>`` holds an OpenRouter model slug (``<vendor>/<model>``);
+the one key is ``OPENROUTER_API_KEY`` (``key_for("openrouter")``).
 """
 
 from __future__ import annotations
@@ -16,7 +16,14 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-__all__ = ["ENV_FILE", "EXAMPLE_FILE", "load_env", "roster", "model_id", "provider_of", "key_for"]
+__all__ = ["ENV_FILE", "EXAMPLE_FILE", "load_env", "roster", "batch_roster", "model_id", "provider_of", "key_for",
+           "API_PROVIDER", "DEFERRED_PROVIDERS"]
+
+#: Every roster model is called through this provider, by its slug.
+API_PROVIDER = "openrouter"
+
+#: Roster providers left out of the current batch.
+DEFERRED_PROVIDERS = ("anthropic",)
 
 ENV_FILE = Path(__file__).resolve().parent / ".env"
 EXAMPLE_FILE = Path(__file__).resolve().parent / ".env.example"
@@ -45,6 +52,11 @@ def roster() -> dict[str, str]:
     if missing:
         raise RuntimeError(f"model id variable not set: {', '.join(missing)}")
     return {n: os.environ[n] for n in names}
+
+
+def batch_roster() -> dict[str, str]:
+    """``roster()`` without the deferred providers: the models of the current batch."""
+    return {v: m for v, m in roster().items() if provider_of(v) not in DEFERRED_PROVIDERS}
 
 
 def model_id(var: str) -> str:

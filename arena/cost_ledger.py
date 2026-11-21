@@ -1,5 +1,9 @@
 """Cost ledger and spending guard for paid API generation calls.
 
+This file is a second, local check. Every call goes through OpenRouter, and the per-key
+spend cap set in OpenRouter's dashboard is the authoritative backstop: if the two ever
+disagree, the OpenRouter-side decline is the one that actually stops a call.
+
 Every call's cost is the provider's own reported token usage times the per-token price of
 that exact model, appended to a JSON file. Before each call ``check_before_call`` refuses
 to proceed if the running total plus the worst-case cost of that call would exceed
@@ -30,31 +34,31 @@ LEDGER_PATH = Path(__file__).resolve().parent / "cost_ledger.json"
 #: Planned batch: models and repeats per model.
 REPEATS_PER_MODEL: int = 5
 
-#: USD per million tokens (input, output) at the standard synchronous rate, read from each
-#: provider's pricing page on PRICES_AS_OF, keyed by roster variable of ``arena/.env``. The
-#: price belongs to the model that variable held then: changing a model id in ``arena/.env``
-#: requires updating its price here. Thinking and reasoning tokens bill as output and arrive
-#: inside the provider's reported output count.
-#:
-#: Sources: platform.claude.com/docs/en/about-claude/pricing (Haiku up to 100k prompt
-#: tokens), developers.openai.com/api/docs/pricing (short context, Standard),
-#: aistudio.google.com/docs/pricing (Standard, prompts up to 200k tokens),
-#: api-docs.deepseek.com/quick_start/pricing (cache-miss input, PEAK rate; off-peak is half).
+#: USD per million tokens (input, output) of the OpenRouter listing of each model, read from
+#: ``https://openrouter.ai/api/v1/models`` on PRICES_AS_OF, keyed by roster variable of
+#: ``arena/.env``. OpenRouter lists several endpoints per model at different prices; this is the
+#: listing's headline price, and each request carries it as a ``max_price`` so no dearer endpoint
+#: is used. The price belongs to the model that variable held then: changing a slug in
+#: ``arena/.env`` requires updating its price here. Reasoning tokens bill as output and arrive
+#: inside the reported completion count. When a response reports its own cost it is recorded
+#: instead of the computed one.
 PRICES_AS_OF = "2026-11-21"
 PRICES_BY_VAR: dict[str, tuple[float, float]] = {
     "ARENA_MODEL_ANTHROPIC_HAIKU": (0.10, 0.50),
     "ARENA_MODEL_ANTHROPIC_SONNET": (2.00, 10.00),
     "ARENA_MODEL_ANTHROPIC_OPUS": (4.00, 20.00),
     "ARENA_MODEL_OPENAI_SOL": (2.00, 10.00),
+    "ARENA_MODEL_OPENAI_LUNA": (0.10, 0.50),
     "ARENA_MODEL_GOOGLE_FLASH": (0.25, 1.50),
     "ARENA_MODEL_GOOGLE_PRO": (2.00, 12.00),
     "ARENA_MODEL_DEEPSEEK_FLASH": (0.30, 1.20),
-    "ARENA_MODEL_DEEPSEEK_PRO": (1.32, 3.96),
+    "ARENA_MODEL_DEEPSEEK_PRO": (0.90, 1.50),
 }
 
-#: Model id -> (input, output) and model id -> provider, resolved from ``arena/.env``.
-PRICES: dict[str, tuple[float, float]] = {models.model_id(v): p for v, p in PRICES_BY_VAR.items()}
-PROVIDERS: dict[str, str] = {models.model_id(v): models.provider_of(v) for v in PRICES_BY_VAR}
+_ROSTER = models.roster()
+#: Model slug -> (input, output) for the roster models set in ``arena/.env``.
+PRICES: dict[str, tuple[float, float]] = {_ROSTER[v]: p for v, p in PRICES_BY_VAR.items() if v in _ROSTER}
+PROVIDERS: dict[str, str] = {_ROSTER[v]: models.provider_of(v) for v in PRICES_BY_VAR if v in _ROSTER}
 
 #: Characters per token assumed when estimating the prompt's length before a call (a low
 #: value, so the estimate is high).
@@ -76,33 +80,18 @@ class CostCeilingExceeded(RuntimeError):
     """The next call could take the running total above ``MAX_TOTAL_USD``."""
 
 
-def deepseek_is_peak(moment: datetime) -> bool:
-    """True in DeepSeek's peak window: 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday.
-
-    Chinese public holidays are off-peak on the provider's side; they are treated as peak
-    here, so the recorded cost is never below the billed one.
-    """
-    moment = moment.astimezone(timezone.utc)
-    return moment.weekday() < 5 and (1 <= moment.hour < 4 or 6 <= moment.hour < 10)
-
-
-def price_per_token_usd(model: str, moment: datetime | None = None) -> tuple[float, float]:
-    """(input, output) USD per token for ``model`` at ``moment`` (now when omitted).
+def price_per_token_usd(model: str) -> tuple[float, float]:
+    """(input, output) USD per token for ``model``.
 
     Raises:
         KeyError: if the model has no entry in ``PRICES``.
     """
     inp, out = PRICES[model]
-    if PROVIDERS.get(model) == "deepseek":
-        # PRICES holds the peak rate; off-peak is half of it.
-        now = moment or datetime.now(timezone.utc)
-        if not deepseek_is_peak(now):
-            inp, out = inp / 2.0, out / 2.0
     return inp / 1e6, out / 1e6
 
 
 def worst_case_call_usd(model: str, input_tokens: int, max_new_tokens: int) -> float:
-    """Cost of one call that reads ``input_tokens`` and writes the full ``max_new_tokens``, at the peak rate."""
+    """Cost of one call that reads ``input_tokens`` and writes the full ``max_new_tokens``, at the listed price."""
     inp, out = PRICES[model]
     return (input_tokens * inp + max_new_tokens * out) / 1e6
 
@@ -168,11 +157,15 @@ def check_before_call(model: str, prompt: str, max_new_tokens: int, path: Path |
 
 
 def record(provider: str, model: str, input_tokens: int, output_tokens: int,
-           path: Path | None = None) -> float:
-    """Append one call from the provider's reported usage and return its cost in USD."""
+           path: Path | None = None, reported_cost_usd: float | None = None) -> float:
+    """Append one call from the provider's reported usage and return its cost in USD.
+
+    ``reported_cost_usd`` (the cost the API itself reports) is recorded when given; otherwise
+    the cost is the reported token counts at the model's price.
+    """
     now = datetime.now(timezone.utc)
-    inp, out = price_per_token_usd(model, now)
-    cost = input_tokens * inp + output_tokens * out
+    inp, out = price_per_token_usd(model)
+    cost = float(reported_cost_usd) if reported_cost_usd is not None else input_tokens * inp + output_tokens * out
     data = load(path)
     data["calls"].append({
         "timestamp": now.isoformat(), "provider": provider, "model": model,
@@ -188,7 +181,7 @@ def _estimate_cli() -> int:
     from arena.config import MAX_NEW_TOKENS
 
     prompt = (Path(__file__).resolve().parent / "prompts" / "task_prompt.md").read_text(encoding="utf-8")
-    est = estimate_batch(prompt, MAX_NEW_TOKENS)
+    est = estimate_batch(prompt, MAX_NEW_TOKENS, list(models.batch_roster().values()))
     print(f"prices as of {PRICES_AS_OF}; prompt tokens assumed {est['prompt_tokens_assumed']} "
           f"(at {CHARS_PER_TOKEN_ESTIMATE} chars/token), output {est['max_new_tokens']} per call, "
           f"{REPEATS_PER_MODEL} repeats per model")

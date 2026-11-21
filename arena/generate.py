@@ -3,7 +3,7 @@
 Two backends, chosen by the ``--model`` prefix:
 
     ollama:<model>            a local Ollama server (no extra dependency)
-    api:<provider>/<model>    an HTTP API (openai, anthropic, google, deepseek), key from the environment
+    api:<provider>/<model>    an HTTP API: openrouter/<vendor>/<model> (every frontier model) or anthropic/<model>
     hf:<org>/<model>          a local transformers model, e.g. on a GPU
 
 Examples::
@@ -103,69 +103,59 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
     return message
 
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
 def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
-              max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS) -> str:
+              max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS, seed: int | None = None) -> str:
     """One chat completion from a provider's API; returns the reply text only.
 
+    ``openrouter`` serves every frontier model by its slug (``<vendor>/<model>``); the
+    ``anthropic`` branch is the direct fallback and is not used by the current batch.
+
     Before the call ``arena.cost_ledger.check_before_call`` refuses to proceed if the
-    spending ceiling could be exceeded; after it the provider's reported token usage is
-    recorded. The output budget counts thinking tokens, so a reasoning model that exhausts
-    it returns no code, which is a recorded result.
+    spending ceiling could be exceeded; after it the provider's reported usage is
+    recorded. The output budget counts reasoning tokens, so a reasoning model that
+    exhausts it returns no code, which is a recorded result.
     """
     from arena import cost_ledger, models
 
-    if provider not in ("openai", "deepseek", "anthropic", "google"):
+    if provider not in ("openrouter", "anthropic"):
         raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
     cost_ledger.check_before_call(model, prompt, max_new_tokens)
 
-    if provider in ("openai", "deepseek"):
+    if provider == "openrouter":
         from openai import OpenAI  # imported lazily; not an arena dependency
 
-        if provider == "openai":
-            client = OpenAI(api_key=models.key_for("openai"))
-            limit = {"max_completion_tokens": max_new_tokens}
-        else:
-            # DeepSeek serves the OpenAI chat-completions protocol.
-            client = OpenAI(api_key=models.key_for("deepseek"), base_url="https://api.deepseek.com")
-            limit = {"max_tokens": max_new_tokens}
+        client = OpenAI(api_key=models.key_for("openrouter"), base_url=OPENROUTER_BASE_URL)
+        price_in, price_out = cost_ledger.PRICES[model]
         reply = client.chat.completions.create(
-            model=model, messages=[{"role": "user", "content": prompt}],
-            temperature=temperature, **limit,
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_new_tokens,
+            **({"seed": seed} if seed is not None else {}),
+            # Refuse any endpoint dearer than the price the ledger assumes (USD per million tokens).
+            extra_body={"provider": {"max_price": {"prompt": price_in, "completion": price_out}}},
         )
         usage = reply.usage
-        cost_ledger.record(provider, model, usage.prompt_tokens, usage.completion_tokens)
+        cost_ledger.record(
+            provider, model, usage.prompt_tokens, usage.completion_tokens,
+            reported_cost_usd=getattr(usage, "cost", None),
+        )
         return reply.choices[0].message.content or ""
 
-    if provider == "anthropic":
-        import anthropic
+    import anthropic
 
-        client = anthropic.Anthropic(api_key=models.key_for("anthropic"))
-        reply = client.messages.create(
-            model=model,
-            max_tokens=max_new_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        cost_ledger.record(provider, model, reply.usage.input_tokens, reply.usage.output_tokens)
-        return "".join(b.text for b in reply.content if b.type == "text")
-
-    if provider == "google":
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=models.key_for("google"))
-        reply = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=temperature, max_output_tokens=max_new_tokens),
-        )
-        usage = reply.usage_metadata
-        # Thinking tokens bill as output and are reported apart from the candidates' count.
-        out_tokens = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
-        cost_ledger.record(provider, model, usage.prompt_token_count or 0, out_tokens)
-        return reply.text or ""
-
-    raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
+    client = anthropic.Anthropic(api_key=models.key_for("anthropic"))
+    reply = client.messages.create(
+        model=model,
+        max_tokens=max_new_tokens,
+        temperature=temperature,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    cost_ledger.record(provider, model, reply.usage.input_tokens, reply.usage.output_tokens)
+    return "".join(b.text for b in reply.content if b.type == "text")
 
 
 def _call_local(model_id: str, prompt: str, temperature: float, seed: int,
@@ -233,7 +223,7 @@ def generate(
         return _call_ollama(rest, prompt, host, temperature, seed, max_new_tokens)
     if kind == "api":
         provider, _, name = rest.partition("/")
-        return _call_api(provider, name, prompt, temperature, max_new_tokens)
+        return _call_api(provider, name, prompt, temperature, max_new_tokens, seed)
     if kind == "hf":
         return _call_local(rest, prompt, temperature, seed, max_new_tokens)
     raise ValueError(f"--model must start with 'ollama:', 'api:' or 'hf:', got {model_spec!r}")

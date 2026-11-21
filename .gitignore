@@ -42,3 +42,6 @@ run_arena.sh
 
 # arena API keys and model ids (arena/.env.example is committed)
 arena/.env
+
+# Iterative-track records (replies, policies, per-round JSON). Large and regenerable.
+arena/iterations/

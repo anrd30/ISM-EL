@@ -394,7 +394,7 @@ def test_openrouter_branch_calls_the_sdk_with_a_price_cap_and_records_usage(monk
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
     slug = _id("ARENA_MODEL_OPENAI_SOL")
-    assert "def policy" in g._call_api("openrouter", slug, "prompt", 0.7, 8192, 3)
+    assert "def policy" in g._call_api("openrouter", slug, [{"role": "user", "content": "prompt"}], 0.7, 8192, 3)
     assert seen["init"]["base_url"] == "https://openrouter.ai/api/v1"
     assert (seen["model"], seen["temperature"], seen["max_tokens"], seen["seed"]) == (slug, 0.7, 8192, 3)
     cap = seen["extra_body"]["provider"]["max_price"]
@@ -445,13 +445,13 @@ def test_pinned_model_is_sent_to_one_provider_without_fallback_and_the_host_is_r
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(
         OpenAI=lambda **init: types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions()))))
     slug = _id("ARENA_MODEL_DEEPSEEK_PRO")
-    g._call_api("openrouter", slug, "prompt", 0.7, 100, 1)
+    g._call_api("openrouter", slug, [{"role": "user", "content": "prompt"}], 0.7, 100, 1)
     prefs = seen["extra_body"]["provider"]
     assert prefs["only"] == ["HostX"] and prefs["allow_fallbacks"] is False
     assert g.LAST_CALL["served_by"] == "HostX" and g.LAST_CALL["pinned_provider"] == "HostX"
     unpinned = _id("ARENA_MODEL_OPENAI_SOL")
     monkeypatch.delenv("ARENA_PROVIDER_OPENAI_SOL", raising=False)
-    g._call_api("openrouter", unpinned, "prompt", 0.7, 100, 1)
+    g._call_api("openrouter", unpinned, [{"role": "user", "content": "prompt"}], 0.7, 100, 1)
     assert "only" not in seen["extra_body"]["provider"]
     assert models.display_label(slug).startswith("DeepSeek V4 Pro (0423")
 

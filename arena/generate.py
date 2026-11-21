@@ -41,7 +41,7 @@ EXIT_NO_POLICY = 1
 EXIT_GUARD = 3
 EXIT_NO_KEY = 4
 
-__all__ = ["extract_policy", "generate", "main", "EXIT_NO_POLICY", "EXIT_GUARD", "EXIT_NO_KEY"]
+__all__ = ["extract_policy", "generate", "chat", "main", "EXIT_NO_POLICY", "EXIT_GUARD", "EXIT_NO_KEY"]
 
 _FENCE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 
@@ -63,9 +63,12 @@ def extract_policy(text: str) -> str:
     raise ValueError("model reply contains no 'def policy'")
 
 
-def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: int,
+def _call_ollama(model: str, messages: list[dict], host: str, temperature: float, seed: int,
                  max_new_tokens: int) -> str:
     """One chat completion from a local Ollama server.
+
+    ``messages`` is the whole conversation, so the iterative track can hand back
+    earlier rounds. The zero-shot track passes a single user turn.
 
     Uses urllib so the arena gains no dependency: a participant with Ollama
     already running needs nothing else installed.
@@ -80,7 +83,7 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
     body = _json.dumps(
         {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "stream": False,
             # Greedy at temperature 0, so a rerun reproduces the submission exactly.
             # Above 0 the seed is what makes a given repeat reproducible.
@@ -100,6 +103,13 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
     message = payload.get("message", {}).get("content")
     if not message:
         raise RuntimeError(f"Ollama returned no message: {payload}")
+    LAST_USAGE.clear()
+    LAST_USAGE.update(
+        {
+            "prompt_tokens": int(payload.get("prompt_eval_count") or 0),
+            "completion_tokens": int(payload.get("eval_count") or 0),
+        }
+    )
     return message
 
 
@@ -108,8 +118,12 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 #: Routing details of the last ``_call_api`` call (the serving host, from the response), written next to the reply.
 LAST_CALL: dict = {}
 
+#: Token usage of the last call, on every backend. The iterative track reports cost per
+#: round in tokens, which is the currency a search baseline does not spend at all.
+LAST_USAGE: dict = {}
 
-def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
+
+def _call_api(provider: str, model: str, messages: list[dict], temperature: float = 0.0,
               max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS, seed: int | None = None) -> str:
     """One chat completion from a provider's API; returns the reply text only.
 
@@ -125,7 +139,11 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
 
     if provider not in ("openrouter", "anthropic"):
         raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
-    cost_ledger.check_before_call(model, prompt, max_new_tokens)
+    # The ledger estimates from character count, so the whole conversation is what
+    # gets charged on an iterative round, not just the newest turn.
+    cost_ledger.check_before_call(
+        model, "\n".join(str(m.get("content", "")) for m in messages), max_new_tokens
+    )
 
     if provider == "openrouter":
         from openai import OpenAI  # imported lazily; not an arena dependency
@@ -139,7 +157,7 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
             provider_prefs.update({"only": [pin], "allow_fallbacks": False})
         reply = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=temperature,
             max_tokens=max_new_tokens,
             **({"seed": seed} if seed is not None else {}),
@@ -155,6 +173,10 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
             provider, model, usage.prompt_tokens, usage.completion_tokens,
             reported_cost_usd=getattr(usage, "cost", None),
         )
+        LAST_USAGE.clear()
+        LAST_USAGE.update(
+            {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens}
+        )
         return reply.choices[0].message.content or ""
 
     import anthropic
@@ -164,17 +186,34 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
         model=model,
         max_tokens=max_new_tokens,
         temperature=temperature,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
     )
     cost_ledger.record(provider, model, reply.usage.input_tokens, reply.usage.output_tokens)
+    LAST_USAGE.clear()
+    LAST_USAGE.update(
+        {
+            "prompt_tokens": reply.usage.input_tokens,
+            "completion_tokens": reply.usage.output_tokens,
+        }
+    )
     return "".join(b.text for b in reply.content if b.type == "text")
 
 
-def _call_local(model_id: str, prompt: str, temperature: float, seed: int,
+#: Loaded ``hf:`` models, keyed by model id. The iterative track calls the same model
+#: tens of times in one process; without this each round reloads tens of GiB of weights
+#: from disk and the loop spends most of its wall-clock in ``from_pretrained``.
+_LOCAL_CACHE: dict = {}
+
+
+def _call_local(model_id: str, messages: list[dict], temperature: float, seed: int,
                 max_new_tokens: int) -> str:
-    """Greedy decode from a local transformers model."""
+    """Decode from a local transformers model, reusing the loaded weights."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if model_id in _LOCAL_CACHE:
+        tok, model = _LOCAL_CACHE[model_id]
+        return _generate_local(tok, model, messages, temperature, seed, max_new_tokens)
 
     tok = AutoTokenizer.from_pretrained(model_id)
 
@@ -201,9 +240,16 @@ def _call_local(model_id: str, prompt: str, temperature: float, seed: int,
     model = AutoModelForCausalLM.from_pretrained(
         model_id, torch_dtype=torch.bfloat16, device_map=device_map
     )
-    text = tok.apply_chat_template(
-        [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
-    )
+    _LOCAL_CACHE[model_id] = (tok, model)
+    return _generate_local(tok, model, messages, temperature, seed, max_new_tokens)
+
+
+def _generate_local(tok, model, messages: list[dict], temperature: float, seed: int,
+                    max_new_tokens: int) -> str:
+    """One decode from an already-loaded local model."""
+    import torch
+
+    text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tok(text, return_tensors="pt").to(model.device)
     torch.manual_seed(seed)
     out = model.generate(
@@ -212,7 +258,12 @@ def _call_local(model_id: str, prompt: str, temperature: float, seed: int,
         do_sample=temperature > 0.0,
         **({"temperature": temperature, "top_p": 0.95} if temperature > 0.0 else {}),
     )
-    return tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    n_prompt = inputs["input_ids"].shape[1]
+    LAST_USAGE.clear()
+    LAST_USAGE.update(
+        {"prompt_tokens": int(n_prompt), "completion_tokens": int(out.shape[1] - n_prompt)}
+    )
+    return tok.decode(out[0][n_prompt:], skip_special_tokens=True)
 
 
 def generate(
@@ -230,14 +281,40 @@ def generate(
     individually reproducible while letting the set of repeats measure how much a
     model's output varies.
     """
+    return chat(
+        model_spec,
+        [{"role": "user", "content": prompt}],
+        host=host,
+        temperature=temperature,
+        seed=seed,
+        max_new_tokens=max_new_tokens,
+    )
+
+
+def chat(
+    model_spec: str,
+    messages: list[dict],
+    host: str = "http://localhost:11434",
+    temperature: float = 0.0,
+    seed: int = 0,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+) -> str:
+    """Dispatch a whole conversation to the right backend and return the reply text.
+
+    ``generate`` is the single-turn case. The iterative track passes every earlier
+    round back, so the model can see what it already tried and what that scored,
+    rather than reacting to a number with no memory of how it got there.
+
+    Token counts for the call land in ``LAST_USAGE``.
+    """
     kind, _, rest = model_spec.partition(":")
     if kind == "ollama":
-        return _call_ollama(rest, prompt, host, temperature, seed, max_new_tokens)
+        return _call_ollama(rest, messages, host, temperature, seed, max_new_tokens)
     if kind == "api":
         provider, _, name = rest.partition("/")
-        return _call_api(provider, name, prompt, temperature, max_new_tokens, seed)
+        return _call_api(provider, name, messages, temperature, max_new_tokens, seed)
     if kind == "hf":
-        return _call_local(rest, prompt, temperature, seed, max_new_tokens)
+        return _call_local(rest, messages, temperature, seed, max_new_tokens)
     raise ValueError(f"--model must start with 'ollama:', 'api:' or 'hf:', got {model_spec!r}")
 
 

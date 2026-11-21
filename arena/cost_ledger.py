@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+from arena import models
+
 #: Hard spending ceiling in USD across the whole task. One-line change to adjust.
 MAX_TOTAL_USD: float = 15.0
 
@@ -29,36 +31,30 @@ LEDGER_PATH = Path(__file__).resolve().parent / "cost_ledger.json"
 REPEATS_PER_MODEL: int = 5
 
 #: USD per million tokens (input, output) at the standard synchronous rate, read from each
-#: provider's pricing page on PRICES_AS_OF. Thinking and reasoning tokens bill as output and
-#: arrive inside the provider's reported output count.
+#: provider's pricing page on PRICES_AS_OF, keyed by roster variable of ``arena/.env``. The
+#: price belongs to the model that variable held then: changing a model id in ``arena/.env``
+#: requires updating its price here. Thinking and reasoning tokens bill as output and arrive
+#: inside the provider's reported output count.
 #:
-#: Sources: platform.claude.com/docs/en/about-claude/pricing (haiku-5-5 up to 100k prompt
+#: Sources: platform.claude.com/docs/en/about-claude/pricing (Haiku up to 100k prompt
 #: tokens), developers.openai.com/api/docs/pricing (short context, Standard),
 #: aistudio.google.com/docs/pricing (Standard, prompts up to 200k tokens),
 #: api-docs.deepseek.com/quick_start/pricing (cache-miss input, PEAK rate; off-peak is half).
 PRICES_AS_OF = "2026-11-21"
-PRICES: dict[str, tuple[float, float]] = {
-    "claude-haiku-5-5": (0.10, 0.50),
-    "claude-sonnet-5-5": (2.00, 10.00),
-    "claude-opus-5-5": (4.00, 20.00),
-    "gpt-6.2-sol": (2.00, 10.00),
-    "gemini-3.1-flash-lite": (0.25, 1.50),
-    "gemini-3.1-pro-preview": (2.00, 12.00),
-    "deepseek-flash": (0.30, 1.20),
-    "deepseek-v4-pro": (1.32, 3.96),
+PRICES_BY_VAR: dict[str, tuple[float, float]] = {
+    "ARENA_MODEL_ANTHROPIC_HAIKU": (0.10, 0.50),
+    "ARENA_MODEL_ANTHROPIC_SONNET": (2.00, 10.00),
+    "ARENA_MODEL_ANTHROPIC_OPUS": (4.00, 20.00),
+    "ARENA_MODEL_OPENAI_SOL": (2.00, 10.00),
+    "ARENA_MODEL_GOOGLE_FLASH": (0.25, 1.50),
+    "ARENA_MODEL_GOOGLE_PRO": (2.00, 12.00),
+    "ARENA_MODEL_DEEPSEEK_FLASH": (0.30, 1.20),
+    "ARENA_MODEL_DEEPSEEK_PRO": (1.32, 3.96),
 }
 
-#: Provider of each priced model, for the roster.
-PROVIDERS: dict[str, str] = {
-    "claude-haiku-5-5": "anthropic",
-    "claude-sonnet-5-5": "anthropic",
-    "claude-opus-5-5": "anthropic",
-    "gpt-6.2-sol": "openai",
-    "gemini-3.1-flash-lite": "google",
-    "gemini-3.1-pro-preview": "google",
-    "deepseek-flash": "deepseek",
-    "deepseek-v4-pro": "deepseek",
-}
+#: Model id -> (input, output) and model id -> provider, resolved from ``arena/.env``.
+PRICES: dict[str, tuple[float, float]] = {models.model_id(v): p for v, p in PRICES_BY_VAR.items()}
+PROVIDERS: dict[str, str] = {models.model_id(v): models.provider_of(v) for v in PRICES_BY_VAR}
 
 #: Characters per token assumed when estimating the prompt's length before a call (a low
 #: value, so the estimate is high).

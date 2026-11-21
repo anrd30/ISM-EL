@@ -39,3 +39,6 @@ arena_*.log
 run_arena_gpu.sh
 run_hf_gpu.sh
 run_arena.sh
+
+# arena API keys and model ids (arena/.env.example is committed)
+arena/.env

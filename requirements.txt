@@ -5,3 +5,4 @@
 -r data_pipeline/requirements.txt
 -r hazard/requirements.txt
 torch>=2.2   # agent-lane: PPO networks (agent/networks.py, agent/ppo.py, agent/rollout.py)
+python-dotenv>=1.0   # arena/models.py reads arena/.env

@@ -35,7 +35,13 @@ PROMPT = Path(__file__).resolve().parent / "prompts" / "task_prompt.md"
 #: property of this constant and not of the model.
 DEFAULT_MAX_NEW_TOKENS = 8192
 
-__all__ = ["extract_policy", "generate", "main"]
+#: Exit codes of ``main``: 1 is a reply without a policy (the reply is kept); the others
+#: mean no reply was obtained.
+EXIT_NO_POLICY = 1
+EXIT_GUARD = 3
+EXIT_NO_KEY = 4
+
+__all__ = ["extract_policy", "generate", "main", "EXIT_NO_POLICY", "EXIT_GUARD", "EXIT_NO_KEY"]
 
 _FENCE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 
@@ -97,18 +103,6 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
     return message
 
 
-def _api_key(*names: str) -> str:
-    """The first set environment variable among ``names``.
-
-    Raises:
-        RuntimeError: naming the variables, if none is set.
-    """
-    for name in names:
-        if os.environ.get(name):
-            return os.environ[name]
-    raise RuntimeError(f"environment variable {' or '.join(names)} is not set")
-
-
 def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
               max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS) -> str:
     """One chat completion from a provider's API; returns the reply text only.
@@ -118,7 +112,7 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
     recorded. The output budget counts thinking tokens, so a reasoning model that exhausts
     it returns no code, which is a recorded result.
     """
-    from arena import cost_ledger
+    from arena import cost_ledger, models
 
     if provider not in ("openai", "deepseek", "anthropic", "google"):
         raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
@@ -128,11 +122,11 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
         from openai import OpenAI  # imported lazily; not an arena dependency
 
         if provider == "openai":
-            client = OpenAI(api_key=_api_key("OPENAI_API_KEY"))
+            client = OpenAI(api_key=models.key_for("openai"))
             limit = {"max_completion_tokens": max_new_tokens}
         else:
             # DeepSeek serves the OpenAI chat-completions protocol.
-            client = OpenAI(api_key=_api_key("DEEPSEEK_API_KEY"), base_url="https://api.deepseek.com")
+            client = OpenAI(api_key=models.key_for("deepseek"), base_url="https://api.deepseek.com")
             limit = {"max_tokens": max_new_tokens}
         reply = client.chat.completions.create(
             model=model, messages=[{"role": "user", "content": prompt}],
@@ -145,7 +139,7 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
     if provider == "anthropic":
         import anthropic
 
-        client = anthropic.Anthropic(api_key=_api_key("ANTHROPIC_API_KEY"))
+        client = anthropic.Anthropic(api_key=models.key_for("anthropic"))
         reply = client.messages.create(
             model=model,
             max_tokens=max_new_tokens,
@@ -159,7 +153,7 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=_api_key("GOOGLE_API_KEY", "GEMINI_API_KEY"))
+        client = genai.Client(api_key=models.key_for("google"))
         reply = client.models.generate_content(
             model=model,
             contents=prompt,
@@ -267,11 +261,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     prompt = args.prompt.read_text(encoding="utf-8")
-    reply = generate(
-        args.model, prompt, host=args.host,
-        temperature=args.temperature, seed=args.seed,
-        max_new_tokens=args.max_new_tokens,
-    )
+    from arena.cost_ledger import CostCeilingExceeded
+
+    try:
+        reply = generate(
+            args.model, prompt, host=args.host,
+            temperature=args.temperature, seed=args.seed,
+            max_new_tokens=args.max_new_tokens,
+        )
+    except CostCeilingExceeded as exc:
+        print(f"spending guard refused the call: {exc}")
+        return EXIT_GUARD
+    except RuntimeError as exc:
+        if "is not set" in str(exc):
+            print(str(exc))
+            return EXIT_NO_KEY
+        raise
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "raw_reply.md").write_text(reply, encoding="utf-8")

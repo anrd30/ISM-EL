@@ -238,6 +238,12 @@ def test_constant_policy_is_flagged_degenerate(tmp_path: Path) -> None:
 
 
 
+def _id(var: str) -> str:
+    from arena.models import model_id
+
+    return model_id(var)
+
+
 # --------------------------------------------------------------------------
 # Environments (spec 1.5.0)
 # --------------------------------------------------------------------------
@@ -300,14 +306,14 @@ def test_cost_guard_requires_an_estimate_and_respects_the_ceiling(tmp_path) -> N
 
     ledger = tmp_path / "ledger.json"
     with pytest.raises(L.CostCeilingExceeded, match="estimate"):
-        L.check_before_call("claude-haiku-5-5", "p" * 300, 8192, ledger)
+        L.check_before_call(_id("ARENA_MODEL_ANTHROPIC_HAIKU"), "p" * 300, 8192, ledger)
     data = L.load(ledger)
     data["estimate_printed"] = True
     L._save(data, ledger)
-    L.check_before_call("claude-haiku-5-5", "p" * 300, 8192, ledger)
-    L.record("openai", "gpt-6.2-sol", 1_000_000, 1_500_000, ledger)  # 17 USD
+    L.check_before_call(_id("ARENA_MODEL_ANTHROPIC_HAIKU"), "p" * 300, 8192, ledger)
+    L.record("openai", _id("ARENA_MODEL_OPENAI_SOL"), 1_000_000, 1_500_000, ledger)  # 17 USD
     with pytest.raises(L.CostCeilingExceeded, match="exceed"):
-        L.check_before_call("claude-haiku-5-5", "p" * 300, 8192, ledger)
+        L.check_before_call(_id("ARENA_MODEL_ANTHROPIC_HAIKU"), "p" * 300, 8192, ledger)
     with pytest.raises(L.CostCeilingExceeded, match="no price"):
         L.check_before_call("unknown-model", "p", 10, ledger)
 
@@ -316,11 +322,11 @@ def test_ledger_records_reported_usage_at_the_model_price(tmp_path) -> None:
     from arena import cost_ledger as L
 
     ledger = tmp_path / "ledger.json"
-    cost = L.record("anthropic", "claude-opus-5-5", 1000, 2000, ledger)
+    cost = L.record("anthropic", _id("ARENA_MODEL_ANTHROPIC_OPUS"), 1000, 2000, ledger)
     assert cost == pytest.approx((1000 * 4.0 + 2000 * 20.0) / 1e6)
     data = L.load(ledger)
     assert L.total_usd(data) == pytest.approx(cost)
-    assert L.by_model(data)["claude-opus-5-5"]["calls"] == 1
+    assert L.by_model(data)[_id("ARENA_MODEL_ANTHROPIC_OPUS")]["calls"] == 1
 
 
 def test_deepseek_off_peak_is_half_the_peak_rate() -> None:
@@ -330,9 +336,9 @@ def test_deepseek_off_peak_is_half_the_peak_rate() -> None:
     peak = datetime(2026, 11, 23, 2, 0, tzinfo=timezone.utc)  # Monday 02:00 UTC
     off = datetime(2026, 11, 22, 2, 0, tzinfo=timezone.utc)  # Sunday
     assert L.deepseek_is_peak(peak) and not L.deepseek_is_peak(off)
-    assert L.price_per_token_usd("deepseek-v4-pro", off)[1] == pytest.approx(
-        L.price_per_token_usd("deepseek-v4-pro", peak)[1] / 2)
-    assert L.price_per_token_usd("claude-opus-5-5", off) == L.price_per_token_usd("claude-opus-5-5", peak)
+    assert L.price_per_token_usd(_id("ARENA_MODEL_DEEPSEEK_PRO"), off)[1] == pytest.approx(
+        L.price_per_token_usd(_id("ARENA_MODEL_DEEPSEEK_PRO"), peak)[1] / 2)
+    assert L.price_per_token_usd(_id("ARENA_MODEL_ANTHROPIC_OPUS"), off) == L.price_per_token_usd(_id("ARENA_MODEL_ANTHROPIC_OPUS"), peak)
 
 
 def test_worst_case_estimate_of_the_planned_batch_is_under_the_ceiling() -> None:
@@ -344,15 +350,29 @@ def test_worst_case_estimate_of_the_planned_batch_is_under_the_ceiling() -> None
     assert len(est["models"]) == 8 and est["total_usd"] < L.MAX_TOTAL_USD
 
 
-def test_missing_api_key_is_named(monkeypatch) -> None:
-    from arena import generate as g
+def test_missing_api_key_is_named_and_model_ids_come_from_the_env_file(monkeypatch) -> None:
+    from arena import models
 
-    for name in ("GOOGLE_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
-    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY or GEMINI_API_KEY"):
-        g._api_key("GOOGLE_API_KEY", "GEMINI_API_KEY")
-    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
-        g._api_key("DEEPSEEK_API_KEY")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
+        models.key_for("google")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    assert models.key_for("deepseek") == "k"
+    roster = models.roster()
+    assert len(roster) == 8 and all(v.startswith("ARENA_MODEL_") for v in roster)
+    assert models.provider_of("ARENA_MODEL_GOOGLE_PRO") == "google"
+    monkeypatch.setenv("ARENA_MODEL_OPENAI_SOL", "other-id")
+    assert models.model_id("ARENA_MODEL_OPENAI_SOL") == "other-id"
+
+
+def test_env_example_has_four_empty_keys_and_filled_model_ids() -> None:
+    from dotenv import dotenv_values
+
+    values = dotenv_values(__import__("arena.models", fromlist=["x"]).EXAMPLE_FILE)
+    keys = {k: v for k, v in values.items() if k.endswith("_API_KEY")}
+    assert set(keys) == {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY"}
+    assert all(not v for v in keys.values())
+    assert all(v for k, v in values.items() if k.startswith("ARENA_MODEL_"))
 
 
 def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) -> None:
@@ -366,8 +386,8 @@ def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) 
     ledger = tmp_path / "ledger.json"
     L._save({"estimate_printed": True, "calls": []}, ledger)
     monkeypatch.setattr(L, "LEDGER_PATH", ledger)
-    for name in ("OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"):
-        monkeypatch.setenv(name, "test")
+    for provider in ("openai", "deepseek", "anthropic", "google"):
+        monkeypatch.setenv(f"{provider.upper()}_API_KEY", "test")
     seen: dict[str, dict] = {}
 
     class _Msg:
@@ -420,8 +440,8 @@ def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) 
     monkeypatch.setitem(sys.modules, "google", google)
     monkeypatch.setitem(sys.modules, "google.genai", genai)
 
-    for provider, model in (("openai", "gpt-6.2-sol"), ("deepseek", "deepseek-v4-pro"),
-                            ("anthropic", "claude-haiku-5-5"), ("google", "gemini-3.1-pro-preview")):
+    for provider, model in (("openai", _id("ARENA_MODEL_OPENAI_SOL")), ("deepseek", _id("ARENA_MODEL_DEEPSEEK_PRO")),
+                            ("anthropic", _id("ARENA_MODEL_ANTHROPIC_HAIKU")), ("google", _id("ARENA_MODEL_GOOGLE_PRO"))):
         assert "def policy" in g._call_api(provider, model, "prompt", 0.7, 8192)
     assert seen["openai"]["max_completion_tokens"] == 8192 and seen["openai"]["temperature"] == 0.7
     assert seen["https://api.deepseek.com"]["max_tokens"] == 8192
@@ -429,7 +449,21 @@ def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) 
     assert seen["google"]["config"]["max_output_tokens"] == 8192
     calls = L.load(ledger)["calls"]
     assert [(c["model"], c["input_tokens"], c["output_tokens"]) for c in calls] == [
-        ("gpt-6.2-sol", 10, 20), ("deepseek-v4-pro", 10, 20), ("claude-haiku-5-5", 11, 22),
-        ("gemini-3.1-pro-preview", 12, 50)]
+        (_id("ARENA_MODEL_OPENAI_SOL"), 10, 20), (_id("ARENA_MODEL_DEEPSEEK_PRO"), 10, 20), (_id("ARENA_MODEL_ANTHROPIC_HAIKU"), 11, 22),
+        (_id("ARENA_MODEL_GOOGLE_PRO"), 12, 50)]
     with pytest.raises(ValueError):
         g._call_api("nope", "m", "p")
+
+
+def test_frontier_driver_makes_no_call_while_a_key_is_missing(monkeypatch) -> None:
+    from arena import run_frontier
+
+    for provider in ("anthropic", "openai", "google", "deepseek"):
+        monkeypatch.delenv(f"{provider.upper()}_API_KEY", raising=False)
+
+    def _boom(args):
+        raise AssertionError(f"driver ran {args}")
+
+    monkeypatch.setattr(run_frontier, "_run", _boom)
+    assert len(run_frontier.missing_keys()) == 4
+    assert run_frontier.main() == 2

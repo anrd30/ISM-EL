@@ -150,7 +150,7 @@ Optional. Anyone can write `policy.py` by hand or paste one from a chat window.
 # local Ollama, no extra dependency
 python -m arena.generate --model ollama:qwen2.5-coder:7b --out arena/submissions/qwen-7b
 
-# a hosted API (needs OPENAI_API_KEY / ANTHROPIC_API_KEY and that provider's SDK)
+# a hosted API (keys and the frontier model ids live in arena/.env; copy arena/.env.example)
 python -m arena.generate --model api:openai/gpt-4o --out arena/submissions/gpt-4o
 
 # a local transformers checkpoint on a GPU

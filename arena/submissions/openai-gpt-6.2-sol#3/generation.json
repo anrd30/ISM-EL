@@ -1,0 +1,7 @@
+{
+  "api": "openrouter",
+  "requested_slug": "openai/gpt-6.2-sol",
+  "pinned_provider": null,
+  "served_by": "OpenAI",
+  "served_model": "openai/gpt-6.2-sol"
+}

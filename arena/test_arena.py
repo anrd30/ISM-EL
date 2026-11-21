@@ -417,3 +417,39 @@ def test_frontier_driver_makes_no_call_while_a_key_is_missing(monkeypatch) -> No
     monkeypatch.setattr(run_frontier, "_run", _boom)
     assert len(run_frontier.missing_keys()) == 1
     assert run_frontier.main() == 2
+
+
+def test_pinned_model_is_sent_to_one_provider_without_fallback_and_the_host_is_recorded(monkeypatch, tmp_path) -> None:
+    import sys
+    import types
+
+    from arena import cost_ledger as L
+    from arena import generate as g
+    from arena import models
+
+    ledger = tmp_path / "ledger.json"
+    L._save({"estimate_printed": True, "calls": []}, ledger)
+    monkeypatch.setattr(L, "LEDGER_PATH", ledger)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("ARENA_PROVIDER_DEEPSEEK_PRO", "HostX")
+    seen: dict = {}
+
+    class _Completions:
+        def create(self, **kw):
+            seen.update(kw)
+            usage = types.SimpleNamespace(prompt_tokens=1, completion_tokens=2)
+            message = types.SimpleNamespace(content="def policy(o, s): return 1")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=usage,
+                                         provider="HostX", model="vendor/served")
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(
+        OpenAI=lambda **init: types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions()))))
+    slug = _id("ARENA_MODEL_DEEPSEEK_PRO")
+    g._call_api("openrouter", slug, "prompt", 0.7, 100, 1)
+    prefs = seen["extra_body"]["provider"]
+    assert prefs["only"] == ["HostX"] and prefs["allow_fallbacks"] is False
+    assert g.LAST_CALL["served_by"] == "HostX" and g.LAST_CALL["pinned_provider"] == "HostX"
+    unpinned = _id("ARENA_MODEL_OPENAI_SOL")
+    g._call_api("openrouter", unpinned, "prompt", 0.7, 100, 1)
+    assert "only" not in seen["extra_body"]["provider"]
+    assert models.display_label(slug).startswith("DeepSeek V4 Pro (0423")

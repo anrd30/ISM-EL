@@ -52,6 +52,16 @@ def _record_no_policy(name: str, out: Path) -> None:
     (RESULTS / f"{name}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
+def _attach_generation(name: str, out: Path) -> None:
+    """Copy the routing details of the generation (serving host) into the result JSON."""
+    info = out / "generation.json"
+    path = RESULTS / f"{name}.json"
+    if info.exists() and path.exists():
+        result = json.loads(path.read_text(encoding="utf-8"))
+        result["generation"] = json.loads(info.read_text(encoding="utf-8"))
+        path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+
 def missing_keys() -> list[str]:
     """Message naming the key when it is not set."""
     out: list[str] = []
@@ -85,11 +95,13 @@ def main() -> int:
                          "--seed", str(seed), "--temperature", str(TEMPERATURE)])
             if code == EXIT_NO_POLICY and (out / "raw_reply.md").exists():
                 _record_no_policy(name, out)
+                _attach_generation(name, out)
                 continue
             if code != 0:
                 print(f"stop: generation of {name} exited {code}")
                 return code
             _run(["arena.run", "eval", "--submission", str(out / "policy.py"), "--name", name])
+            _attach_generation(name, out)
     _run(["arena.cost_ledger", "report"])
     return 0
 

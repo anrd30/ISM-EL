@@ -17,7 +17,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 __all__ = ["ENV_FILE", "EXAMPLE_FILE", "load_env", "roster", "batch_roster", "model_id", "provider_of", "key_for",
-           "API_PROVIDER", "DEFERRED_PROVIDERS"]
+           "API_PROVIDER", "DEFERRED_PROVIDERS", "pinned_provider", "display_label"]
 
 #: Every roster model is called through this provider, by its slug.
 API_PROVIDER = "openrouter"
@@ -80,3 +80,22 @@ def key_for(provider: str) -> str:
     if not value:
         raise RuntimeError(f"environment variable {name} is not set; fill it in {ENV_FILE}")
     return value
+
+
+def _var_of(slug: str) -> str | None:
+    return next((v for v, m in roster().items() if m == slug), None)
+
+
+def pinned_provider(slug: str) -> str | None:
+    """OpenRouter provider the model ``slug`` is pinned to (``ARENA_PROVIDER_<TIER>``), or None."""
+    var = _var_of(slug)
+    if var is None:
+        return None
+    return os.environ.get("ARENA_PROVIDER_" + var[len(_MODEL_PREFIX):]) or None
+
+
+def display_label(slug: str) -> str:
+    """Report name of the model ``slug`` (``ARENA_LABEL_<TIER>``), else the slug."""
+    var = _var_of(slug)
+    label = os.environ.get("ARENA_LABEL_" + var[len(_MODEL_PREFIX):]) if var else None
+    return label or slug

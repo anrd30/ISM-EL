@@ -136,6 +136,18 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _display_names() -> dict[str, str]:
+    """Result-name prefix -> report label for the frontier roster (``ARENA_LABEL_*``), when one is set."""
+    from arena import models
+
+    out = {}
+    for slug in models.roster().values():
+        label = models.display_label(slug)
+        if label != slug:
+            out[slug.replace("/", "-")] = label
+    return out
+
+
 def _block(result: dict, env: str | None) -> dict | None:
     """The evaluation block of ``result`` for environment ``env`` (the first block when ``env`` is None)."""
     if env is None:
@@ -161,6 +173,7 @@ def _report_by_model(env: str | None = None) -> int:
     import math
     from collections import defaultdict
 
+    labels = _display_names()
     runs: dict[str, list[dict]] = defaultdict(list)
     for path in sorted(RESULTS.glob("*.json")):
         r = json.loads(path.read_text(encoding="utf-8"))
@@ -177,7 +190,7 @@ def _report_by_model(env: str | None = None) -> int:
         breaches = sum(1 for v in viols if v > 0.05)
         rows.append(
             {
-                "model": model,
+                "model": labels.get(model, model),
                 "runs": len(results),
                 "valid": len(gs),
                 "G_mean": round(sum(gs) / len(gs), 2) if gs else None,

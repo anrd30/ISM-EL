@@ -105,6 +105,9 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+#: Routing details of the last ``_call_api`` call (the serving host, from the response), written next to the reply.
+LAST_CALL: dict = {}
+
 
 def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
               max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS, seed: int | None = None) -> str:
@@ -129,6 +132,11 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
 
         client = OpenAI(api_key=models.key_for("openrouter"), base_url=OPENROUTER_BASE_URL)
         price_in, price_out = cost_ledger.PRICES[model]
+        provider_prefs: dict = {"max_price": {"prompt": price_in, "completion": price_out}}
+        pin = models.pinned_provider(model)
+        if pin:
+            # One host, no fallback: every repeat of the model lands on the same endpoint.
+            provider_prefs.update({"only": [pin], "allow_fallbacks": False})
         reply = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -136,8 +144,12 @@ def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
             max_tokens=max_new_tokens,
             **({"seed": seed} if seed is not None else {}),
             # Refuse any endpoint dearer than the price the ledger assumes (USD per million tokens).
-            extra_body={"provider": {"max_price": {"prompt": price_in, "completion": price_out}}},
+            extra_body={"provider": provider_prefs},
         )
+        LAST_CALL.clear()
+        LAST_CALL.update({"api": "openrouter", "requested_slug": model, "pinned_provider": pin,
+                          "served_by": getattr(reply, "provider", None),
+                          "served_model": getattr(reply, "model", None)})
         usage = reply.usage
         cost_ledger.record(
             provider, model, usage.prompt_tokens, usage.completion_tokens,
@@ -270,6 +282,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "raw_reply.md").write_text(reply, encoding="utf-8")
+    if LAST_CALL:
+        import json as _json
+
+        (args.out / "generation.json").write_text(_json.dumps(LAST_CALL, indent=2), encoding="utf-8")
     try:
         source = extract_policy(reply)
     except ValueError as exc:

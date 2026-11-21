@@ -235,3 +235,201 @@ def test_constant_policy_is_flagged_degenerate(tmp_path: Path) -> None:
     assert result["degenerate"] is True
     assert result["distinct_actions"] == 1
     assert result["modal_action_share"] == pytest.approx(1.0)
+
+
+
+# --------------------------------------------------------------------------
+# Environments (spec 1.5.0)
+# --------------------------------------------------------------------------
+
+
+def test_default_arena_config_is_unchanged_by_variants() -> None:
+    from arena.config import SPEC_VERSION, arena_config
+    from contracts.contracts import RewardConfig
+
+    base = arena_config()
+    assert base.label == f"arena-{SPEC_VERSION}"
+    assert base.reward == RewardConfig()
+    assert (base.latency_unloaded_ms, base.latency_target_ms) == (2.0, 15.0)
+    assert arena_config(None).label == base.label
+
+
+def test_every_environment_resolves_and_variants_differ_from_the_default() -> None:
+    from arena.config import ENV_VARIANTS, EVAL_PROFILES, PROFILES, arena_config, reference_stem, split_env
+
+    assert EVAL_PROFILES[0] == "profile_diurnal_long_holdout.csv"
+    assert len(set(EVAL_PROFILES)) == len(EVAL_PROFILES)
+    stems = set()
+    for env in EVAL_PROFILES:
+        base, variant = split_env(env)
+        assert (PROFILES / base).is_file()
+        stems.add(reference_stem(env))
+        if variant:
+            cfg, default = arena_config(variant), arena_config()
+            assert (cfg.reward, cfg.latency_unloaded_ms, cfg.latency_target_ms) != (
+                default.reward, default.latency_unloaded_ms, default.latency_target_ms)
+    assert len(stems) == len(EVAL_PROFILES)
+    assert set(ENV_VARIANTS) == {split_env(e)[1] for e in EVAL_PROFILES if "@" in e}
+
+
+def test_unknown_variant_is_rejected() -> None:
+    from arena.config import split_env
+
+    with pytest.raises(ValueError):
+        split_env("profile_diurnal_long_holdout.csv@nope")
+
+
+def test_reference_values_exist_for_every_environment_and_are_valid() -> None:
+    import pandas as pd
+    from arena.config import EVAL_PROFILES, REFERENCE, reference_stem
+
+    for env in EVAL_PROFILES:
+        path = REFERENCE / f"{reference_stem(env)}.csv"
+        assert path.is_file(), path
+        ref = pd.read_csv(path)
+        assert len(ref) == 20 and (ref["j_star"] >= ref["j_rule"] - 1e-9).all()
+
+
+# --------------------------------------------------------------------------
+# Cost ledger and API providers (no network)
+# --------------------------------------------------------------------------
+
+
+def test_cost_guard_requires_an_estimate_and_respects_the_ceiling(tmp_path) -> None:
+    from arena import cost_ledger as L
+
+    ledger = tmp_path / "ledger.json"
+    with pytest.raises(L.CostCeilingExceeded, match="estimate"):
+        L.check_before_call("claude-haiku-5-5", "p" * 300, 8192, ledger)
+    data = L.load(ledger)
+    data["estimate_printed"] = True
+    L._save(data, ledger)
+    L.check_before_call("claude-haiku-5-5", "p" * 300, 8192, ledger)
+    L.record("openai", "gpt-6.2-sol", 1_000_000, 1_500_000, ledger)  # 17 USD
+    with pytest.raises(L.CostCeilingExceeded, match="exceed"):
+        L.check_before_call("claude-haiku-5-5", "p" * 300, 8192, ledger)
+    with pytest.raises(L.CostCeilingExceeded, match="no price"):
+        L.check_before_call("unknown-model", "p", 10, ledger)
+
+
+def test_ledger_records_reported_usage_at_the_model_price(tmp_path) -> None:
+    from arena import cost_ledger as L
+
+    ledger = tmp_path / "ledger.json"
+    cost = L.record("anthropic", "claude-opus-5-5", 1000, 2000, ledger)
+    assert cost == pytest.approx((1000 * 4.0 + 2000 * 20.0) / 1e6)
+    data = L.load(ledger)
+    assert L.total_usd(data) == pytest.approx(cost)
+    assert L.by_model(data)["claude-opus-5-5"]["calls"] == 1
+
+
+def test_deepseek_off_peak_is_half_the_peak_rate() -> None:
+    from datetime import datetime, timezone
+    from arena import cost_ledger as L
+
+    peak = datetime(2026, 11, 23, 2, 0, tzinfo=timezone.utc)  # Monday 02:00 UTC
+    off = datetime(2026, 11, 22, 2, 0, tzinfo=timezone.utc)  # Sunday
+    assert L.deepseek_is_peak(peak) and not L.deepseek_is_peak(off)
+    assert L.price_per_token_usd("deepseek-v4-pro", off)[1] == pytest.approx(
+        L.price_per_token_usd("deepseek-v4-pro", peak)[1] / 2)
+    assert L.price_per_token_usd("claude-opus-5-5", off) == L.price_per_token_usd("claude-opus-5-5", peak)
+
+
+def test_worst_case_estimate_of_the_planned_batch_is_under_the_ceiling() -> None:
+    from arena import cost_ledger as L
+    from arena.config import MAX_NEW_TOKENS
+    from arena.generate import PROMPT
+
+    est = L.estimate_batch(PROMPT.read_text(encoding="utf-8"), MAX_NEW_TOKENS)
+    assert len(est["models"]) == 8 and est["total_usd"] < L.MAX_TOTAL_USD
+
+
+def test_missing_api_key_is_named(monkeypatch) -> None:
+    from arena import generate as g
+
+    for name in ("GOOGLE_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY or GEMINI_API_KEY"):
+        g._api_key("GOOGLE_API_KEY", "GEMINI_API_KEY")
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+        g._api_key("DEEPSEEK_API_KEY")
+
+
+def test_provider_branches_call_the_sdk_and_record_usage(monkeypatch, tmp_path) -> None:
+    """Each branch records the reported usage in the ledger and returns text only."""
+    import sys
+    import types
+
+    from arena import cost_ledger as L
+    from arena import generate as g
+
+    ledger = tmp_path / "ledger.json"
+    L._save({"estimate_printed": True, "calls": []}, ledger)
+    monkeypatch.setattr(L, "LEDGER_PATH", ledger)
+    for name in ("OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.setenv(name, "test")
+    seen: dict[str, dict] = {}
+
+    class _Msg:
+        def __init__(self, text):
+            self.content = text
+
+    class _Choice:
+        def __init__(self, text):
+            self.message = _Msg(text)
+
+    class _Completions:
+        def __init__(self, init):
+            self.init = init
+
+        def create(self, **kw):
+            seen[self.init.get("base_url") or "openai"] = kw
+            return types.SimpleNamespace(choices=[_Choice("def policy(o, s): return 1")],
+                                         usage=types.SimpleNamespace(prompt_tokens=10, completion_tokens=20))
+
+    class _OpenAI:
+        def __init__(self, **init):
+            self.chat = types.SimpleNamespace(completions=_Completions(init))
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
+
+    class _Anthropic:
+        def __init__(self, **init):
+            self.messages = types.SimpleNamespace(create=self.create)
+
+        def create(self, **kw):
+            seen["anthropic"] = kw
+            return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text="def policy(o, s): return 2")],
+                                         usage=types.SimpleNamespace(input_tokens=11, output_tokens=22))
+
+    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=_Anthropic))
+
+    class _Models:
+        def generate_content(self, **kw):
+            seen["google"] = kw
+            return types.SimpleNamespace(
+                text="def policy(o, s): return 3",
+                usage_metadata=types.SimpleNamespace(prompt_token_count=12, candidates_token_count=20,
+                                                     thoughts_token_count=30))
+
+    google = types.ModuleType("google")
+    genai = types.ModuleType("google.genai")
+    genai.Client = lambda **init: types.SimpleNamespace(models=_Models())
+    genai.types = types.SimpleNamespace(GenerateContentConfig=lambda **kw: kw)
+    google.genai = genai
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.genai", genai)
+
+    for provider, model in (("openai", "gpt-6.2-sol"), ("deepseek", "deepseek-v4-pro"),
+                            ("anthropic", "claude-haiku-5-5"), ("google", "gemini-3.1-pro-preview")):
+        assert "def policy" in g._call_api(provider, model, "prompt", 0.7, 8192)
+    assert seen["openai"]["max_completion_tokens"] == 8192 and seen["openai"]["temperature"] == 0.7
+    assert seen["https://api.deepseek.com"]["max_tokens"] == 8192
+    assert seen["anthropic"]["max_tokens"] == 8192
+    assert seen["google"]["config"]["max_output_tokens"] == 8192
+    calls = L.load(ledger)["calls"]
+    assert [(c["model"], c["input_tokens"], c["output_tokens"]) for c in calls] == [
+        ("gpt-6.2-sol", 10, 20), ("deepseek-v4-pro", 10, 20), ("claude-haiku-5-5", 11, 22),
+        ("gemini-3.1-pro-preview", 12, 50)]
+    with pytest.raises(ValueError):
+        g._call_api("nope", "m", "p")

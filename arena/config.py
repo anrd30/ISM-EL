@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SPEC_VERSION = "1.4.0"
+SPEC_VERSION = "1.5.0"
 
 #: Scenario seeds. Identical for every submission, so comparisons are paired.
 SEEDS: tuple[int, ...] = tuple(range(20))
@@ -42,8 +42,42 @@ MAX_NEW_TOKENS: int = 8192
 #: Development population. The only one a model may receive feedback from.
 DEV_PROFILE = "profile_diurnal_long_train.csv"
 
-#: Held-out populations. Never shown to a model, never used for feedback.
-EVAL_PROFILES: tuple[str, ...] = ("profile_diurnal_long_holdout.csv",)
+#: Held-out environments. Never shown to a model, never used for feedback.
+#:
+#: An environment name is a workload file, optionally followed by ``@<variant>``. The
+#: variant selects a simulator configuration from ``ENV_VARIANTS``; without one the
+#: environment is the arena's original configuration. The first entry is the original
+#: held-out profile, so a report that reads only the first block is unchanged.
+#:
+#: ``profile_diurnal_long_altB.csv``, ``_popC.csv`` and ``_popD.csv`` are the project's
+#: three further 14-day periodic populations (``data_pipeline/PREPROCESSING.md`` B5b,
+#: B5c), disjoint from the development and original held-out volumes in window and
+#: volumes. The ``@`` entries keep the original held-out workload and change the
+#: objective or the latency model.
+EVAL_PROFILES: tuple[str, ...] = (
+    "profile_diurnal_long_holdout.csv",
+    "profile_diurnal_long_altB.csv",
+    "profile_diurnal_long_popC.csv",
+    "profile_diurnal_long_popD.csv",
+    "profile_diurnal_long_holdout.csv@viol_cheap",
+    "profile_diurnal_long_holdout.csv@degraded_costly",
+    "profile_diurnal_long_holdout.csv@ssd_latency",
+    "profile_diurnal_long_holdout.csv@hdd_tight",
+)
+
+#: Simulator overrides per variant. ``reward`` values are (alpha, beta, gamma) of
+#: ``contracts.RewardConfig`` (latency degradation, degraded-state cost, violation
+#: penalty); the arena's default is (1.0, 0.1, 10.0). The latency fields are those of
+#: ``SimConfig``: unloaded latency and target in ms, whose ratio sets the utilisation at
+#: which a violation starts (``1 - unloaded/target``; 0.867 by default). Rebuild rate and
+#: capacity are contract constants, not configuration, so the device-class variants
+#: change only the latency model.
+ENV_VARIANTS: dict[str, dict[str, object]] = {
+    "viol_cheap": {"reward": (1.0, 0.1, 1.0)},
+    "degraded_costly": {"reward": (1.0, 1.0, 10.0)},
+    "ssd_latency": {"latency_unloaded_ms": 0.1, "latency_target_ms": 2.0},
+    "hdd_tight": {"latency_unloaded_ms": 5.0, "latency_target_ms": 20.0},
+}
 
 REPO = Path(__file__).resolve().parents[1]
 PROFILES = REPO / "data_pipeline" / "profiles"
@@ -52,8 +86,25 @@ RESULTS = Path(__file__).resolve().parent / "results"
 SUBMISSIONS = Path(__file__).resolve().parent / "submissions"
 
 
-def arena_config():
+def split_env(name: str) -> tuple[str, str | None]:
+    """Split an environment name into its workload file and its variant (None for the original)."""
+    base, sep, variant = name.partition("@")
+    if sep and variant not in ENV_VARIANTS:
+        raise ValueError(f"unknown environment variant {variant!r} in {name!r}")
+    return base, (variant if sep else None)
+
+
+def reference_stem(name: str) -> str:
+    """File stem of the cached reference values of an environment."""
+    base, variant = split_env(name)
+    return Path(base).stem + (f"@{variant}" if variant else "")
+
+
+def arena_config(variant: str | None = None):
     """Simulator configuration for the arena.
+
+    ``variant`` selects an entry of ``ENV_VARIANTS``; ``None`` is the original
+    configuration, unchanged.
 
     Uses the heuristic v0 hazard so the arena runs from a clean clone with no
     large artifacts to download. The research results use the fitted v1 model;
@@ -62,4 +113,12 @@ def arena_config():
     """
     from sim.config import v0_config
 
-    return v0_config(label=f"arena-{SPEC_VERSION}")
+    if variant is None:
+        return v0_config(label=f"arena-{SPEC_VERSION}")
+    overrides = dict(ENV_VARIANTS[variant])
+    if "reward" in overrides:
+        from contracts.contracts import RewardConfig
+
+        alpha, beta, gamma = overrides["reward"]  # type: ignore[misc]
+        overrides["reward"] = RewardConfig(alpha=alpha, beta=beta, gamma=gamma)
+    return v0_config(label=f"arena-{SPEC_VERSION}@{variant}", **overrides)

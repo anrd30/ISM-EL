@@ -1,10 +1,10 @@
 {
   "name": "microsoft-Phi-3-mini-128k-instruct#2",
-  "spec_version": "1.4.0",
+  "spec_version": "1.5.0",
   "track": "zero-shot",
-  "submission": "arena/submissions/microsoft-Phi-3-mini-128k-instruct#2/policy.py",
-  "timestamp": "2026-11-20T17:14:46.872247+00:00",
-  "python": "3.10.12",
+  "submission": "arena\\submissions\\microsoft-Phi-3-mini-128k-instruct#2\\policy.py",
+  "timestamp": "2026-11-21T05:25:18.789000+00:00",
+  "python": "3.11.0",
   "dev": null,
   "eval": [],
   "error": "SubmissionError: SubmissionError: policy raised: ValueError('min() arg is an empty sequence')"

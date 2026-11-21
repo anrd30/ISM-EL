@@ -136,8 +136,21 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
-def _report_by_model() -> int:
+def _block(result: dict, env: str | None) -> dict | None:
+    """The evaluation block of ``result`` for environment ``env`` (the first block when ``env`` is None)."""
+    if env is None:
+        return result["eval"][0]
+    for block in result["eval"]:
+        if block["profile"] == env:
+            return block
+    return None
+
+
+def _report_by_model(env: str | None = None) -> int:
     """Aggregate repeats per model.
+
+    ``env`` selects the evaluation block by environment name; ``None`` reads the
+    first block, which is the original held-out profile.
 
     A result name of the form ``<model>#<k>`` is treated as repeat ``k`` of
     ``<model>``. With repeats the interesting quantities are not one score but
@@ -156,9 +169,11 @@ def _report_by_model() -> int:
     rows = []
     for model, results in sorted(runs.items()):
         ok = [r for r in results if not r.get("error")]
-        gs = [r["eval"][0]["mean_g"] for r in ok if r.get("eval")]
-        viols = [r["eval"][0]["mean_violation_fraction"] for r in ok if r.get("eval")]
-        degen = sum(1 for r in ok if r.get("eval") and r["eval"][0].get("degenerate"))
+        blocks = [_block(r, env) for r in ok if r.get("eval")]
+        blocks = [b for b in blocks if b is not None]
+        gs = [b["mean_g"] for b in blocks]
+        viols = [b["mean_violation_fraction"] for b in blocks]
+        degen = sum(1 for b in blocks if b.get("degenerate"))
         breaches = sum(1 for v in viols if v > 0.05)
         rows.append(
             {
@@ -236,13 +251,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--by-model", action="store_true",
         help="aggregate repeats named <model>#<k> into one row per model",
     )
+    rep.add_argument(
+        "--env", default=None,
+        help="with --by-model: environment name (a workload file, optionally @variant), or 'all' "
+             "for one table per environment; default is the first held-out profile",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "verify":
         return _verify()
     if args.cmd == "eval":
         return _eval(args)
-    return _report_by_model() if args.by_model else _report()
+    if not args.by_model:
+        return _report()
+    if args.env == "all":
+        for env in EVAL_PROFILES:
+            print(f"=== {env}")
+            _report_by_model(env)
+            print()
+        return 0
+    return _report_by_model(args.env)
 
 
 if __name__ == "__main__":

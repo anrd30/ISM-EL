@@ -46,7 +46,7 @@ def main() -> int:
         # Import everything the arena needs BEFORE restrictions go up: the allowlist
         # applies to the whole interpreter once active, and the harness legitimately
         # reads the workload CSV and the reference table.
-        from arena.config import PROFILES, SEEDS, arena_config
+        from arena.config import PROFILES, SEEDS, arena_config, split_env
         from arena.reference import reference_table
         from arena.restrict import install, preload_allowed, submission_code
         from arena.score import ScenarioScore, aggregate, score_scenario
@@ -55,8 +55,9 @@ def main() -> int:
 
         profile = request["profile"]
         ref = reference_table(profile).set_index("seed")
-        config = arena_config()
-        workload = PROFILES / profile
+        base_profile, variant = split_env(profile)
+        config = arena_config(variant)
+        workload = PROFILES / base_profile
         seeds = list(SEEDS)
 
         # Touch the workload once so the trace is in memory before the lockdown.

@@ -1,10 +1,10 @@
 {
   "name": "llama3.1-8b#1",
-  "spec_version": "1.4.0",
+  "spec_version": "1.5.0",
   "track": "zero-shot",
-  "submission": "arena/submissions/llama3.1-8b#1/policy.py",
-  "timestamp": "2026-11-20T14:34:17.931288+00:00",
-  "python": "3.10.12",
+  "submission": "arena\\submissions\\llama3.1-8b#1\\policy.py",
+  "timestamp": "2026-11-21T05:24:46.842285+00:00",
+  "python": "3.11.0",
   "dev": null,
   "eval": [],
   "error": "SubmissionError: SubmissionError: policy raised: NameError(\"name 'ACTIONS_MBPS' is not defined\")"

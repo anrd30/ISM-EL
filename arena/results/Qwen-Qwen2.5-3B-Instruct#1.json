@@ -1,11 +1,11 @@
 {
   "name": "Qwen-Qwen2.5-3B-Instruct#1",
-  "spec_version": "1.4.0",
+  "spec_version": "1.5.0",
   "track": "zero-shot",
-  "submission": "arena/submissions/Qwen-Qwen2.5-3B-Instruct#1/policy.py",
-  "timestamp": "2026-11-20T17:17:24.119536+00:00",
-  "python": "3.10.12",
+  "submission": "arena\\submissions\\Qwen-Qwen2.5-3B-Instruct#1\\policy.py",
+  "timestamp": "2026-11-21T05:29:08.194280+00:00",
+  "python": "3.11.0",
   "dev": null,
   "eval": [],
-  "error": "SubmissionError: SubmissionError: policy must return an int action index, got <class 'numpy.float64'>"
+  "error": "SubmissionError: SubmissionError: policy must return an int action index, got <class 'numpy.float32'>"
 }

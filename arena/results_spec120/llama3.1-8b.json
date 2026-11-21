@@ -1,0 +1,11 @@
+{
+  "name": "llama3.1-8b",
+  "spec_version": "1.2.0",
+  "track": "zero-shot",
+  "submission": "arena/submissions/llama3.1-8b/policy.py",
+  "timestamp": "2026-11-20T11:23:10.819168+00:00",
+  "python": "3.10.12",
+  "dev": null,
+  "eval": [],
+  "error": "SubmissionError: SubmissionError: policy raised: NameError(\"name 'bw_available' is not defined\")"
+}

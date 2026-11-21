@@ -1,0 +1,11 @@
+{
+  "name": "qwen2.5-coder-1.5b#5",
+  "spec_version": "1.4.0",
+  "track": "zero-shot",
+  "submission": "arena/submissions/qwen2.5-coder-1.5b#5/policy.py",
+  "timestamp": "2026-11-20T14:32:47.121663+00:00",
+  "python": "3.10.12",
+  "dev": null,
+  "eval": [],
+  "error": "SubmissionError: SubmissionError: policy raised: NameError(\"name 'latency_degradation' is not defined\")"
+}

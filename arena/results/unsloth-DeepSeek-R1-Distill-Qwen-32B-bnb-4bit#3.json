@@ -1,0 +1,11 @@
+{
+  "name": "unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit#3",
+  "spec_version": "1.4.0",
+  "track": "zero-shot",
+  "submission": "arena/submissions/unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit#3/policy.py",
+  "timestamp": "2026-11-20T15:01:56.682947+00:00",
+  "python": "3.10.12",
+  "dev": null,
+  "eval": [],
+  "error": "SubmissionError: SubmissionError: submission raised at module scope: SyntaxError('unterminated string literal (detected at line 3)', ('<submission:unsloth-DeepSeek-R1-Distill-Qwen-32B-bnb-4bit#3>', 3, 15, \"The function I'm supposed to write is called policy, which takes an observation array and a state dictionary, and returns an action index (0, 1, 2, or 3) corresponding to the rebuild rate. \", 3, 15))"
+}

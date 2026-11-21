@@ -31,3 +31,11 @@ _to_delete/
 # T-lane: PPO training run output (logs, checkpoints), regenerate with python -m agent.train.
 # Committed run evidence goes under agent/evidence/<run>/ instead.
 runs/
+
+# Arena run logs (large, machine-specific); the committed evidence is arena/results/.
+arena_*.log
+
+# Machine-specific launchers with a baked-in GPU UUID; use run_gpu.sh instead.
+run_arena_gpu.sh
+run_hf_gpu.sh
+run_arena.sh

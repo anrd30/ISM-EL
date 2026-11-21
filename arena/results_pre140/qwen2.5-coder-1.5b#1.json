@@ -1,0 +1,11 @@
+{
+  "name": "qwen2.5-coder-1.5b#1",
+  "spec_version": "1.3.0",
+  "track": "zero-shot",
+  "submission": "arena/submissions/qwen2.5-coder-1.5b#1/policy.py",
+  "timestamp": "2026-11-20T12:27:44.617693+00:00",
+  "python": "3.10.12",
+  "dev": null,
+  "eval": [],
+  "error": "SubmissionError: SubmissionError: submission raised at module scope: TypeError(\"unsupported operand type(s) for /: 'ellipsis' and 'float'\")"
+}

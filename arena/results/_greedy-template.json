@@ -1,10 +1,10 @@
 {
-  "name": "greedy-reference",
-  "spec_version": "1.0.0",
+  "name": "_greedy-template",
+  "spec_version": "1.4.0",
   "track": "zero-shot",
-  "submission": "arena\\submissions\\_template.py",
-  "timestamp": "2026-11-20T10:06:58.644584+00:00",
-  "python": "3.12.3",
+  "submission": "arena/submissions/_template.py",
+  "timestamp": "2026-11-20T17:46:53.317434+00:00",
+  "python": "3.10.12",
   "dev": {
     "profile": "profile_diurnal_long_train.csv",
     "mean_g": -5.414081936514295,
@@ -15,9 +15,18 @@
     "mean_violation_fraction": 0.0424173105717896,
     "mean_completion_hours": 38.045833333333334,
     "impossible_seeds": [],
-    "max_step_ms": 0.06729993037879467,
-    "mean_step_ms": 0.0014577923872351138,
+    "max_step_ms": 0.020780000340892002,
+    "mean_step_ms": 0.004620985316310942,
     "n_decisions": 9131,
+    "action_counts": [
+      0,
+      712,
+      6377,
+      2042
+    ],
+    "distinct_actions": 3,
+    "modal_action_share": 0.6983900996604973,
+    "degenerate": false,
     "per_scenario": [
       {
         "seed": 0,
@@ -232,9 +241,18 @@
       "mean_violation_fraction": 0.051109863741242864,
       "mean_completion_hours": 38.391666666666666,
       "impossible_seeds": [],
-      "max_step_ms": 0.04039995837956667,
-      "mean_step_ms": 0.0014844251739393676,
+      "max_step_ms": 0.02122499790857546,
+      "mean_step_ms": 0.004651717837560027,
       "n_decisions": 9214,
+      "action_counts": [
+        0,
+        795,
+        6499,
+        1920
+      ],
+      "distinct_actions": 3,
+      "modal_action_share": 0.7053397004558281,
+      "degenerate": false,
       "per_scenario": [
         {
           "seed": 0,

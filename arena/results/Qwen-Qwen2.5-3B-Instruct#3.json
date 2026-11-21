@@ -1,0 +1,11 @@
+{
+  "name": "Qwen-Qwen2.5-3B-Instruct#3",
+  "spec_version": "1.4.0",
+  "track": "zero-shot",
+  "submission": "arena/submissions/Qwen-Qwen2.5-3B-Instruct#3/policy.py",
+  "timestamp": "2026-11-20T17:18:17.688944+00:00",
+  "python": "3.10.12",
+  "dev": null,
+  "eval": [],
+  "error": "SubmissionError: SubmissionError: policy must return an int action index, got <class 'numpy.float32'>"
+}

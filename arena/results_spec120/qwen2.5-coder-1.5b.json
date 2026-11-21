@@ -1,0 +1,11 @@
+{
+  "name": "qwen2.5-coder-1.5b",
+  "spec_version": "1.2.0",
+  "track": "zero-shot",
+  "submission": "arena/submissions/qwen2.5-coder-1.5b/policy.py",
+  "timestamp": "2026-11-20T11:24:01.036954+00:00",
+  "python": "3.10.12",
+  "dev": null,
+  "eval": [],
+  "error": "SubmissionError: SubmissionError: policy raised: NameError(\"name 'ACTIONS_MBPS' is not defined\")"
+}

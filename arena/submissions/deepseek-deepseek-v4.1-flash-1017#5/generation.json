@@ -1,7 +1,7 @@
 {
   "api": "openrouter",
   "requested_slug": "deepseek/deepseek-v4.1-flash-1017",
-  "pinned_provider": null,
+  "pinned_provider": "deepinfra/fp8",
   "served_by": "DeepInfra",
   "served_model": "deepseek/deepseek-v4.1-flash-1017"
 }

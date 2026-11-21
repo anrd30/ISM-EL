@@ -1,83 +1,94 @@
-import math
+```python
 import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
     """Return 0, 1, 2 or 3."""
-    headroom = min(1.0, max(0.0, float(obs[11])))
-    allocation = min(1.0, max(0.0, float(obs[10])))
-    progress = float(obs[8])
-    latency = max(1e-5, float(obs[3]))
-    target = max(1e-5, float(obs[4]))
-    y = math.log(latency)
+    read, write, fg_bw, latency, target, hazard, uncertainty, redundancy, \
+        progress, remaining, current, headroom = map(float, obs)
 
-    # Learn the latency response from applied allocations, not requests:
-    # the safety filter can make those two allocations different.
-    saved = state.get("fit")
-    minmax = allocation < 0.02 or (saved is not None and saved[5])
-    scale = 1.0 / (headroom + 0.30)
-    x = allocation * scale
-    f = np.array([
-        1.0, -math.log(headroom + 0.20), float(obs[0]),
-        float(obs[1]), float(obs[2]), x, x * x,
-    ])
+    # Decode the applied rate, which may differ from our previous request.
+    applied = int(current > 0.28) + int(current > 0.53) + int(current > 0.83)
+    rates = (1.0 / 6.0, 5.0 / 12.0, 2.0 / 3.0, 1.0)
+    a = rates[applied]
+    load = min(1.0, max(0.0, 0.7 * (1.0 - headroom) + 0.3 * fg_bw))
+    z = load - 0.5
 
-    if saved is None:
-        beta = np.array([0.0, 0.65, 0.10, 0.15, 0.0, 0.38, 0.04])
-        beta[0] = y - float(f @ beta)
-        cov = np.diag([4.0, 3.0, 2.0, 2.0, 2.0, 0.8, 0.12])
-        noise = 0.0225
-        speed = 0.0
-    else:
-        beta, cov, noise, prev_progress, speed, _ = saved
-        err = y - float(f @ beta)
-        v = cov @ f
-        leverage = max(0.0, float(f @ v))
-        denom = 0.998 + leverage
-        beta = beta + (max(-0.75, min(0.75, err)) / denom) * v
-        cov = (cov - np.outer(v, v) / denom) / 0.998
-        noise = 0.97 * noise + 0.03 * min(0.36, err * err / (1.0 + leverage))
+    # Fit log latency from the observed foreground load and applied rate.
+    x = np.array((1.0, z, z * z, read - 0.5, write - 0.5,
+                  a, a * z, a * a))
+    if "coefficients" not in state:
+        state["coefficients"] = np.array(
+            (-2.0, 1.5, 1.1, 0.12, 0.24, 0.57, 1.05, 0.23)
+        )
+        state["covariance"] = np.diag(
+            (3.0, 1.0, 1.0, 0.4, 0.4, 0.75, 0.9, 0.5)
+        )
+        state["error"] = 0.08
 
-        # Estimate progress per interval at full rate for the final decision.
-        moved = progress - prev_progress
-        rate = (1.0 / 6.0 + (5.0 / 6.0) * allocation) if minmax else allocation
-        if moved > 0.0 and rate > 0.05:
-            sample = moved / rate
-            speed = sample if speed == 0.0 else 0.90 * speed + 0.10 * sample
+    beta = state["coefficients"]
+    covariance = state["covariance"]
+    offset = 0.008
+    measured = max(0.0, latency) + offset
+    error = float(np.log(measured) - beta @ x)
+    direction = covariance @ x
+    denominator = 1.0 + float(x @ direction)
+    beta += (min(0.65, max(-0.65, error)) / denominator) * direction
+    covariance -= np.outer(direction, direction) / denominator
+    noise = 0.96 * state["error"] + 0.04 * min(0.30, abs(error))
+    state["error"] = noise
 
-    state["fit"] = (beta, cov, noise, progress, speed, minmax)
+    # Estimate the progress delivered by one interval at the fastest rate.
+    # This lets the last interval use a lower rate if it can still finish.
+    full_step = state.get("full_step", 0.0)
+    if "progress" in state:
+        increment = progress - state["progress"]
+        if increment > 1e-7:
+            sample = increment / a
+            if full_step > 0.0:
+                sample = min(1.5 * full_step, max(0.67 * full_step, sample))
+                full_step = 0.85 * full_step + 0.15 * sample
+            else:
+                full_step = sample
+            state["full_step"] = full_step
+    state["progress"] = progress
 
-    needed = (max(0.0, 1.0 - progress) / (0.95 * speed)
-              if speed > 0.0 else 1.0)
-    margin = math.log(latency / target)
+    # Anchor each prediction to the measured latency. Use the model only
+    # for the change in latency caused by changing the rebuild rate.
+    linear = min(2.8, max(0.03, float(beta[5] + beta[6] * z)))
+    curvature = min(1.0, max(0.0, float(beta[7])))
+    rate_covariance = covariance[5:, 5:]
+    latency_limit = max(0.015, target)
+    urgency = min(1.0, max(0.0, hazard + 0.35 * uncertainty - redundancy))
+    progress_value = 0.36 + 0.05 * urgency
+
     best_action = 0
-    best_score = math.inf
+    best_cost = float("inf")
+    for action, rate in enumerate(rates):
+        delta = rate - a
+        delta_log = delta * (linear + curvature * (rate + a))
+        predicted = max(0.0, measured * float(np.exp(delta_log)) - offset)
 
-    for action, rate in enumerate((1.0 / 6.0, 5.0 / 12.0, 2.0 / 3.0, 1.0)):
-        candidate = (rate - 1.0 / 6.0) * 1.2 if minmax else rate
-        z = candidate * scale
-        dx = z - x
-        dx2 = dx * (z + x)
+        change = np.array((delta, delta * z, delta * (rate + a)))
+        variance = max(0.0, float(change @ rate_covariance @ change))
+        # Widen the transition around the SLO when the counterfactual
+        # is uncertain; the current rate requires no counterfactual.
+        margin = min(0.18, 0.025 + 0.20 * noise
+                     + 0.18 * variance ** 0.5)
+        ratio = predicted / latency_limit
+        risk = min(1.0, max(0.0, (ratio - 1.0 + margin) / (2.0 * margin)))
+        risk = risk * risk * (3.0 - 2.0 * risk)
 
-        # Anchor each prediction at the measured latency. Only extrapolate
-        # the change due to allocation; keep that response monotone.
-        slope = float(beta[5] + beta[6] * (z + x))
-        slope = max(0.04, min(1.8, slope))
-        delta = dx * slope
-        predicted_margin = margin + delta
+        useful_rate = rate
+        if full_step > 0.0:
+            useful_rate = min(rate, max(0.0, 1.0 - progress) / full_step)
 
-        variance = (cov[5, 5] * dx * dx + 2.0 * cov[5, 6] * dx * dx2
-                    + cov[6, 6] * dx2 * dx2)
-        uncertainty = math.sqrt(
-            0.024 ** 2 + 0.06 * noise
-            + noise * min(4.0, max(0.0, float(variance)))
-        )
-        violation = 0.5 * math.erfc(
-            -(predicted_margin + 0.012) / (math.sqrt(2.0) * uncertainty)
-        )
-        degradation = 0.22 * math.exp(max(-6.0, min(2.0, predicted_margin)))
-        score = 10.0 * violation + degradation - 0.43 * min(rate, needed)
-        if score < best_score:
-            best_score = score
+        # Retain a preference for lower latency even when every choice
+        # is predicted to violate the target.
+        cost = (0.28 * ratio + 0.22 * predicted + 10.0 * risk
+                - progress_value * useful_rate)
+        if cost < best_cost:
+            best_cost = cost
             best_action = action
 
     return best_action
+```

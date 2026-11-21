@@ -1,72 +1,108 @@
+```python
 import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
     """Return 0, 1, 2 or 3."""
-    rates = np.array([1.0 / 6.0, 5.0 / 12.0, 2.0 / 3.0, 1.0])
-    alloc = float(obs[10])
-    current = int(alloc >= 0.23) + int(alloc >= 0.51) + int(alloc >= 0.83)
-    rate_now = rates[current]
-
-    read, write, bw = (float(obs[i]) for i in range(3))
-    headroom = min(1.0, max(0.0, float(obs[11])))
-    pressure = 0.5 * (1.0 - headroom) + 0.5 * min(1.0, max(0.0, bw))
-    log_latency = np.log(max(1e-6, float(obs[3])))
-    log_target = np.log(max(1e-6, float(obs[4])))
-    progress = float(obs[8])
-
-    features = np.array([
-        read, write, bw, 1.0 - headroom,
-        rate_now, rate_now * rate_now, pressure * rate_now,
-    ])
-
-    history = state.get("rebuild_model")
-    if history is None:
-        weights = np.array([0.15, 0.20, 0.40, 0.20, 0.15, 0.25, 0.40])
-        covariance = 4.0 * np.eye(7)
-        volatility = 0.04
-        step = 0.0
-    else:
-        old_features, old_latency, old_progress, weights, covariance, volatility, step = history
-        change = features - old_features
-
-        # Fit latency changes, separating changes in load from changes in rate.
-        if log_latency > -13.8 and old_latency > -13.8:
-            observed_change = log_latency - old_latency
-            load_change = observed_change - float(change[4:] @ weights[4:])
-            volatility = 0.94 * volatility + 0.06 * min(abs(load_change), 0.25)
-            if float(change @ change) > 1e-7:
-                direction = covariance @ change
-                denom = 1.0 + float(change @ direction)
-                residual = observed_change - float(change @ weights)
-                weights = weights + (np.clip(residual, -0.35, 0.35) / denom) * direction
-                covariance = covariance - np.outer(direction, direction) / denom
-
-        advance = progress - old_progress
-        if advance > 1e-7:
-            sample = advance / rate_now
-            step = sample if step == 0.0 else 0.85 * step + 0.15 * sample
-
-    state["rebuild_model"] = (
-        features, log_latency, progress, weights, covariance, volatility, step
+    read, write, bw, latency, target, _, _, _, progress, _, alloc, headroom = (
+        float(value) for value in obs
     )
+    rates = np.array([1.0 / 6.0, 5.0 / 12.0, 2.0 / 3.0, 1.0])
 
-    # Anchor predictions at the measured latency and keep the rate response monotone.
-    linear = float(np.clip(weights[4] + pressure * weights[6], 0.03, 2.0))
-    curvature = float(np.clip(weights[5], 0.0, 1.0))
-    extra_delay = linear * rates + curvature * rates * rates
-    current_delay = linear * rate_now + curvature * rate_now * rate_now
-    predicted_gap = log_latency - log_target + extra_delay - current_delay
+    # Identify the applied action from the normalized allocation. The last
+    # request is a lower bound, since the filter can only raise it.
+    encodings = np.array([
+        [1.0 / 6.0, 5.0 / 12.0, 2.0 / 3.0, 1.0],
+        [0.0, 0.3, 0.6, 1.0],
+        [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0],
+        [0.25, 0.5, 0.75, 1.0],
+    ])
+    previous_request = state.get("request", 0)
+    errors = (encodings - alloc) ** 2
+    errors[:, :previous_request] = np.inf
+    applied = errors.argmin(axis=1)
+    encoding_loss = (
+        0.97 * state.get("encoding_loss", np.zeros(4))
+        + errors[np.arange(4), applied]
+    )
+    state["encoding_loss"] = encoding_loss
+    encoding = int(encoding_loss.argmin())
+    current = int(applied[encoding])
 
-    # Leave a buffer around the latency limit, especially when load is changing.
-    width = min(0.14, max(0.04, 1.4 * volatility))
-    risk = np.clip((predicted_gap + width) / (2.0 * width), 0.0, 1.0)
-    risk = risk * risk * (3.0 - 2.0 * risk)
-    cost = 0.1 + 0.25 * np.expm1(extra_delay) + 10.0 * risk
+    # Fit changes in log latency, separating changes in foreground traffic
+    # from changes in rebuild allocation. Anchor each forecast to latency_now.
+    pressure = min(1.0, max(0.0, 0.5 * (bw + 1.0 - headroom)))
+    rebuild = (0.8 * rates + 0.2 * rates ** 2) * (0.65 + 0.85 * pressure)
+    features = np.array([read, write, bw, rebuild[current]])
+    log_latency = float(np.log(max(latency, 1e-5)))
+    log_ratio = log_latency - float(np.log(max(target, 1e-5)))
 
-    # A rate that finishes the rebuild gets no credit for unused bandwidth.
-    useful_rate = rates
-    if step > 0.0:
-        remaining = max(0.0, 1.0 - progress)
-        useful_rate = np.minimum(rates, max(1e-6, remaining / step))
+    prior = np.array([0.4, 0.5, 0.8, 0.7])
+    ridge = np.diag([0.45, 0.45, 0.35, 0.22])
+    gram = state.get("gram", np.zeros((4, 4)))
+    rhs = state.get("rhs", np.zeros(4))
+    noise = state.get("noise", 0.055)
+    speed = state.get("speed", 0.0)
+    finish_speed = 0.0
 
-    return int(np.argmin(cost / useful_rate))
+    previous = state.get("previous")
+    if previous is not None:
+        old_features, old_latency, old_progress, old_encoding = previous
+        if old_encoding == encoding:
+            x = features - old_features
+            if latency > 1e-5 and old_latency > -11.51 and x @ x > 1e-5:
+                residual = (
+                    log_latency - old_latency
+                    - float(x @ state.get("coefficients", prior))
+                )
+                limit = max(0.12, 3.0 * noise)
+                clipped = min(limit, max(-limit, residual))
+                response = log_latency - old_latency - residual + clipped
+                gram = 0.994 * gram + np.outer(x, x)
+                rhs = 0.994 * rhs + x * (response - float(x @ prior))
+                noise = 0.97 * noise + 0.03 * min(0.30, abs(residual))
+
+            measured_speed = (progress - old_progress) / rates[current]
+            if measured_speed > 0.0:
+                if speed > 0.0:
+                    finish_speed = 0.98 * min(speed, measured_speed)
+                    speed = 0.85 * speed + 0.15 * measured_speed
+                else:
+                    speed = measured_speed
+        else:
+            speed = 0.0
+
+    fit = np.linalg.solve(
+        gram + ridge, np.column_stack((rhs, [0.0, 0.0, 0.0, 1.0]))
+    )
+    coefficients = prior + fit[:, 0]
+    slope = min(3.0, max(0.04, float(coefficients[3])))
+    uncertainty = max(0.025, noise) * float(np.sqrt(fit[3, 1]))
+
+    action = 0
+    for candidate in range(3, -1, -1):
+        change = float(rebuild[candidate] - rebuild[current])
+        predicted = log_ratio + slope * change
+        margin = abs(change) * (0.04 + 1.5 * uncertainty)
+        if candidate > current:
+            margin += 0.015 + 0.20 * noise
+        if predicted + margin <= 0.0:
+            action = candidate
+            break
+
+    # If a slower safe rate will also finish this interval, use it.
+    remaining = max(0.0, 1.0 - progress)
+    if finish_speed > 0.0:
+        for candidate in range(action):
+            if finish_speed * rates[candidate] >= remaining:
+                action = candidate
+                break
+
+    state["previous"] = (features, log_latency, progress, encoding)
+    state["gram"] = gram
+    state["rhs"] = rhs
+    state["coefficients"] = coefficients
+    state["noise"] = noise
+    state["speed"] = speed
+    state["request"] = action
+    return action
+```

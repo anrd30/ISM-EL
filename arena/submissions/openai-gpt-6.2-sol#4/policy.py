@@ -1,103 +1,82 @@
 import math
-
 import numpy as np
-
 
 def policy(obs: np.ndarray, state: dict) -> int:
     """Return 0, 1, 2 or 3."""
-    read = float(obs[0])
-    write = float(obs[1])
-    foreground = float(obs[2])
-    latency = max(0.001, float(obs[3]))
-    target = max(0.001, float(obs[4]))
-    progress = float(obs[8])
-    allocation = float(obs[10])
-    pressure = 1.0 - min(1.0, max(0.0, float(obs[11])))
+    read, write, fg, latency, target, hazard, uncertainty, redundancy, progress, remaining, alloc, headroom = map(float, obs)
 
     rates = (1.0 / 6.0, 5.0 / 12.0, 2.0 / 3.0, 1.0)
-    current = int(allocation >= 0.25) + int(allocation >= 0.54) + int(allocation >= 0.83)
-    rate = rates[current]
-    history = state.get("controller")
+    effort = (0.0, 0.2125, 0.465, 1.0)
+    current = 0 if alloc < 0.28 else 1 if alloc < 0.54 else 2 if alloc < 0.83 else 3
+    headroom = min(1.0, max(0.0, headroom))
+    busy = 1.0 - headroom
+    congestion = busy * busy
+    y = math.log(max(0.002, latency) + 0.02)
+    limit = math.log(max(0.002, target) + 0.02)
 
-    if history is None and allocation <= 0.01:
-        # The first observation may have been taken before any rebuild I/O.
-        rate = 0.0
-
-    log_latency = math.log(latency)
-    gap = log_latency - math.log(target)
-    features = np.array(
-        (read, write, foreground, pressure, rate, rate * pressure, rate * rate),
-        dtype=np.float64,
-    )
-
-    if history is None:
-        weights = np.array((0.2, 0.4, 0.7, 0.6, 0.65, 0.9, 0.55))
-        covariance = np.diag((2.0, 2.0, 3.0, 3.0, 8.0, 5.0, 5.0))
-        switch_error = 0.07
-        speed = 0.0
-        speed_samples = 0
+    # Fit log latency to foreground load and the allocation actually applied.
+    a = effort[current]
+    x = np.array((1.0, read, write, fg, busy, congestion, a, a * congestion))
+    if "fit" not in state:
+        prior_slope = 0.32 + 1.05 * congestion
+        weights = np.array((y - a * prior_slope, 0.0, 0.0, 0.0,
+                            0.0, 0.0, 0.32, 1.05))
+        cov = np.diag((1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 0.22, 0.40))
+        residual_scale = 0.06
+        typical_busy = busy
     else:
-        (
-            previous_features, previous_latency, previous_progress,
-            weights, covariance, switch_error, speed, speed_samples,
-        ) = history
+        weights, cov, residual_scale, typical_busy = state["fit"]
 
-        # Learn from applied rates, including any increases made by the filter.
-        delta = features - previous_features
-        error = log_latency - previous_latency - float(weights @ delta)
-        if abs(float(delta[4])) > 0.1:
-            load_change = max(abs(float(v)) for v in delta[:4])
-            if load_change < 0.15:
-                switch_error = 0.90 * switch_error + 0.10 * min(0.30, abs(error))
+    prediction = float(x @ weights)
+    error = y - prediction
+    direction = cov @ x
+    leverage = max(0.0, float(x @ direction))
+    weights = weights + direction * (min(0.65, max(-0.65, error)) / (1.0 + leverage))
+    cov = (cov - np.outer(direction, direction) / (1.0 + leverage)) / 0.998
+    residual_scale += 0.04 * (min(0.30, abs(error)) - residual_scale)
+    typical_busy += 0.02 * (busy - typical_busy)
+    state["fit"] = weights, cov, residual_scale, typical_busy
 
-        if float(delta @ delta) > 1e-7:
-            projected = covariance @ delta
-            denominator = 0.999 + float(delta @ projected)
-            weights = weights + projected * (min(0.7, max(-0.7, error)) / denominator)
-            covariance = (covariance - np.outer(projected, projected) / denominator) / 0.999
+    slope = min(2.4, max(0.08, float(weights[6] + congestion * weights[7])))
+    slope_var = max(0.0, float(cov[6, 6] + 2.0 * congestion * cov[6, 7]
+                               + congestion * congestion * cov[7, 7]))
+    anchor = y - 0.15 * min(0.25, max(-0.25, y - float(x @ weights)))
+    noise = min(0.095, max(0.025, 0.65 * residual_scale))
 
-        gained = progress - previous_progress
-        if gained > 0.0 and 0.0 < progress < 1.0:
-            sample = gained / rate
-            if speed_samples == 0:
-                speed = sample
-            else:
-                speed = 0.8 * speed + 0.2 * min(1.5 * speed, max(0.5 * speed, sample))
-            speed_samples += 1
-
-    state["controller"] = (
-        features, log_latency, progress, weights, covariance,
-        switch_error, speed, speed_samples,
-    )
-
-    # Anchor counterfactuals to the measured latency. The fit estimates only
-    # how much the latency would change if rebuild traffic changed.
-    safe = []
-    for action, candidate in enumerate(rates):
-        change = candidate - rate
-        if change == 0.0:
-            if gap <= 0.0:
-                safe.append(action)
-            continue
-
-        slope = float(weights[4] + weights[5] * pressure + weights[6] * (candidate + rate))
-        slope = min(4.5, max(0.25, slope))
-        predicted_gap = gap + change * slope
-        if change > 0.0:
-            margin = 0.025 + 0.025 * pressure + (0.055 + 0.65 * switch_error) * math.sqrt(change)
+    # Infer work per interval from observed progress, including filter overrides.
+    previous = state.get("remaining", remaining)
+    work_rate, samples = state.get("work_rate", (0.0, 0))
+    completed = previous - remaining
+    if completed > 0.0:
+        sample = completed / rates[current]
+        if samples:
+            sample = min(1.6 * work_rate, max(0.6 * work_rate, sample))
+            work_rate += 0.15 * (sample - work_rate)
         else:
-            margin = 0.025 if gap > 0.0 else 0.0
-        if predicted_gap <= -margin:
-            safe.append(action)
+            work_rate = sample
+        samples += 1
+    state["remaining"] = remaining
+    state["work_rate"] = work_rate, samples
 
-    if not safe:
-        return 0
+    urgency = min(1.0, max(0.0, hazard + 0.5 * uncertainty)) * (
+        1.0 - min(1.0, max(0.0, redundancy))
+    )
+    work_value = 0.24 + 0.14 * typical_busy + 0.10 * urgency
 
-    # Extra bandwidth buys no time if a lower safe rate finishes this tick.
-    if speed_samples >= 3:
-        remaining = max(0.0, 1.0 - progress)
-        for action in safe:
-            if remaining <= 0.95 * speed * rates[action]:
-                return action
+    best, best_cost = 0, math.inf
+    for action in range(4):
+        delta = effort[action] - a
+        margin = anchor + slope * delta - limit
+        spread = noise + abs(delta) * min(0.14, 0.18 * math.sqrt(slope_var))
+        violation = 0.5 * math.erfc(-margin / (math.sqrt(2.0) * spread))
+        degradation = 0.5 * math.expm1(min(1.5, margin))
 
-    return safe[-1]
+        useful_rate = rates[action]
+        if samples >= 3 and work_rate > 0.0:
+            useful_rate = min(useful_rate, max(0.0, remaining) / (0.9 * work_rate))
+
+        cost = degradation + 10.0 * violation - work_value * useful_rate
+        if cost < best_cost:
+            best, best_cost = action, cost
+
+    return best

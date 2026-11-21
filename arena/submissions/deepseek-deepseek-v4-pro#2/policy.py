@@ -2,75 +2,54 @@ import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
     """
-    A deterministic rule‑based policy that balances rebuild speed against latency
-    violations.  It uses a smoothed latency margin memory and the available
-    headroom from the observation to decide the rebuild rate index (0‑3).
+    Return 0, 1,2,3  -- the rebuild rate index.
+    Observations are normalised to ~[0,1]; see spec for field layout.
     """
+    # --- unpack normalised observations ----------------------------------
+    lat_now       = obs[3]
+    lat_target   = obs[4]
+    progress     = obs[8]
+    work_rem     = obs[9]
+    alloc        = obs[10]   # currently applied rate (normalised)
+    bw_avail     = obs[11]   # headroom
 
-    # ------ constants, chosen empirically --------------------------------
-    ALPHA_EMA = 0.3          # smoothing factor for latency margin
-    MARGIN_LOW  = 0.02       # below this margin we become more cautious
-    MARGIN_HIGH = 0.1        # above this margin we consider speeding up
-    BW_HIGH   = 0.5           # large headroom threshold
-    BW_MED    = 0.2           # moderate headroom threshold
+    # --- map alloc_current back to an action index -----------------------
+    # The four actions [20, 50, 80, 120] Mbps, normalised by max=120.
+    action_levels = np.array([20.0/120.0, 50.0/120.0, 80.0/120.0, 1.0])
+    cur_idx = int(np.argmin(np.abs(action_levels - alloc)))
 
-    # ------ unpack observation --------------------------------
-    fg_read_iops  = float(obs[0])
-    fg_write_iops = float(obs[1])
-    fg_bw         = float(obs[2])
-    latency_now   = float(obs[3])
-    latency_target= float(obs[4])
-    hazard        = float(obs[5])
-    hazard_uncert = float(obs[6])
-    redundancy    = float(obs[7])
-    progress      = float(obs[8])
-    work_left     = float(obs[9])
-    alloc_current = float(obs[10])
-    bw_available  = float(obs[11])
+    # --- immediate fallback on violation --------------------------------
+    if lat_now > lat_target:
+        # A latency violation costs 10.0, far outweighing 0.1 per step
+        # for degraded state.  Drop to the lowest rate immediately.
+        return 0
 
-    # ------ state initialisation on first call --------------------
-    if "action" not in state:
-        # Choose a safe initial action based on current conditions
-        if latency_now > latency_target:
-            state["action"] = 0   # already violating -> minimal rate
-        elif bw_available > BW_HIGH:
-            state["action"] = 2   # plenty of headroom -> moderately fast
+    # --- near completion: ease off to avoid a final violation -----------
+    if progress > 0.99 or work_rem < 0.01:
+        return 0
+
+    # --- normal operation: stay safely below target --------------------
+    # Our desired operating point: 90 % of the target.
+    setpoint = 0.9 * lat_target
+    margin = setpoint - lat_now          # >0  means we are below setpoint
+
+    # headroom threshold: we only increase if enough free capacity exists.
+    ROOMY = 0.3
+    TIGHT = 0.1
+
+    if margin > 0.05 * lat_target:          # safely below setpoint
+        if bw_avail > ROOMY:
+            new_idx = min(3, cur_idx + 1)
         else:
-            state["action"] = 1   # default moderate
-        state["ema_margin"] = latency_target - latency_now
-        return state["action"]
+            new_idx = cur_idx                     # headroom too low – hold
+    elif margin >= 0:                            # between setpoint and target
+        if bw_avail < TIGHT:
+            new_idx = max(0, cur_idx - 1)         # reduce to avoid crossing target
+        else:
+            new_idx = cur_idx
+    else:                                          # above setpoint, close to target
+        new_idx = max(0, cur_idx - 1)              # reduce to stay safe
 
-    # ------ memory update ------------------------------------------
-    last_action = state["action"]
-    error_raw = latency_target - latency_now                # positive = safe
-
-    # Exponential moving average of the margin
-    ema_margin = state.get("ema_margin", 0.0)
-    ema_margin = ALPHA_EMA * error_raw + (1.0 - ALPHA_EMA) * ema_margin
-    state["ema_margin"] = ema_margin
-
-    # ------ decision logic ------------------------------------------
-    # If latency is currently above target, immediately go to minimum rate
-    if latency_now > latency_target:
-        new_action = 0
-
-    # If margin is critically low, reduce speed (but not below 0)
-    elif ema_margin < MARGIN_LOW:
-        new_action = max(0, last_action - 1)
-
-    # Safe margin and substantial headroom → speed up (up to max 3)
-    elif ema_margin > MARGIN_HIGH and bw_available > BW_HIGH:
-        new_action = min(3, last_action + 1)
-
-    # Moderately safe with some headroom and not just started → one step faster
-    elif (ema_margin > 0.05 and bw_available > BW_MED
-          and progress > 0.15):
-        new_action = min(3, last_action + 1)
-
-    # Otherwise hold the current rate
-    else:
-        new_action = last_action
-
-    # Store and return
-    state["action"] = new_action
-    return new_action
+    # --- store state for optional future use (currently no hysteresis) --
+    state['last_idx'] = new_idx
+    return new_idx

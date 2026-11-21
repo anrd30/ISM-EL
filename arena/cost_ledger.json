@@ -242,8 +242,248 @@
       "input_tokens": 1005,
       "output_tokens": 6231,
       "cost_usd": 0.00843341253
+    },
+    {
+      "timestamp": "2026-11-21T10:28:18.216419+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6.2-sol",
+      "input_tokens": 1001,
+      "output_tokens": 2705,
+      "cost_usd": 0.029052
+    },
+    {
+      "timestamp": "2026-11-21T10:29:55.852661+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6.2-sol",
+      "input_tokens": 1001,
+      "output_tokens": 2830,
+      "cost_usd": 0.030302
+    },
+    {
+      "timestamp": "2026-11-21T10:32:00.547280+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6.2-sol",
+      "input_tokens": 1001,
+      "output_tokens": 3848,
+      "cost_usd": 0.040482
+    },
+    {
+      "timestamp": "2026-11-21T10:34:04.832907+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6.2-sol",
+      "input_tokens": 1001,
+      "output_tokens": 2546,
+      "cost_usd": 0.027462
+    },
+    {
+      "timestamp": "2026-11-21T10:36:23.037540+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6.2-sol",
+      "input_tokens": 1001,
+      "output_tokens": 3486,
+      "cost_usd": 0.036862
+    },
+    {
+      "timestamp": "2026-11-21T10:37:27.376868+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6-luna",
+      "input_tokens": 1001,
+      "output_tokens": 2060,
+      "cost_usd": 0.0011301
+    },
+    {
+      "timestamp": "2026-11-21T10:38:25.009481+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6-luna",
+      "input_tokens": 1001,
+      "output_tokens": 2193,
+      "cost_usd": 0.0011966
+    },
+    {
+      "timestamp": "2026-11-21T10:39:23.744116+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6-luna",
+      "input_tokens": 1001,
+      "output_tokens": 2109,
+      "cost_usd": 0.0011546
+    },
+    {
+      "timestamp": "2026-11-21T10:40:32.330718+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6-luna",
+      "input_tokens": 1001,
+      "output_tokens": 2815,
+      "cost_usd": 0.0015076
+    },
+    {
+      "timestamp": "2026-11-21T10:41:29.582110+00:00",
+      "provider": "openrouter",
+      "model": "openai/gpt-6-luna",
+      "input_tokens": 1001,
+      "output_tokens": 1834,
+      "cost_usd": 0.0010171
+    },
+    {
+      "timestamp": "2026-11-21T10:42:09.811640+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "input_tokens": 1068,
+      "output_tokens": 490,
+      "cost_usd": 0.001002
+    },
+    {
+      "timestamp": "2026-11-21T10:42:50.229649+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "input_tokens": 1068,
+      "output_tokens": 421,
+      "cost_usd": 0.0008985
+    },
+    {
+      "timestamp": "2026-11-21T10:43:31.606477+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "input_tokens": 1068,
+      "output_tokens": 504,
+      "cost_usd": 0.001023
+    },
+    {
+      "timestamp": "2026-11-21T10:44:12.389417+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "input_tokens": 1068,
+      "output_tokens": 439,
+      "cost_usd": 0.0009255
+    },
+    {
+      "timestamp": "2026-11-21T10:44:54.880741+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "input_tokens": 1068,
+      "output_tokens": 518,
+      "cost_usd": 0.001044
+    },
+    {
+      "timestamp": "2026-11-21T10:49:08.754926+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-pro-preview",
+      "input_tokens": 1068,
+      "output_tokens": 31475,
+      "cost_usd": 0.379836
+    },
+    {
+      "timestamp": "2026-11-21T10:52:59.384109+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-pro-preview",
+      "input_tokens": 1068,
+      "output_tokens": 27633,
+      "cost_usd": 0.333732
+    },
+    {
+      "timestamp": "2026-11-21T10:56:47.419564+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-pro-preview",
+      "input_tokens": 1068,
+      "output_tokens": 29391,
+      "cost_usd": 0.354828
+    },
+    {
+      "timestamp": "2026-11-21T11:00:24.621724+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-pro-preview",
+      "input_tokens": 1068,
+      "output_tokens": 27486,
+      "cost_usd": 0.331968
+    },
+    {
+      "timestamp": "2026-11-21T11:04:21.849484+00:00",
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-pro-preview",
+      "input_tokens": 1068,
+      "output_tokens": 27906,
+      "cost_usd": 0.337008
+    },
+    {
+      "timestamp": "2026-11-21T11:09:03.547883+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "input_tokens": 1031,
+      "output_tokens": 26801,
+      "cost_usd": 0.00788319056
+    },
+    {
+      "timestamp": "2026-11-21T11:13:23.728755+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "input_tokens": 1031,
+      "output_tokens": 32206,
+      "cost_usd": 0.00947226056
+    },
+    {
+      "timestamp": "2026-11-21T11:17:35.092009+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "input_tokens": 1031,
+      "output_tokens": 30960,
+      "cost_usd": 0.00910593656
+    },
+    {
+      "timestamp": "2026-11-21T11:21:28.351120+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "input_tokens": 1031,
+      "output_tokens": 27582,
+      "cost_usd": 0.00811280456
+    },
+    {
+      "timestamp": "2026-11-21T11:25:37.418465+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "input_tokens": 1031,
+      "output_tokens": 31683,
+      "cost_usd": 0.00931849856
+    },
+    {
+      "timestamp": "2026-11-21T11:27:34.586669+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_tokens": 1005,
+      "output_tokens": 5055,
+      "cost_usd": 0.00687923445
+    },
+    {
+      "timestamp": "2026-11-21T11:29:52.891061+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_tokens": 1005,
+      "output_tokens": 6231,
+      "cost_usd": 0.00843341253
+    },
+    {
+      "timestamp": "2026-11-21T11:31:56.824444+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_tokens": 1005,
+      "output_tokens": 5556,
+      "cost_usd": 0.00754134603
+    },
+    {
+      "timestamp": "2026-11-21T11:33:58.536302+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_tokens": 1005,
+      "output_tokens": 5310,
+      "cost_usd": 0.00721623735
+    },
+    {
+      "timestamp": "2026-11-21T11:36:25.131010+00:00",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "input_tokens": 1005,
+      "output_tokens": 6937,
+      "cost_usd": 0.00936644801
     }
   ],
-  "worst_case_estimate_usd": 1.1049119999999997,
-  "total_usd": 0.7163241804499998
+  "worst_case_estimate_usd": 4.312080000000001,
+  "total_usd": 2.71208454962
 }

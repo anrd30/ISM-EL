@@ -2,57 +2,43 @@
 import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
-    """Deterministic PI-like controller that balances rebuild speed and latency.
-
-    Observation indices:
-      0  fg_read_iops
-      1  fg_write_iops
-      2  fg_bw
-      3  latency_now
-      4  latency_target
-      5  hazard
-      6  hazard_uncertainty
-      7  redundancy_left
-      8  progress
-      9  work_remaining
-      10 alloc_current
-      11 bw_available
     """
-    # Extract relevant fields
-    lat_now   = obs[3]
-    lat_targ = obs[4]
-    hazard    = obs[5]
-    bw_avail  = obs[11]
+    Deterministic control policy for disk rebuild rate.
+    Returns an action index 0..3, corresponding to 20, 50, 80, 120 MBps.
+    """
+    # Extract relevant normalised fields
+    latency_now = obs[3]
+    latency_target = obs[4]
+    bw_available = obs[11]
+    alloc_current = obs[10]
 
-    # Error: positive when latency is safely below target (room to increase rebuild)
-    error = lat_targ - lat_now
+    # Avoid division by zero
+    target = max(latency_target, 1e-6)
+    margin_ratio = (latency_target - latency_now) / target
 
-    # ---- Integ ral term (stored in state) ---------------------------------
-    if 'integral' not in state:
-        state['integral'] = 0.0
+    # Decide desired normalised rebuild rate
+    if margin_ratio < 0.0:
+        # Violation – reduce to zero immediately
+        desired_norm = 0.0
+    elif margin_ratio < 0.1:
+        # Close to violation – back off a little
+        desired_norm = alloc_current * 0.8
+        desired_norm = max(desired_norm, 0.0)
+    elif margin_ratio > 0.5:
+        # Plenty of headroom – use all available bandwidth
+        desired_norm = bw_available
+    else:
+        # Moderate margin – stay at current rate
+        desired_norm = alloc_current
 
-    # Update with clamping to avoid windup
-    state['integral'] += error
-    state['integral'] = max(-2.0, min(2.0, state['integral']))
+    # Normalised values for the discrete actions (20, 50, 80, 120)
+    # Assumed linear mapping from MBps to [0, 1]
+    actions_norm = np.array([0.0, 0.3, 0.6, 1.0], dtype=np.float32)
 
-    # ---- PI control --------------------------------------------------------
-    Kp = 2.5   # proportionl gain
-    Ki = 0.2   # integral gain
-
-    u = Kp * error + Ki * state['integral']
-
-    # Hazard boost: if the risk of a second failure is high, speed up rebuild
-    if hazard > 0.5:
-        u += 1.0
-
-    # Quantise to 0..3
-    action = int(round(u))
-    action = max(0, min(3, action))
-
-    # ---- Capacity limit: never pick an action that would exceed available headroom ----
-    # bw_available is normalised ~[0,1]; 3 is maximum action index
-    max_action_by_bw = int(np.floor(bw_avail * 3))
-    action = min(action, max_action_by_bw)
-
-    return action
+    # Pick the largest action whose normalised rate does not exceed the desired rate
+    action = 0
+    for i in range(4):
+        if actions_norm[i] <= desired_norm:
+            action = i
+    return int(action)
 ```

@@ -2,56 +2,64 @@
 import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
-    """
-    A deterministic controller that avoids latency violations while trying to
-    finish the rebuild as quickly as possible.
+    """Return 0, 1, 2 or 3."""
+    lat = float(obs[3])
+    targ = float(obs[4])
+    headroom = float(obs[11])
+    remaining = float(obs[9])      # rebuild work left
+    hazard = float(obs[5])
 
-    The observation vector is 12-dimensional, normalised to roughly [0,1].
-    See spec for field indices.
-    """
-    # Unpack the relevant fields
-    latency_now      = obs[3]
-    latency_target  = obs[4]
-    hazard          = obs[5]
-    alloc_current   = obs[10]
-    bw_available    = obs[11]
-
-    margin = latency_target - latency_now
-
-    # If a violation is imminent or already present, drop to the minimum rate.
-    if margin <= 0.05:
+    # ---------------------------------------------------------
+    # 1. Immediate violation?  Hard stop at lowest rebuild rate.
+    # ---------------------------------------------------------
+    if lat >= targ:
         return 0
 
-    # Determine the desired utilisation fraction of bandwidth.
-    # Conservative choices when margin is small.
-    if margin < 0.2:
-        target_frac = bw_available * 0.5
+    # ---------------------------------------------------------
+    # 2. Exponential moving average of latency for stability.
+    # ---------------------------------------------------------
+    if 's_lat' not in state:
+        state['s_lat'] = lat
+    state['s_lat'] = 0.8 * state['s_lat'] + 0.2 * lat
+    smoothed = state['s_lat']
+
+    # Avoid division by zero – target is never truly zero.
+    margin = targ - smoothed
+    if targ > 0.0:
+        rel_margin = margin / targ
     else:
-        target_frac = min(bw_available * 0.9, 1.0)
+        rel_margin = 0.0
 
-    # If the estimated failure hazard is high, nudge the target up slightly,
-    # but never beyond a safe fraction of the headroom.
-    if hazard > 0.5:
-        target_frac = min(target_frac + 0.1, 1.0)
-        target_frac = min(target_frac, bw_available * 0.95)
+    # ---------------------------------------------------------
+    # 3. Base action from available bandwidth headroom.
+    #    Map [0,1] headroom → {0,1,2,3}.
+    # ---------------------------------------------------------
+    base_action = int(np.clip(headroom * 4.0, 0.0, 3.0))
 
-    # Discretise the continuous target to one of the four rebuild-rate levels.
-    # The levels correspond to [20, 50, 80, 120] MB/s, normalised to [0,1].
-    levels = np.array([0.1667, 0.4167, 0.6667, 1.0], dtype=np.float64)
-
-    # What level is the current allocation closest to?
-    cur_level = int(np.argmin(np.abs(levels - alloc_current)))
-    # What level does our target correspond to?
-    des_level = int(np.argmin(np.abs(levels - target_frac)))
-
-    # Change at most one step per interval to avoid aggressive jumps that
-    # could create a latency spike.
-    if des_level > cur_level:
-        action = min(cur_level + 1, 3)
-    elif des_level < cur_level:
-        action = max(cur_level - 1, 0)
+    # ---------------------------------------------------------
+    # 4. Cap aggressiveness according to how far we are from
+    #    the latency target.
+    # ---------------------------------------------------------
+    if rel_margin < 0.05:
+        action = 0
+    elif rel_margin < 0.2:
+        action = min(base_action, 1)
+    elif rel_margin < 0.4:
+        action = min(base_action, 2)
     else:
-        action = cur_level
+        action = base_action
 
-    return action
+    # ---------------------------------------------------------
+    # 5. If the rebuild is almost done, take fewer risks.
+    # ---------------------------------------------------------
+    if remaining < 0.15:
+        action = min(action, 2)      # never go to index 3 (120 MBps)
+
+    # ---------------------------------------------------------
+    # 6. High hazard – try to finish faster when it is safe.
+    # ---------------------------------------------------------
+    if hazard > 0.7 and rel_margin > 0.2:
+        action = max(action, 2)
+
+    return int(np.clip(action, 0, 3))
 ```

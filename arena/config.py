@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SPEC_VERSION = "1.5.0"
+SPEC_VERSION = "1.6.0"
 
 #: Scenario seeds. Identical for every submission, so comparisons are paired.
 SEEDS: tuple[int, ...] = tuple(range(20))
@@ -37,7 +37,10 @@ MAX_ROUNDS: int = 5
 #: this number rather than of the model. Before 1.4.0 the two backends disagreed --
 #: Ollama allowed 4096 and HuggingFace 2048 -- so results were not comparable across
 #: them. See arena.generate.DEFAULT_MAX_NEW_TOKENS.
-MAX_NEW_TOKENS: int = 8192
+#: 1.6.0: raised from 8192 to 32768. Two reasoning models (gemini-3.1-pro-preview,
+#: deepseek-v4.1-flash-1017) spent the whole 8192 on reasoning on all five repeats and
+#: returned no code; reasoning tokens count against this budget.
+MAX_NEW_TOKENS: int = 32768
 
 #: Development population. The only one a model may receive feedback from.
 DEV_PROFILE = "profile_diurnal_long_train.csv"

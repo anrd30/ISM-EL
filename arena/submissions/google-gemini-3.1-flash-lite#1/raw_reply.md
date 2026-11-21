@@ -3,51 +3,53 @@ import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
     """
-    Control policy for storage rebuild.
+    Return 0, 1, 2 or 3.
     
     Strategy:
-    1. Prioritize latency safety: if current latency is approaching the target,
-       aggressively throttle the rebuild (index 0 or 1).
-    2. Use headroom: if bw_available is high, we can afford higher rebuild rates.
-    3. Urgency: if work_remaining is high or redundancy_left is low, increase
-       the rebuild rate, provided latency permits.
-    4. Smoothing: use the state dict if necessary (not strictly needed here, 
-       but available).
+    1. Assess latency headroom: If latency is already near or above target,
+       prioritize safety by reducing throughput.
+    2. Assess urgency: If work remains high and hazard is increasing, 
+       increase throughput.
+    3. Use bw_available (headroom) as a primary constraint to avoid latency_violation.
     """
     
-    # Extract relevant observations
-    # Index 3: latency_now, 4: latency_target, 11: bw_available
-    # Index 9: work_remaining, 7: redundancy_left
+    # Unpack observation for readability
     latency_now = obs[3]
     latency_target = obs[4]
-    bw_available = obs[11]
+    hazard = obs[5]
     work_remaining = obs[9]
-    redundancy_left = obs[7]
+    bw_available = obs[11]
     
-    # Calculate safety margin for latency
-    # If latency_now is close to latency_target, we must be conservative.
+    # Calculate a safety margin for latency
+    # If latency_now > latency_target, latency_ratio > 1
     latency_ratio = latency_now / (latency_target + 1e-6)
     
+    # Determine risk profile
+    # High hazard or high work remaining suggests we want faster rebuilds
+    urgency = (hazard + work_remaining) / 2.0
+    
     # Decision logic:
-    # If latency is already at or near the limit, we MUST minimize impact.
+    # We want to be aggressive (higher index) if:
+    # - Latency is low (latency_ratio is small)
+    # - Headroom is high (bw_available is large)
+    # - Urgency is high
+    
     if latency_ratio > 0.95:
+        # Critical: minimize impact immediately
         return 0
     
-    # If latency is moderately high, use a medium-low rate
     if latency_ratio > 0.8:
+        # Caution: moderate impact
         return 1
-        
-    # If latency is low, we check our urgency
-    # High work remaining or low redundancy justifies higher rates
-    urgency = (1.0 - redundancy_left) + work_remaining
     
-    # If we have plenty of bandwidth and low latency, go fast
-    if bw_available > 0.6 and urgency > 0.4:
+    # If latency is healthy, scale based on urgency and available bandwidth
+    # Map urgency (0-1) and bw_available (0-1) to actions
+    score = (urgency * 0.6) + (bw_available * 0.4)
+    
+    if score > 0.7:
         return 3
-    
-    # Default to medium-high if latency is safe
-    if bw_available > 0.3:
+    elif score > 0.4:
         return 2
-        
-    return 1
+    else:
+        return 1
 ```

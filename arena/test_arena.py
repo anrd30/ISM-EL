@@ -450,6 +450,49 @@ def test_pinned_model_is_sent_to_one_provider_without_fallback_and_the_host_is_r
     assert prefs["only"] == ["HostX"] and prefs["allow_fallbacks"] is False
     assert g.LAST_CALL["served_by"] == "HostX" and g.LAST_CALL["pinned_provider"] == "HostX"
     unpinned = _id("ARENA_MODEL_OPENAI_SOL")
+    monkeypatch.delenv("ARENA_PROVIDER_OPENAI_SOL", raising=False)
     g._call_api("openrouter", unpinned, "prompt", 0.7, 100, 1)
     assert "only" not in seen["extra_body"]["provider"]
     assert models.display_label(slug).startswith("DeepSeek V4 Pro (0423")
+
+
+def test_generation_budget_is_one_value_across_config_and_generate() -> None:
+    from arena import generate
+    from arena.config import MAX_NEW_TOKENS, SPEC_VERSION
+
+    assert MAX_NEW_TOKENS == generate.DEFAULT_MAX_NEW_TOKENS == 32768
+    assert SPEC_VERSION == "1.6.0"
+
+
+def test_every_batch_model_is_pinned_to_one_host() -> None:
+    from pathlib import Path
+
+    from arena import models
+
+    lines = (Path(models.__file__).parent / ".env.example").read_text(encoding="utf-8").splitlines()
+    pinned = {l.split("=")[0] for l in lines if l.startswith("ARENA_PROVIDER_")}
+    for var in models.batch_roster():
+        assert "ARENA_PROVIDER_" + var[len("ARENA_MODEL_"):] in pinned, var
+
+
+def test_headline_report_is_the_median_over_environments_with_a_beat_sine_count(tmp_path, monkeypatch, capsys) -> None:
+    import json
+
+    from arena import run
+    from arena.config import EVAL_PROFILES
+
+    def result(name, gs):
+        return {"name": name, "error": None, "dev": {"mean_g": 0.0},
+                "eval": [{"profile": e, "mean_g": g, "mean_violation_fraction": 0.0} for e, g in zip(EVAL_PROFILES, gs)]}
+
+    n = len(EVAL_PROFILES)
+    for r in (result(run.SINE_RESULT, [0.0] * n), result("m#1", [1.0] * 3 + [-5.0] * (n - 3)),
+              result("m#2", [3.0] * 3 + [-5.0] * (n - 3))):
+        (tmp_path / f"{r['name']}.json").write_text(json.dumps(r), encoding="utf-8")
+    (tmp_path / "bad#1.json").write_text(json.dumps({"name": "bad#1", "error": "no policy", "eval": []}), encoding="utf-8")
+    monkeypatch.setattr(run, "RESULTS", tmp_path)
+    run._report_headline()
+    out = capsys.readouterr().out
+    line = next(l for l in out.splitlines() if l.split() and l.split()[0] == "m")
+    assert "-5.0" in line and "3/8" in line and "2/2" in line
+    assert next(l for l in out.splitlines() if l.split() and l.split()[0] == "bad").split()[-1] == "-"

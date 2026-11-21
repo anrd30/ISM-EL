@@ -2,55 +2,47 @@ import numpy as np
 
 def policy(obs: np.ndarray, state: dict) -> int:
     """
-    Control policy for disk rebuild rate.
+    Return 0, 1, 2 or 3.
     
     Strategy:
-    1. Check for latency violations: If latency is already exceeding or very close
-       to the target, prioritize reducing load immediately (select 0 or 1).
-    2. Assess urgency: If redundancy is low or hazard is high, prioritize 
-       finishing the rebuild faster (select 2 or 3).
-    3. Use headroom: Use available bandwidth (bw_available) to decide if the 
-       system can handle a higher rebuild rate without violating latency.
+    - Prioritize avoiding latency_violation (index 4).
+    - Use bw_available (index 11) to gauge safe headroom.
+    - Balance progress (index 8) vs latency risks.
+    - If latency is near target, throttle back to 0 or 1.
+    - If latency is low and progress is slow, increase rate.
     """
     
-    # Extract key observations
     latency_now = obs[3]
     latency_target = obs[4]
-    hazard = obs[5]
-    redundancy_left = obs[7]
-    work_remaining = obs[9]
     bw_available = obs[11]
+    progress = obs[8]
+    work_remaining = obs[9]
     
-    # 1. Safety Check: If latency is near or above target, minimize rebuild impact.
-    # We use a buffer (0.9) to stay proactive before hitting the hard limit.
-    if latency_now > (latency_target * 0.9):
+    # Calculate headroom buffer
+    # latency_target is the threshold for the 10.0 penalty.
+    # We want a safety margin.
+    latency_ratio = latency_now / (latency_target + 1e-6)
+    
+    # If we are already violating or very close (90%+), throttle aggressively
+    if latency_ratio > 0.95:
         return 0
     
-    # 2. Urgency Check: If redundancy is critically low or hazard is high, 
-    # we must push the rebuild faster regardless of minor latency impact.
-    # High hazard or low redundancy suggests we should favor higher rates.
-    urgency = (1.0 - redundancy_left) + hazard
-    
-    # 3. Decision Logic based on headroom and urgency
-    # If we have plenty of headroom, we can afford higher rates.
-    # If urgency is high, we take higher rates even with moderate headroom.
-    
-    if urgency > 0.6:
-        # High danger: push hard if possible
-        if bw_available > 0.4:
+    # If latency is moderate (70-95%), be conservative
+    if latency_ratio > 0.75:
+        return 1
+        
+    # If we have plenty of bandwidth headroom and low latency, 
+    # we can afford higher rebuild rates.
+    # bw_available is normalized [0, 1].
+    if bw_available > 0.6:
+        # High headroom, low latency: speed up
+        if progress < 0.8:
             return 3
+        else:
+            return 2
+    elif bw_available > 0.3:
+        # Moderate headroom
         return 2
-    elif urgency > 0.3:
-        # Moderate danger
-        if bw_available > 0.6:
-            return 3
-        if bw_available > 0.3:
-            return 2
-        return 1
-    else:
-        # Low danger: prioritize latency and finish at a moderate pace
-        if bw_available > 0.7:
-            return 2
-        return 1
-
+    
+    # Default fallback to conservative speed
     return 1

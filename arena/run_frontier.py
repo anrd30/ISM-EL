@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from arena import cost_ledger
-from arena.config import RESULTS, SPEC_VERSION, SUBMISSIONS
+from arena.config import MAX_NEW_TOKENS, RESULTS, SPEC_VERSION, SUBMISSIONS
 from arena.generate import EXIT_NO_POLICY
 
 SEEDS = (1, 2, 3, 4, 5)
@@ -92,7 +92,8 @@ def main() -> int:
                 print(f"skip {name}: reply already kept")
                 continue
             code = _run(["arena.generate", "--model", f"api:{models.API_PROVIDER}/{model}", "--out", str(out),
-                         "--seed", str(seed), "--temperature", str(TEMPERATURE)])
+                         "--seed", str(seed), "--temperature", str(TEMPERATURE),
+                         "--max-new-tokens", str(MAX_NEW_TOKENS)])
             if code == EXIT_NO_POLICY and (out / "raw_reply.md").exists():
                 _record_no_policy(name, out)
                 _attach_generation(name, out)

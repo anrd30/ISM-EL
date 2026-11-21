@@ -33,7 +33,7 @@ PROMPT = Path(__file__).resolve().parent / "prompts" / "task_prompt.md"
 #: a capable model as producing no policy. DeepSeek-R1-Distill-32B exhausted 2048
 #: tokens reasoning and never reached the function on all five repeats, which is a
 #: property of this constant and not of the model.
-DEFAULT_MAX_NEW_TOKENS = 8192
+DEFAULT_MAX_NEW_TOKENS = 32768
 
 #: Exit codes of ``main``: 1 is a reply without a policy (the reply is kept); the others
 #: mean no reply was obtained.

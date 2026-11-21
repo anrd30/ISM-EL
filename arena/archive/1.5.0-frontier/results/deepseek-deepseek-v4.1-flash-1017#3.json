@@ -1,0 +1,17 @@
+{
+  "name": "deepseek-deepseek-v4.1-flash-1017#3",
+  "spec_version": "1.5.0",
+  "track": "zero-shot",
+  "submission": "C:\\Users\\Lenovo\\Desktop\\Workspaces\\ISM-EL-wtArena\\arena\\submissions\\deepseek-deepseek-v4.1-flash-1017#3\\policy.py",
+  "timestamp": "2026-11-21T08:56:33.124654+00:00",
+  "dev": null,
+  "eval": [],
+  "error": "no policy: reply kept at C:\\Users\\Lenovo\\Desktop\\Workspaces\\ISM-EL-wtArena\\arena\\submissions\\deepseek-deepseek-v4.1-flash-1017#3\\raw_reply.md",
+  "generation": {
+    "api": "openrouter",
+    "requested_slug": "deepseek/deepseek-v4.1-flash-1017",
+    "pinned_provider": null,
+    "served_by": "Sail Research",
+    "served_model": "deepseek/deepseek-v4.1-flash-1017"
+  }
+}

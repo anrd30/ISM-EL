@@ -123,6 +123,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from contracts.contracts import (
     LATENCY_LIMIT_FACTOR,
@@ -131,7 +132,13 @@ from contracts.contracts import (
 )
 from hazard.v0 import HeuristicHazardV0
 from hazard.v1 import FittedHazardV1
-from sim.scenario import FleetFeatureFn, v0_drive_features, v1_drive_features, v1_eval_drive_features
+from sim.scenario import (
+    FleetFeatureFn,
+    v0_drive_features,
+    v1_drive_features,
+    v1_eval_drive_features,
+    v1_vendor_holdout_drive_features,
+)
 from workload.generate import PROFILE_NAMES
 
 __all__ = [
@@ -139,6 +146,8 @@ __all__ = [
     "RiskObjective",
     "v0_config",
     "v1_eval_config",
+    "vendor_holdout_config",
+    "VENDOR_HOLDOUT_ARTIFACT_DIR",
     "latency_mean_ms",
     "latency_percentiles_ms",
     "violation_rho_threshold",
@@ -343,6 +352,25 @@ def v1_eval_config(**overrides: object) -> SimConfig:
     passed to ``SimConfig`` and may replace either field.
     """
     fields: dict[str, object] = {"feature_fn": v1_eval_drive_features}
+    fields.update(overrides)
+    return SimConfig(**fields)  # type: ignore[arg-type]
+
+
+#: Artifact directory of the hazard model fitted on the Seagate drive models only.
+VENDOR_HOLDOUT_ARTIFACT_DIR: Path = Path(__file__).resolve().parents[1] / "hazard" / "artifacts" / "v1_seagate_only"
+
+
+def vendor_holdout_config(**overrides: object) -> SimConfig:
+    """Return a ``SimConfig`` with the Seagate-only hazard model and fleets drawn from the held-out drive model's feature table.
+
+    The hazard model is ``FittedHazardV1`` loaded from ``VENDOR_HOLDOUT_ARTIFACT_DIR``; the fleet generator is
+    ``v1_vendor_holdout_drive_features`` (drives of the drive model that model was not fitted on). ``overrides`` are
+    passed to ``SimConfig`` and may replace either field.
+    """
+    fields: dict[str, object] = {
+        "hazard_model": FittedHazardV1(VENDOR_HOLDOUT_ARTIFACT_DIR),
+        "feature_fn": v1_vendor_holdout_drive_features,
+    }
     fields.update(overrides)
     return SimConfig(**fields)  # type: ignore[arg-type]
 

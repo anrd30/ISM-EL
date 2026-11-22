@@ -98,8 +98,8 @@ def _usable_values(column: pa.ChunkedArray) -> np.ndarray:
     return values
 
 
-def _select_test_rows(labels: pd.DataFrame, drive_split: pd.DataFrame) -> np.ndarray:
-    """Return the row mask for ``TEST_SPLIT``: drive in the split and ``label != -1``.
+def _select_test_rows(labels: pd.DataFrame, drive_split: pd.DataFrame, split_name: str | None = None) -> np.ndarray:
+    """Return the row mask for ``split_name`` (default ``TEST_SPLIT``): drive in the split and ``label != -1``.
 
     Same logic as ``fit_v1.select_rows`` (left merge on ``serial_number``, many-to-one),
     kept local because ``fit_v1.select_rows`` accepts the train and validation splits only.
@@ -107,7 +107,8 @@ def _select_test_rows(labels: pd.DataFrame, drive_split: pd.DataFrame) -> np.nda
     joined = labels[["serial_number", "label"]].merge(
         drive_split[["serial_number", "split"]], on="serial_number", how="left", validate="many_to_one"
     )
-    return ((joined["split"] == TEST_SPLIT) & (joined["label"] != fit_v1.CENSORED)).to_numpy()
+    split_name = TEST_SPLIT if split_name is None else split_name
+    return ((joined["split"] == split_name) & (joined["label"] != fit_v1.CENSORED)).to_numpy()
 
 
 def build(
@@ -116,10 +117,17 @@ def build(
     seed: int = SAMPLING_SEED,
     *,
     split: str = fit_v1.TRAIN_SPLIT,
+    drive_split_path: Path | None = None,
 ) -> dict:
-    """Read the rows of ``split``, build the table, write it to ``out_path`` and return it."""
+    """Read the rows of ``split``, build the table, write it to ``out_path`` and return it.
+
+    ``drive_split_path`` (default ``fit_v1.DRIVE_SPLIT``) names another drive-split table; a split name other than
+    train or val is selected like the test split (drive in the split and ``label != -1``).
+    """
     started = time.time()
-    drive_split = pd.read_parquet(fit_v1.DRIVE_SPLIT, columns=["serial_number", "model", "split"])
+    drive_split = pd.read_parquet(
+        fit_v1.DRIVE_SPLIT if drive_split_path is None else drive_split_path, columns=["serial_number", "model", "split"]
+    )
     if drive_split["serial_number"].duplicated().any():
         raise ValueError("drive split has more than one row for a drive")
     drive_split = drive_split[drive_split["split"] == split].copy()
@@ -136,8 +144,8 @@ def build(
     read = [*fit_v1.KEY_COLUMNS, fit_v1.MODEL_COLUMN, *values]
     for left, right in fit_v1.paired_chunks(read):
         labels = right.select(["serial_number", "label"]).to_pandas()
-        if split == TEST_SPLIT:
-            mask = _select_test_rows(labels, drive_split)
+        if split not in fit_v1.ALLOWED_SPLITS:
+            mask = _select_test_rows(labels, drive_split, split)
         else:
             mask = fit_v1.select_rows(labels, drive_split, split)
         keys = rng.random(left.num_rows)
@@ -199,7 +207,15 @@ def build(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--split", choices=("train", "test"), default="train")
+    parser.add_argument("--drive-split", type=Path, default=None, help="drive-split parquet and bucket name, with --bucket and --out")
+    parser.add_argument("--bucket", default=None, help="split name to build from (with --drive-split)")
+    parser.add_argument("--out", type=Path, default=None, help="output JSON (with --drive-split)")
     args = parser.parse_args(argv)
+    if (args.drive_split, args.bucket, args.out).count(None) not in (0, 3):
+        parser.error("--drive-split, --bucket and --out are given together or not at all")
+    if args.out is not None:
+        build(args.out, split=args.bucket, drive_split_path=args.drive_split)
+        return 0
     split, out_path = (fit_v1.TRAIN_SPLIT, OUT_PATH) if args.split == "train" else (TEST_SPLIT, OUT_PATH_TEST)
     build(out_path, split=split)
     return 0

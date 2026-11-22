@@ -128,10 +128,12 @@ __all__ = [
     "FleetFeatureFn",
     "FLEET_FEATURES_PATH",
     "FLEET_FEATURES_TEST_PATH",
+    "FLEET_FEATURES_VENDOR_HOLDOUT_PATH",
     "FleetTable",
     "v0_drive_features",
     "v1_drive_features",
     "v1_eval_drive_features",
+    "v1_vendor_holdout_drive_features",
     "load_fleet_table",
     "draw_v1_drive_features",
 ]
@@ -141,6 +143,9 @@ FLEET_FEATURES_PATH: Path = Path(__file__).resolve().parent / "fleet_features_v1
 
 #: Path of the empirical feature table built from the held-out split, used by the evaluation generator.
 FLEET_FEATURES_TEST_PATH: Path = Path(__file__).resolve().parent / "fleet_features_v1_test.json"
+
+#: Path of the empirical feature table built from the drives of the held-out drive model (vendor-holdout split).
+FLEET_FEATURES_VENDOR_HOLDOUT_PATH: Path = Path(__file__).resolve().parent / "fleet_features_vendor_holdout.json"
 
 #: Surviving drives at episode start: one drive of the group has already failed.
 N_SURVIVORS: int = GROUP_SIZE - 1
@@ -396,6 +401,13 @@ def v1_eval_drive_features(
 ) -> dict[str, Any]:
     """Return one drive's v1 inputs from ``FLEET_FEATURES_TEST_PATH`` (batch age and noise are unused)."""
     return draw_v1_drive_features(load_fleet_table(FLEET_FEATURES_TEST_PATH), rng, level)
+
+
+def v1_vendor_holdout_drive_features(
+    rng: np.random.Generator, level: float, batch_age_hours: float, age_noise: float
+) -> dict[str, Any]:
+    """Return one drive's v1 inputs from ``FLEET_FEATURES_VENDOR_HOLDOUT_PATH`` (batch age and noise are unused)."""
+    return draw_v1_drive_features(load_fleet_table(FLEET_FEATURES_VENDOR_HOLDOUT_PATH), rng, level)
 
 
 def sample_fleet(

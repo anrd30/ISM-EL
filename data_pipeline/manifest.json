@@ -224,6 +224,11 @@
       "file": "profiles/profile_diurnal_long_popD_holdout.meta.json",
       "rows": null,
       "sha256": "6a56ef95b247fc9d3967334fb19310af93e979494baaa42192eb9e979feca8e8"
+    },
+    {
+      "file": "data/processed/backblaze_drive_split_vendor_holdout.parquet",
+      "rows": 92525,
+      "sha256": "1dccf1628f35e30b9c98e924322ef14fcbe7ac1b510ebff69b6401f6cb09f170"
     }
   ],
   "sources": {

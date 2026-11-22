@@ -1,0 +1,139 @@
+{
+  "files": [
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_00.ubj",
+      "rows": null,
+      "sha256": "e8ac52700fd4958ee2f012894f8717933b3ceee96f6435c06d7ebfe363ef14a1"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_01.ubj",
+      "rows": null,
+      "sha256": "c8da46f7d0927d2567594a7a4766e201958c4a3914632e5fc376f30f7e2a4ea4"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_02.ubj",
+      "rows": null,
+      "sha256": "b5d5b1ad91eb42f70e216004cfbea8727e8ac3ba68f5b51dafa6acaf0055c3f8"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_03.ubj",
+      "rows": null,
+      "sha256": "e74c1976216db4a2eb69e36877b8bd05605342381ddba6d4c11f8ba2b0c4501e"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_04.ubj",
+      "rows": null,
+      "sha256": "3a643449b5a0ef6f25a7ca483ec131a37e8de5811a685a012599bfd8bd354d1d"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_05.ubj",
+      "rows": null,
+      "sha256": "9e7bb36187ddebc342f51c1406b21090db3898f5bb564ec6ad5b827c42a66cf0"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_06.ubj",
+      "rows": null,
+      "sha256": "742428fec40cf3970bab1fbcd6220286656dbb44c0a57ef21133e4eeabf8caae"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_07.ubj",
+      "rows": null,
+      "sha256": "cc2b1a1ada36f3cc7a37e21bd96fadddceab5b1442919ccf3fa0fe13e42f2184"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_08.ubj",
+      "rows": null,
+      "sha256": "816bb2e8088365b33d114d74065015c28244d8d8df0d1faa9e502563b289db5c"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_09.ubj",
+      "rows": null,
+      "sha256": "dd6273214e77895eec5e029c6178293a9ca325a459e242da745d841d5c97dd76"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_10.ubj",
+      "rows": null,
+      "sha256": "b17d3a9c7ea2c412dcf9a2dbc2f989b7cb3b0fe52062b3f145643d19b2701c0b"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_11.ubj",
+      "rows": null,
+      "sha256": "f5f7eec7b3babb5312253e6c49af0f666c039e8cfb54e2f72b69363401b6fbd9"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_12.ubj",
+      "rows": null,
+      "sha256": "d3597ad5583887de734b0f8f0fafe82a986f24d027249e78d5016d021505ca86"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_13.ubj",
+      "rows": null,
+      "sha256": "4414d47c8301fba18561c3698240e8376bf4f36dcde7d4326d705881ef646486"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_14.ubj",
+      "rows": null,
+      "sha256": "510eefc886fa8ea31358a337eb2032991f8c522cbab22e8327f50a5f45c6552c"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_15.ubj",
+      "rows": null,
+      "sha256": "d2e5f008d6c66f2a4bc63a7aebad15f47214ec30ff0c0a69d3e09288369cd83e"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_16.ubj",
+      "rows": null,
+      "sha256": "7ec32c58fb37802d53b59abbbbdc5dbccf63bc082b5a702d1b0a6031bceb6707"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_17.ubj",
+      "rows": null,
+      "sha256": "70344990704e8ca2eff19750cd0d1b40a7198ec89bb4aae2c4f803340a74281d"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_18.ubj",
+      "rows": null,
+      "sha256": "fa906d46c21556eea672e005809f660fc4f37c1730b7a1d016983c1e3cd1d06f"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_19.ubj",
+      "rows": null,
+      "sha256": "b6e9bf1b6023cdfd31c09c9b6afb0b578b5093b0d43bd1c174452bd61761612c"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_20.ubj",
+      "rows": null,
+      "sha256": "844b29daa1e33be7e79c6b13857bb2b353636123401844c1f74390543b83d172"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_21.ubj",
+      "rows": null,
+      "sha256": "e567ca8e4a5cc99fcf3771eb2584ac078f71608f9fb754397596c002fda6bf5d"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_22.ubj",
+      "rows": null,
+      "sha256": "ee33d5619e744edc08b67d1ed6e0211581c43fbea16bfd2de198aafd05347d2a"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_23.ubj",
+      "rows": null,
+      "sha256": "e453dbeeb6ea13400fbc1b5c3257a34cba421fe1a98b880b404ef96ca913c152"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/booster_24.ubj",
+      "rows": null,
+      "sha256": "74adcfa3e1ee25ea233328e10820794f57ed7ce8f28f853b319ecc5b1e2052a2"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/calibrators.npz",
+      "rows": null,
+      "sha256": "ed1873f5362047d8caf9c459ffb3bc29f8138b982906e2933fbe04071c54d645"
+    },
+    {
+      "file": "hazard/artifacts/v1_seagate_only/meta.json",
+      "rows": null,
+      "sha256": "c3e871829b0136fa6582bdfaa611e06896e3a0ad9894c3ded4f2eb0cc73820b3"
+    }
+  ]
+}

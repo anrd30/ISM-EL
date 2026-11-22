@@ -86,7 +86,7 @@ the evidence files were checked by hash against the main checkout's copies, not 
 Three results now sit next to each other.
 
 1. **Constrained PPO** (`PPO_COLLAPSE_DECISION.md`) trails the rule by about -11 reward on the
-   held-out window after its defects were fixed, against a total oracle headroom of 11.85, and the
+   held-out window after its defects were fixed, against the one-step look-ahead oracle's gain of 11.85, and the
    largest action was starved early in training. It is evaluated on the time-forward holdout window
    with held-out fleets, so "out of distribution" here means a later time window and a different fleet
    table. Its observation is the contract's 12 fields with no load history, so it had no access to
@@ -94,7 +94,7 @@ Three results now sit next to each other.
    over-aggressive allocation, which is a separate failure from the starvation.
 2. **A hand-built controller with a one-day-lagged forecast** beats the rule by +3.3 to +3.7 reward on
    every one of 20 scenarios, including the three extremes (+0.56 to +2.59), with violation fraction
-   0.0455 against 0.0444 (within noise), and recovers 28% of the oracle headroom. That is a gain of
+   0.0455 against 0.0444 (within noise), and reaches 28% of the one-step look-ahead oracle's gain. That is a gain of
    about 1% of the rule's reward. The tuned parameters add nothing over the hand-built version
    (-0.41, sem 0.07), so the gain is the forecast. The record's own wording, "do not report that
    learning found it", is right.
@@ -150,3 +150,5 @@ Evidence that would break it:
   hand-built controller on the holdout.
 - The seasonal gain disappearing on a second window, or on the periodicity-scrambled control.
 - The gain shrinking under a calibrated latency model.
+
+**Correction (2026-11-20).** `ORACLE_lookahead` is the value of a perfect one-step forecast to the rule's control law; it is not a performance bound. The exact hindsight optimum exceeds it by about 1 reward point (+1.01 on the holdout, +1.13 on altB; `agent/OPTIMUM_DECISION.md`), and the headroom over the rule depends on the [ASSUMED] objective coefficients: across a one-factor grid it is 1.7% to 15.9% of the rule's cost over all scenarios and 8.7% to 75.7% over the controllable ones (`agent/OBJECTIVE_SENSITIVITY_DECISION.md`). The percentages and absolute magnitudes quoted in this record are properties of one setting of those coefficients, not of the problem. `risk_aware_rule_based` is the project's own design: the literal specification rule (`SlowestRiskFeasible`) runs 20 MB/s for about 167 hours at baseline hazard and was discarded as a comparator for that reason.

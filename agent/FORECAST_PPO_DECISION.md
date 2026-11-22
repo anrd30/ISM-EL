@@ -43,7 +43,7 @@ exploitable signal). Evidence: `agent/evidence/forecast-ppo-2026-11-11/`.
 ## Evidence
 
 Configuration `v1,eval-fleet,sigma=0.25`, holdout `profile_diurnal_long_holdout.csv`,
-20 paired scenarios. Rule -330.2, oracle -318.3, so the oracle headroom is +11.9. The
+20 paired scenarios. Rule -330.2, oracle -318.3, so the gain of the one-step look-ahead oracle is +11.9. The
 baseline harness reproduced the `b2_244` evaluation row for row.
 
 | Policy | Gap vs rule | sem | Scenarios better |
@@ -57,7 +57,8 @@ baseline harness reproduced the `b2_244` evaluation row for row.
 | hand-built `SeasonalForecastRule` (the imitation target) | +3.68 | 0.28 | 20 / 20 |
 | `seasonal_search`, 3 seeds (`SEASONAL_SEARCH_DECISION.md`) | +2.86 to +3.68 | ~0.25 | 20 / 20 |
 
-- **Headroom:** the pooled gain is 54% of the oracle's.
+- **Share of the oracle's gain:** the pooled gain is 54% of the gain of the one-step look-ahead oracle, a reference and not a bound.
+- **Correction (2026-11-20).** `ORACLE_lookahead` is the value of a perfect one-step forecast to the rule's control law; it is not a performance bound. The exact hindsight optimum exceeds it by about 1 reward point (+1.01 on the holdout, +1.13 on altB; `agent/OPTIMUM_DECISION.md`), and the headroom over the rule depends on the [ASSUMED] objective coefficients: across a one-factor grid it is 1.7% to 15.9% of the rule's cost over all scenarios and 8.7% to 75.7% over the controllable ones (`agent/OBJECTIVE_SENSITIVITY_DECISION.md`). The percentages and absolute magnitudes quoted in this record are properties of one setting of those coefficients, not of the problem. `risk_aware_rule_based` is the project's own design: the literal specification rule (`SlowestRiskFeasible`) runs 20 MB/s for about 167 hours at baseline hazard and was discarded as a comparator for that reason.
 - **PPO adds to its starting point:** +5.17, +1.88 and +9.54 against the same network
   before PPO.
 - **PPO beats the heuristic it imitated:** +2.56, +2.64 and +3.03 (sem 1.2 to 1.4), on

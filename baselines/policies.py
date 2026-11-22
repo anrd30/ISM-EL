@@ -481,7 +481,8 @@ class RiskAwareRuleBased(_Throttle):
     action", because predicted latency rises with the allocation: the slowest
     member of the feasible set has the lowest latency, so the latency condition
     never changes the answer. That rule is :class:`SlowestRiskFeasible`. At
-    baseline hazard all four actions are feasible, so it runs 20 MB/s for about
+    baseline hazard (baseline hazard only; at the hazards of the evaluation fleets the risk floor
+    binds) all four actions are feasible, so it runs 20 MB/s for about
     167 hours on every workload, and any learned policy would beat it by
     rebuilding faster when load permits. A win of that kind needs no learning,
     so it would say nothing about the project's claim. Spare headroom is worth

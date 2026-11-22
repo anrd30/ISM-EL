@@ -1,0 +1,23 @@
+environment,class,policy,n,gain_over_rule,sem,t,scenarios_differing_from_rule
+contract,all,predictive_controller,20,13.0111,1.57596,8.25593,20
+contract,primary_controllable,predictive_controller,16,15.1469,1.49818,10.1103,20
+contract,all,DP_hindsight_optimum (not deployable),20,13.8285,1.59654,8.66153,20
+contract,primary_controllable,DP_hindsight_optimum (not deployable),16,16.0412,1.48588,10.7957,20
+objective,all,workload_only_throttle,20,0,0,,0
+objective,primary_controllable,workload_only_throttle,16,0,0,,0
+objective,all,predictive_controller,20,8.1142,1.16975,6.93668,20
+objective,primary_controllable,predictive_controller,16,8.33958,1.46396,5.69659,20
+objective,all,hazard_weighted_rule,20,0.523648,0.0724695,7.22577,20
+objective,primary_controllable,hazard_weighted_rule,16,0.577095,0.0778384,7.414,20
+objective,all,hazard_weighted_controller,20,8.46458,1.20535,7.02248,20
+objective,primary_controllable,hazard_weighted_controller,16,8.83826,1.49713,5.90347,20
+objective,all,DP_hindsight_optimum (not deployable),20,9.40908,1.1849,7.94079,20
+objective,primary_controllable,DP_hindsight_optimum (not deployable),16,9.84531,1.4665,6.71349,20
+objective_unforced,all,predictive_controller,20,8.29504,1.17763,7.04382,20
+objective_unforced,primary_controllable,predictive_controller,16,8.33958,1.46396,5.69659,20
+objective_unforced,all,hazard_weighted_rule,20,0.54176,0.0772188,7.01591,20
+objective_unforced,primary_controllable,hazard_weighted_rule,16,0.577095,0.0778384,7.414,20
+objective_unforced,all,hazard_weighted_controller,20,8.65139,1.21033,7.14795,20
+objective_unforced,primary_controllable,hazard_weighted_controller,16,8.83826,1.49713,5.90347,20
+objective_unforced,all,DP_hindsight_optimum (not deployable),20,172.343,115.083,1.49756,20
+objective_unforced,primary_controllable,DP_hindsight_optimum (not deployable),16,9.84531,1.4665,6.71349,20

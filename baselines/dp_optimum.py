@@ -96,12 +96,21 @@ class DPSolution:
         return int(self.action[j, w])
 
 
-def _floors(hazard: float, grid: np.ndarray) -> np.ndarray:
-    return np.array([apply_safety_filter(0, hazard, float(w)).applied_index for w in grid], dtype=np.int64)
+def _floors(hazard: float, grid: np.ndarray, max_rate_when_infeasible: bool = True) -> np.ndarray:
+    """Risk floor per grid point; with ``max_rate_when_infeasible`` False an infeasible budget has floor 0."""
+    out = []
+    for w in grid:
+        decision = apply_safety_filter(0, hazard, float(w))
+        out.append(decision.applied_index if (decision.any_feasible or max_rate_when_infeasible) else 0)
+    return np.array(out, dtype=np.int64)
 
 
-def _interval_costs(fg: float, config: SimConfig) -> np.ndarray:
-    """Cost ``-compute_reward(...)`` of an interval for each delivered-action index ``0 .. N-1`` at load ``fg``."""
+def _interval_costs(fg: float, config: SimConfig, degraded_weight: float = 1.0) -> np.ndarray:
+    """Cost ``-compute_reward(...)`` of an interval for each delivered-action index ``0 .. N-1`` at load ``fg``.
+
+    ``degraded_weight`` multiplies the degraded-state term (``SimConfig.risk_objective``: true hazard over the
+    reference hazard); 1 is the contract reward.
+    """
     available = max(0.0, config.rho_max * BW_TOTAL_MBPS - fg)
     costs = np.zeros(_N)
     for i in range(_N):
@@ -110,7 +119,7 @@ def _interval_costs(fg: float, config: SimConfig) -> np.ndarray:
         latency = latency_mean_ms(rho, config)
         costs[i] = -compute_reward(
             latency_degradation(latency, config.latency_target_ms),
-            degraded_cost(True),
+            degraded_cost(True) * degraded_weight,
             latency_violation(latency, config.latency_target_ms),
             config.reward,
         )
@@ -129,8 +138,12 @@ def solve_hindsight(
     *,
     grid_gb: float = DEFAULT_GRID_GB,
     work_max_gb: float = REBUILD_WORK_GB,
+    degraded_weight: float = 1.0,
 ) -> DPSolution:
     """Backward induction over ``(step, work)``.
+
+    ``degraded_weight`` is the factor on the degraded-state cost (``config.risk_objective``); the risk floor is the
+    filter's, except that with ``config.infeasible_budget_max_rate`` False an infeasible budget has floor 0.
 
     ``fg_future_mbps[j]`` is the foreground load of the ``(j + 1)``-th environment step. The interval at
     which work reaches zero is charged in full, as the environment does.
@@ -138,13 +151,13 @@ def solve_hindsight(
     horizon = len(fg_future_mbps)
     n_grid = int(round(work_max_gb / grid_gb)) + 1
     grid = np.arange(n_grid) * grid_gb
-    floors = _floors(hazard_per_hour, grid)
+    floors = _floors(hazard_per_hour, grid, config.infeasible_budget_max_rate)
     value = np.where(grid > 0, _UNFINISHED_BASE + grid * _UNFINISHED_PER_GB, 0.0)
     action = np.zeros((horizon, n_grid), dtype=np.int8)
     step_gb = CONTROL_INTERVAL_S / _MB_PER_GB
     for j in range(horizon - 1, -1, -1):
         fg = float(fg_future_mbps[j])
-        cost_by_idx = _interval_costs(fg, config)
+        cost_by_idx = _interval_costs(fg, config, degraded_weight)
         delivered_by_idx = _delivered(fg, config)
         best = None
         arg = np.zeros(n_grid, dtype=np.int8)
@@ -204,7 +217,12 @@ class DPHindsightOptimum:
         trace = np.asarray(env._trace.fg_bw_mbps, dtype=np.float64)
         offset = int(env._offset)
         future = [trace[(offset + j + 1) % len(trace)] for j in range(self.horizon_steps)]
-        self._solution = solve_hindsight(future, float(env._hazard), self.config, grid_gb=self.grid_gb)
+        weight = 1.0
+        if self.config.risk_objective is not None:
+            weight = float(env._true_group_hazard()) / self.config.risk_objective.hazard_ref_per_hour
+        self._solution = solve_hindsight(
+            future, float(env._hazard), self.config, grid_gb=self.grid_gb, degraded_weight=weight
+        )
         self.planned_cost = self._solution.planned_cost(work_gb)
 
     def __call__(self, obs: np.ndarray) -> int:

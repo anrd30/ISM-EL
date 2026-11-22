@@ -15,7 +15,8 @@ Usage::
 
     python -m data_pipeline.tencent.split_long_profile
 
-Writes, next to the source profile:
+Writes, next to the source profile (the file names use the source's stem; ``--source`` names another long profile,
+for example ``profile_diurnal_long_popC.csv``):
 
 - ``profile_diurnal_long_train.csv``    rows [0, first_holdout_row)
 - ``profile_diurnal_long_holdout.csv``  rows [first_holdout_row, end)
@@ -104,7 +105,7 @@ def split(source_csv: Path | None = None, *, write: bool = True) -> dict[str, Pa
         piece = piece.astype(frame.dtypes.to_dict()).reset_index(drop=True)
         validate_replay_frame(piece)
 
-        target = csv_path.with_name(f"{SOURCE_STEM}_{half}.csv")
+        target = csv_path.with_name(f"{csv_path.stem}_{half}.csv")
         if write:
             piece.to_csv(target, index=False, lineterminator="\n")
             target.with_suffix(".meta.json").write_text(

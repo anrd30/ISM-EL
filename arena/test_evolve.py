@@ -69,17 +69,17 @@ def _stub(monkeypatch, scores):
     def fake_score(path, profile, name):
         calls.append(profile)
         if profile != DEV_PROFILE:
-            return {"mean_g": -1.0}, None
+            return {"mean_g": -1.0}, None, False
         g = seq.pop(0) if seq else -5.0
         if g is None:
-            return None, "SubmissionError: policy raised"
+            return None, "SubmissionError: policy raised", False
         return {
             "mean_g": g,
             "mean_violation_fraction": 0.02,
             "mean_completion_hours": 50.0,
             "action_counts": [1, 2, 3, 4],
             "degenerate": False,
-        }, None
+        }, None, False
 
     monkeypatch.setattr(evolve, "_score", fake_score)
     return calls
@@ -199,3 +199,24 @@ def test_the_seeding_phase_draws_independently_before_breeding(monkeypatch, tmp_
     parents = [c["parent"] for c in rec["candidates"]]
     assert parents[:4] == [None, None, None, None]
     assert all(p is not None for p in parents[4:])
+
+
+def test_a_sandbox_that_never_started_is_not_charged_to_the_model(monkeypatch, tmp_path):
+    """0xC0000142 is the machine failing, not the policy; counting it as a model
+    failure would inflate exactly the statistic this benchmark reports."""
+    def fake_score(path, profile, name):
+        return None, "SubmissionError: worker exited 3221225794: ", True
+
+    monkeypatch.setattr(evolve, "_score", fake_score)
+    rec = evolve.evolve("sample", "t", 2, tmp_path, seed=0, holdout_every=99)
+    assert all(c["harness_failure"] for c in rec["candidates"])
+    assert rec["best_dev_g"] is None
+
+
+def test_a_policy_that_crashes_is_charged_to_the_model(monkeypatch, tmp_path):
+    def fake_score(path, profile, name):
+        return None, "SubmissionError: policy raised: NameError", False
+
+    monkeypatch.setattr(evolve, "_score", fake_score)
+    rec = evolve.evolve("sample", "t", 2, tmp_path, seed=0, holdout_every=99)
+    assert not any(c["harness_failure"] for c in rec["candidates"])

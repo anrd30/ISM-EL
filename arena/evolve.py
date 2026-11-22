@@ -74,6 +74,7 @@ class Candidate:
     parent_dev_g: float | None
     dev_g: float | None
     error: str | None
+    harness_failure: bool
     source_sha: str
     source_path: str
     prompt_tokens: int | None
@@ -214,15 +215,25 @@ def _measurements(dev: dict | None, error: str | None) -> str:
     return "\n".join(out)
 
 
-def _score(path: Path, profile: str, name: str) -> tuple[dict | None, str | None]:
+#: A sandbox worker that never started. On Windows this is 0xC0000142, raised when the
+#: OS refuses to initialise the process -- it happened here when two runs competed for
+#: process resources. It arrives looking exactly like a policy that crashed, which on a
+#: benchmark whose output is a count of working policies would quietly charge the
+#: machine's failures to the model. Kept separate so it can never be counted as one.
+_HARNESS_FAILURE = re.compile(r"worker exited|Ran out of input|BrokenPipe")
+
+
+def _score(path: Path, profile: str, name: str) -> tuple[dict | None, str | None, bool]:
+    """Score one candidate. Returns (result, error, was_the_harness_at_fault)."""
     from arena.run import evaluate_submission
 
     try:
-        return evaluate_submission(path, profile, name), None
+        return evaluate_submission(path, profile, name), None, False
     except SubmissionError as exc:
-        return None, str(exc)
+        return None, str(exc), bool(_HARNESS_FAILURE.search(str(exc)))
     except Exception as exc:  # noqa: BLE001 - a crash is a recorded candidate
-        return None, f"{type(exc).__name__}: {exc}"
+        message = f"{type(exc).__name__}: {exc}"
+        return None, message, bool(_HARNESS_FAILURE.search(message))
 
 
 def evolve(
@@ -325,9 +336,9 @@ def evolve(
 
         t1 = time.time()
         if error_pre is not None:
-            dev, err = None, error_pre
+            dev, err, harness = None, error_pre, False
         else:
-            dev, err = _score(path, DEV_PROFILE, f"{name}-c{i}")
+            dev, err, harness = _score(path, DEV_PROFILE, f"{name}-c{i}")
         eval_s = time.time() - t1
 
         cand = Candidate(
@@ -338,6 +349,7 @@ def evolve(
             parent_dev_g=parent.dev_g if parent else None,
             dev_g=dev["mean_g"] if dev else None,
             error=err,
+            harness_failure=harness,
             source_sha=sha,
             source_path=str(path),
             prompt_tokens=usage.get("prompt_tokens"),
@@ -357,8 +369,9 @@ def evolve(
         if dev is not None and (i % holdout_every == 0 or i == budget):
             # Recorded, never shown to the model: the generalisation curve.
             for profile in EVAL_PROFILES:
-                block, berr = _score(path, profile, f"{name}-c{i}")
-                cand.eval.append({"profile": profile, "result": block, "error": berr})
+                block, berr, bharness = _score(path, profile, f"{name}-c{i}")
+                cand.eval.append({"profile": profile, "result": block, "error": berr,
+                                  "harness_failure": bharness})
 
         row = {k: v for k, v in asdict(cand).items()}
         record["candidates"].append(row)
@@ -367,7 +380,7 @@ def evolve(
         print(
             f"  [{i}/{budget}] {operator}"
             + (f" parent={parent.id}" if parent else " seed")
-            + (f" dev {dev['mean_g']:+.3f}" if dev else f" FAILED {err}")
+            + (f" dev {dev['mean_g']:+.3f}" if dev else (f" HARNESS-FAILURE {err}" if harness else f" FAILED {err}"))
             + (f"  best {best.dev_g:+.3f}" if best and best.dev_g is not None else "")
             + (f"  {usage.get('completion_tokens')}tok" if usage else "")
             + f"  {gen_s:.0f}s/{eval_s:.0f}s",

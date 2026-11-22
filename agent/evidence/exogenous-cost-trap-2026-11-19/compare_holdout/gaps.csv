@@ -1,0 +1,36 @@
+profile,treatment,reference,block,n,mean_gain,sem,t,better,worse,percent_of_optimum,viol_frac_diff,viol_frac_diff_sem
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,all,20,12.4437,1.481,8.40225,20,0,93.8765,0.00193341,0.00176569
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,primary,15,14.55,1.51012,9.63502,15,0,93.9224,-0.000884784,0.000252921
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,clip_0.01,12,13.7426,1.63238,8.41876,12,0,93.5017,-0.000795263,0.000283835
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,clip_0.25,16,14.3425,1.42775,10.0455,16,0,93.9856,-0.000829485,0.000242962
+diurnal_long_holdout,predictive_controller (history),risk_aware_rule_based,fixed20_cost,17,14.1104,1.36107,10.3671,17,0,93.9355,-0.000780691,0.000233381
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,all,20,12.2549,1.4713,8.3293,20,0,92.4521,0.0020171,0.00183277
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,primary,15,14.3277,1.50895,9.49518,15,0,92.4875,-0.000884784,0.000252921
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,clip_0.01,12,13.5062,1.62852,8.29355,12,0,91.8933,-0.000795263,0.000283835
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,clip_0.25,16,14.1131,1.42772,9.88505,16,0,92.4823,-0.000829485,0.000242962
+diurnal_long_holdout,ORACLE_lookahead (not deployable),risk_aware_rule_based,fixed20_cost,17,13.8906,1.35945,10.2178,17,0,92.4719,-0.000780691,0.000233381
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,all,20,13.2554,1.51811,8.73149,20,0,100,0.00181032,0.00168504
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,primary,15,15.4916,1.50497,10.2936,15,0,100,-0.000884784,0.000252921
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,clip_0.01,12,14.6977,1.62598,9.03929,12,0,100,-0.000795263,0.000283835
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,clip_0.25,16,15.2603,1.42663,10.6968,16,0,100,-0.000829485,0.000242962
+diurnal_long_holdout,DP_hindsight_optimum (not deployable),risk_aware_rule_based,fixed20_cost,17,15.0214,1.36122,11.0352,17,0,100,-0.000780691,0.000233381
+diurnal_long_holdout,"ppo_clean (deterministic, 3 seeds averaged)",risk_aware_rule_based,all,20,-24.6083,2.05465,-11.9769,0,20,-185.647,-0.0078506,0.0043723
+diurnal_long_holdout,"ppo_clean (deterministic, 3 seeds averaged)",risk_aware_rule_based,primary,15,-27.7506,1.50246,-18.4702,0,15,-179.134,-0.000884784,0.000252921
+diurnal_long_holdout,"ppo_clean (deterministic, 3 seeds averaged)",risk_aware_rule_based,clip_0.01,12,-29.2331,1.44222,-20.2694,0,12,-198.896,-0.000795263,0.000283835
+diurnal_long_holdout,"ppo_clean (deterministic, 3 seeds averaged)",risk_aware_rule_based,clip_0.25,16,-27.6779,1.4073,-19.6673,0,16,-181.371,-0.000829485,0.000242962
+diurnal_long_holdout,"ppo_clean (deterministic, 3 seeds averaged)",risk_aware_rule_based,fixed20_cost,17,-27.7009,1.32213,-20.9517,0,17,-184.41,-0.000780691,0.000233381
+diurnal_long_holdout,"ppo_clean (sampled, 3 seeds averaged)",risk_aware_rule_based,all,20,-65.186,4.47871,-14.5546,0,20,-491.769,-0.00424933,0.00425463
+diurnal_long_holdout,"ppo_clean (sampled, 3 seeds averaged)",risk_aware_rule_based,primary,15,-72.7902,2.9206,-24.923,0,15,-469.87,0.0026175,0.000338625
+diurnal_long_holdout,"ppo_clean (sampled, 3 seeds averaged)",risk_aware_rule_based,clip_0.01,12,-74.259,3.3331,-22.2793,0,12,-505.243,0.00268858,0.000400662
+diurnal_long_holdout,"ppo_clean (sampled, 3 seeds averaged)",risk_aware_rule_based,clip_0.25,16,-71.4646,3.03656,-23.5347,0,16,-468.304,0.00254887,0.000324103
+diurnal_long_holdout,"ppo_clean (sampled, 3 seeds averaged)",risk_aware_rule_based,fixed20_cost,17,-71.5417,2.85339,-25.0725,0,17,-476.266,0.00263036,0.000315159
+diurnal_long_holdout,"ppo_c_prime (deterministic, 3 seeds averaged)",risk_aware_rule_based,all,20,-21.0876,2.85478,-7.38677,0,20,-159.087,-0.00568096,0.00355496
+diurnal_long_holdout,"ppo_c_prime (deterministic, 3 seeds averaged)",risk_aware_rule_based,primary,15,-18.9261,1.40936,-13.4289,0,15,-122.17,-0.000884784,0.000252921
+diurnal_long_holdout,"ppo_c_prime (deterministic, 3 seeds averaged)",risk_aware_rule_based,clip_0.01,12,-19.8192,1.56489,-12.6649,0,12,-134.846,-0.000795263,0.000283835
+diurnal_long_holdout,"ppo_c_prime (deterministic, 3 seeds averaged)",risk_aware_rule_based,clip_0.25,16,-18.8906,1.31881,-14.324,0,16,-123.789,-0.000829485,0.000242962
+diurnal_long_holdout,"ppo_c_prime (deterministic, 3 seeds averaged)",risk_aware_rule_based,fixed20_cost,17,-18.9546,1.24046,-15.2803,0,17,-126.184,-0.000780691,0.000233381
+diurnal_long_holdout,"ppo_c_prime (sampled, 3 seeds averaged)",risk_aware_rule_based,all,20,-73.9545,5.37602,-13.7564,0,20,-557.92,-0.00131666,0.00412858
+diurnal_long_holdout,"ppo_c_prime (sampled, 3 seeds averaged)",risk_aware_rule_based,primary,15,-83.3264,3.45552,-24.114,0,15,-537.883,0.00520368,0.00045321
+diurnal_long_holdout,"ppo_c_prime (sampled, 3 seeds averaged)",risk_aware_rule_based,clip_0.01,12,-82.2426,4.03291,-20.3929,0,12,-559.562,0.00502924,0.000513823
+diurnal_long_holdout,"ppo_c_prime (sampled, 3 seeds averaged)",risk_aware_rule_based,clip_0.25,16,-81.7334,3.60355,-22.6814,0,16,-535.595,0.00508822,0.00043938
+diurnal_long_holdout,"ppo_c_prime (sampled, 3 seeds averaged)",risk_aware_rule_based,fixed20_cost,17,-81.6141,3.38705,-24.0959,0,17,-543.32,0.00514468,0.000416569

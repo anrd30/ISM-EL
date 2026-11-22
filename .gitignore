@@ -45,3 +45,6 @@ arena/.env
 
 # Iterative-track records (replies, policies, per-round JSON). Large and regenerable.
 arena/iterations/
+
+# Population-search runs (every candidate source + reply). Large and regenerable.
+arena/evolve_runs/

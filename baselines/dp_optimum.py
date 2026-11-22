@@ -62,9 +62,14 @@ __all__ = ["DPSolution", "solve_hindsight", "DPHindsightOptimum", "main"]
 
 #: Planning horizon in steps; the plan is checked to finish the rebuild inside it.
 DEFAULT_HORIZON_STEPS: int = 1200
+#: Horizon of the time-against-violation plan: the episode limit, so that slow violation-free plans are available.
+FRONTIER_HORIZON_STEPS: int = 2400
 DEFAULT_GRID_GB: float = 1.0
 #: Terminal value of unfinished work, large enough that every plan completes inside the horizon.
 _UNFINISHED_BASE: float = 1.0e4
+#: Terminal value of unfinished work in the time-against-violation objective (prices up to 1e4 per violation).
+_FRONTIER_UNFINISHED_BASE: float = 1.0e9
+_FRONTIER_UNFINISHED_PER_GB: float = 1.0e5
 _UNFINISHED_PER_GB: float = 0.1
 _N = len(ACTIONS_MBPS)
 
@@ -126,6 +131,17 @@ def _interval_costs(fg: float, config: SimConfig, degraded_weight: float = 1.0) 
     return costs
 
 
+def _violation_indicators(fg: float, config: SimConfig) -> np.ndarray:
+    """``contracts.latency_violation`` of an interval for each delivered-action index at load ``fg``."""
+    available = max(0.0, config.rho_max * BW_TOTAL_MBPS - fg)
+    out = np.zeros(_N)
+    for i in range(_N):
+        delivered = min(float(ACTIONS_MBPS[i]), available)
+        rho = min(config.rho_max, (fg + delivered) / BW_TOTAL_MBPS)
+        out[i] = latency_violation(latency_mean_ms(rho, config), config.latency_target_ms)
+    return out
+
+
 def _delivered(fg: float, config: SimConfig) -> np.ndarray:
     available = max(0.0, config.rho_max * BW_TOTAL_MBPS - fg)
     return np.array([min(float(ACTIONS_MBPS[i]), available) for i in range(_N)])
@@ -139,11 +155,16 @@ def solve_hindsight(
     grid_gb: float = DEFAULT_GRID_GB,
     work_max_gb: float = REBUILD_WORK_GB,
     degraded_weight: float = 1.0,
+    violation_mu: float | None = None,
 ) -> DPSolution:
     """Backward induction over ``(step, work)``.
 
     ``degraded_weight`` is the factor on the degraded-state cost (``config.risk_objective``); the risk floor is the
     filter's, except that with ``config.infeasible_budget_max_rate`` False an infeasible budget has floor 0.
+
+    With ``violation_mu`` the interval cost is instead ``1 + violation_mu * V`` (one unit of time per interval and
+    a price on the violation indicator) -- the objective of the completion-time-against-violation frontier, which
+    uses no reward coefficient and ignores ``degraded_weight``.
 
     ``fg_future_mbps[j]`` is the foreground load of the ``(j + 1)``-th environment step. The interval at
     which work reaches zero is charged in full, as the environment does.
@@ -152,12 +173,16 @@ def solve_hindsight(
     n_grid = int(round(work_max_gb / grid_gb)) + 1
     grid = np.arange(n_grid) * grid_gb
     floors = _floors(hazard_per_hour, grid, config.infeasible_budget_max_rate)
-    value = np.where(grid > 0, _UNFINISHED_BASE + grid * _UNFINISHED_PER_GB, 0.0)
+    base, per_gb = (_UNFINISHED_BASE, _UNFINISHED_PER_GB) if violation_mu is None else (_FRONTIER_UNFINISHED_BASE, _FRONTIER_UNFINISHED_PER_GB)
+    value = np.where(grid > 0, base + grid * per_gb, 0.0)
     action = np.zeros((horizon, n_grid), dtype=np.int8)
     step_gb = CONTROL_INTERVAL_S / _MB_PER_GB
     for j in range(horizon - 1, -1, -1):
         fg = float(fg_future_mbps[j])
-        cost_by_idx = _interval_costs(fg, config, degraded_weight)
+        if violation_mu is None:
+            cost_by_idx = _interval_costs(fg, config, degraded_weight)
+        else:
+            cost_by_idx = 1.0 + float(violation_mu) * _violation_indicators(fg, config)
         delivered_by_idx = _delivered(fg, config)
         best = None
         arg = np.zeros(n_grid, dtype=np.int8)
@@ -190,12 +215,22 @@ class DPHindsightOptimum:
         self,
         config: SimConfig | None = None,
         *,
-        horizon_steps: int = DEFAULT_HORIZON_STEPS,
+        horizon_steps: int | None = None,
         grid_gb: float = DEFAULT_GRID_GB,
+        violation_mu: float | None = None,
     ) -> None:
         self.config: SimConfig = config if config is not None else SimConfig()
-        self.name = "DP_hindsight_optimum (not deployable)"
-        self.horizon_steps = horizon_steps
+        self.violation_mu = violation_mu
+        self.name = (
+            "DP_hindsight_optimum (not deployable)"
+            if violation_mu is None
+            else f"DP_frontier mu={violation_mu:.6g} (not deployable)"
+        )
+        self.horizon_steps = (
+            (DEFAULT_HORIZON_STEPS if violation_mu is None else FRONTIER_HORIZON_STEPS)
+            if horizon_steps is None
+            else horizon_steps
+        )
         self.grid_gb = grid_gb
         self._env: Any = None
         self._solution: DPSolution | None = None
@@ -221,7 +256,8 @@ class DPHindsightOptimum:
         if self.config.risk_objective is not None:
             weight = float(env._true_group_hazard()) / self.config.risk_objective.hazard_ref_per_hour
         self._solution = solve_hindsight(
-            future, float(env._hazard), self.config, grid_gb=self.grid_gb, degraded_weight=weight
+            future, float(env._hazard), self.config, grid_gb=self.grid_gb,
+            degraded_weight=weight, violation_mu=self.violation_mu,
         )
         self.planned_cost = self._solution.planned_cost(work_gb)
 

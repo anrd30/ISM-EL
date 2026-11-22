@@ -1,0 +1,9 @@
+population,policy,scenarios,scenarios_reset_hazard_above_scale,scenarios_any_step_hazard_above_scale,steps,steps_floor_from_clipped_hazard_differs,share_steps_floor_differs
+A,risk_aware_rule_based,20,2,2,10405,348,0.0334455
+A,fixed_20,20,2,2,34761,411,0.0118236
+B,risk_aware_rule_based,20,2,2,9523,346,0.0363331
+B,fixed_20,20,2,2,34746,400,0.0115121
+C,risk_aware_rule_based,20,2,2,10570,366,0.0346263
+C,fixed_20,20,2,2,34763,404,0.0116216
+D,risk_aware_rule_based,20,2,2,11299,375,0.0331888
+D,fixed_20,20,2,2,34744,397,0.0114264

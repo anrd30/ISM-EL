@@ -168,17 +168,55 @@ non-significant moves on the other two) is also better read as a variance
 observation than an established effect, per the same caution raised
 alongside it: three seeds is thin evidence for a variance claim.
 
-The oracle-ceiling figure used to interpret the flat reward is now
-cross-verified independently in two places rather than asserted by one
-lane: `agent/evidence/forecast-ppo-2026-11-11/episodes.csv` gives
-`ORACLE_lookahead` beating `risk_aware_rule_based` by 11.850 +/- 1.496 on
+The oracle-ceiling figure used to interpret the flat reward was
+cross-verified in two places: `agent/evidence/forecast-ppo-2026-11-11/episodes.csv`
+gives `ORACLE_lookahead` beating `risk_aware_rule_based` by 11.850 +/- 1.496 on
 20/20 scenarios against a rule-based mean of -330.196, i.e. 3.59% on the
 holdout half; `baselines/evidence/diurnal-long-sigma0.25/summary.md` gives
--278.1 vs. -293.3 on the full long profile, i.e. 5.19%. Both numbers come
-from committed evidence already in this repo, independent of this L3 run.
-The two windows differ (holdout is the harder one), and both represent a
-narrow reward ceiling for any controller change, L3 included, to work
-inside of.
+-278.1 vs. -293.3 on the full long profile, i.e. 5.19%. The arithmetic
+reproduces from the committed files.
+
+**Correction (2026-11-19): the "narrow reward ceiling" reading above is
+withdrawn.** The 3.59% and 5.19% are ratios to a total that is dominated by
+scenarios no controller can change, and `ORACLE_lookahead` is not an upper
+bound on any controller (its own docstring: a one-interval greedy rule that
+knows the next interval's load; it does not bound the value of anticipating
+several intervals). Re-run with the scenario split of
+`agent/evidence/scenario-split-2026-11-19/` (`filter_forced`: the safety
+filter raises a `fixed_20` rollout's applied action on at least 10% of the
+intervals), holdout half, `v1,eval-fleet,sigma=0.25`, 20 scenarios:
+
+| Scenarios | n | Rule mean reward | `ORACLE_lookahead` minus rule |
+| --- | --- | --- | --- |
+| all | 20 | -330.20 | +11.850 +/- 1.496 (t 7.92) |
+| controllable | 16 | -61.10 | +13.753 +/- 1.472 (t 9.34), 22.5% of the rule's controllable cost |
+| filter-forced (seeds 3, 9, 17, 19) | 4 | -1406.56 | +4.241 +/- 1.858 (t 2.28) |
+
+- **Where the cost is.** Seeds 9, 17 and 19 (the seeds whose `fixed_20` latency
+  cost exceeds 50: 2743, 1350 and 1337) carry 84.2% of the rule's total cost
+  (97.7% of its latency cost). In them the safety filter raises the allocation
+  on 54% to 69% of the intervals; the rule, `ORACLE_lookahead`, `fixed_20` and
+  `fixed_50` pay the same latency cost there to within 2 units (2743 to 2744, 1350,
+  1336 to 1338). Their weight is why the all-scenario ratio is small.
+- **Controllable headroom.** On the 16 controllable scenarios the oracle's edge
+  is 22.5% of the rule's cost, not 3.59%. The same split on the altB profile
+  (`profile_diurnal_long_altB.csv`, see `RESIDUAL_Q_DECISION.md` where present)
+  gives +33.165 +/- 2.716 (t 12.21) on 16 controllable scenarios, 42.2% of the
+  rule's controllable cost of 78.58.
+- **Sensitivity of "controllable".** The same gap under the pre-registered
+  variants (`agent/SCENARIO_SPLIT_DECISION.md`): holdout, `fixed_20` clip
+  fraction at least 1% (13 scenarios) +13.248 +/- 1.618 (t 8.19), at least 25%
+  (16) +13.753 +/- 1.472, `fixed_20` latency cost above 50 (17) +13.507 +/- 1.404
+  (t 9.62); altB +31.585 +/- 3.195 (t 9.89), +33.165 +/- 2.716, +32.296 +/- 2.695
+  (t 11.98). Every definition gives a controllable-scenario edge of 13 to 14
+  (holdout) and 32 to 33 (altB), not the all-scenario 11.850 and 29.246 read as a
+  share of the whole.
+- **The 5.19% figure** (full long profile) was not re-derived; it has the same
+  denominator problem and is withdrawn on the same grounds.
+- **Pre-registered check.** The primary definition flags {3, 9, 17, 19} on the
+  holdout and on altB, not {9, 17, 19} and {9, 17}; seed 3 is flagged with a
+  `fixed_20` clip fraction of 0.42 and a latency cost of 22 (holdout) and 0.8
+  (altB). The definition is kept as registered.
 
 ## Caveat
 

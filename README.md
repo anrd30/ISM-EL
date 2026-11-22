@@ -84,8 +84,10 @@ One closed loop with three parts.
 - **Quantify.** The simulator advances the rebuild under a replayed foreground
   load and records, per episode, the completion time and the latency the users
   would have seen. The evaluation harness saves one row per episode, so the
-  recovery-time sample is kept; today's summary reports its mean, and the
-  distribution with its tail is expected output 2 below, not yet produced.
+  recovery-time sample is kept; the harness reports the distribution with its
+  tail (`recovery_time_distribution.csv`, mean, p50, p90, p95, p99 and max per
+  profile and policy) and a Pareto table of completion time against latency,
+  exposure and simulated data-loss probability (expected output 2 below).
 - **Control.** A policy picks one of four rebuild rates every control interval.
   A risk safety filter clips requests that would exceed the exposure budget;
   latency violations are measured and reported rather than rejected by the
@@ -296,8 +298,12 @@ a clone without the bulk data present.
 
 ## 8. Status
 
-As of 2026-11-12, on `main`: a full `python -m pytest -q` run passed 1,836
-tests with 16 skips. `hazard/artifacts/v1/` (25 boosters + `calibrators.npz`),
+As of 2026-11-19, on branch `eval/scenario-split-2026-11-19` (`main` plus the
+scenario-split harness change): a full `python -m pytest -q -rs` run passed 1,872
+tests with 16 skips. On CI (`.github/workflows/ci.yml`, `-rs`), the same suite
+reports 34 skips: the 16 below plus 18 tests gated on gitignored files
+(`hazard/artifacts/v1/`, the processed Backblaze tables), confirmed from the log
+of run 43294785311. `hazard/artifacts/v1/` (25 boosters + `calibrators.npz`),
 `sim/fleet_features_v1.json`, and all `data_pipeline` generated outputs are
 present locally, and the skip count did not change with them present, so
 these are not simply missing-artifact skips. All 16 are accounted for: 9 are
@@ -334,7 +340,7 @@ real fitted model, until `python -m hazard.fit_v1` is run locally.
 | Risk A4 | Evaluate: calibration, PR-AUC, recall vs `hazard/v0.py` | Done, PR #12 |
 | Risk A5 | Replace `hazard/v0.py` with the fitted model | Done, PR #13 |
 | Risk A6 | Risk-model slides | Not started |
-| Control | RL controller training | PPO full-episode collapse diagnosed and the training-time constraint-estimator bias fixed (`agent/PPO_COLLAPSE_DECISION.md`); hand-built seasonal-forecast rule and forecast-PPO with imitation warm-start evaluated against the risk-aware rule baseline (`agent/SEASONAL_SEARCH_DECISION.md`, `agent/FORECAST_PPO_DECISION.md`); a missing-latency-guardrail fix (D1) and an out-of-distribution evaluation (`agent/evaluate_ood.py`) show the forecast-PPO gain holds near the training distribution but inverts badly off it, confirmed on both synthetic and real non-diurnal workloads (`agent/WORKLOAD_SELECTION_DECISION.md`); `hazard_error_sigma=0.25` used throughout, no longer the inert `0.0` default. All decision records are proposed, not yet reviewed by the other lanes |
+| Control | RL controller training | PPO full-episode collapse diagnosed and the training-time constraint-estimator bias fixed (`agent/PPO_COLLAPSE_DECISION.md`); hand-built seasonal-forecast rule and forecast-PPO with imitation warm-start evaluated against the risk-aware rule baseline (`agent/SEASONAL_SEARCH_DECISION.md`, `agent/FORECAST_PPO_DECISION.md`); the forecast-PPO +6.43 holdout win over the rule reverses under sampled evaluation (-7.64) and on three sliding folds (`agent/FORECAST_PPO_DECISION.md`); L3 and the barrier method did not beat the clean baseline (`agent/L3_DECISION.md`, `agent/BARRIER_DECISION.md`); a missing-latency-guardrail fix (D1) and an out-of-distribution evaluation (`agent/evaluate_ood.py`) show the forecast-PPO gain does not hold off the training distribution (`agent/WORKLOAD_SELECTION_DECISION.md`); the harness now splits scenarios into controllable and filter-forced, and the earlier "narrow oracle ceiling" reading is withdrawn (`agent/evidence/scenario-split-2026-11-19/`, `agent/L3_DECISION.md`); `hazard_error_sigma=0.25` used throughout, no longer the inert `0.0` default. All decision records are proposed, not yet reviewed by the other lanes |
 | Report | Literature review, figures, report, deck | Tracked outside this repo |
 
 ### What A1 through A5 produced

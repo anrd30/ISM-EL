@@ -51,6 +51,8 @@ import numpy as np
 
 __all__ = [
     "CONTRACT_VERSION",
+    "PRE_FAILURE_HISTORY_ROWS",
+    "RESET_HISTORY_INFO_KEYS",
     "CONTROL_INTERVAL_S",
     "HORIZON_DAYS",
     "HORIZON_HOURS",
@@ -105,7 +107,14 @@ class ContractViolation(Exception):
 # Frozen numeric constants (design decisions; rationale in INTERFACES.md)
 # --------------------------------------------------------------------------
 
-CONTRACT_VERSION: str = "1.4.0"
+CONTRACT_VERSION: str = "1.5.0"
+
+#: Foreground samples before the episode start that a reset exposes when ``SimConfig.history_rows`` is set
+#: (two days at the 300 s control interval). The history is optional and off by default.
+PRE_FAILURE_HISTORY_ROWS: int = 576
+#: Reset ``info`` keys that carry the history when it is on: foreground bandwidth in MB/s and read and write
+#: IOPS of the ``history_rows`` trace rows before ``trace_start_row``, oldest first.
+RESET_HISTORY_INFO_KEYS: tuple[str, str, str] = ("history_fg_bw_mbps", "history_read_iops", "history_write_iops")
 
 CONTROL_INTERVAL_S: int = 300  # [MEASURED] sampling interval of the Tencent trace (dataset README); one control step = one trace sample
 HORIZON_DAYS: int = 30  # [ASSUMED] 30-day window, a literature convention (INTERFACES.md section 9); not checked against this project's data

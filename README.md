@@ -119,7 +119,7 @@ status.
 
 ### 5.1 The frozen contract
 
-`contracts/contracts.py` (version 1.4.0) and `contracts/INTERFACES.md` hold every
+`contracts/contracts.py` (version 1.5.0) and `contracts/INTERFACES.md` hold every
 shared constant and every shared data shape. **It is frozen**: changing it
 requires agreement across lanes, because all four lanes compile against it.
 
@@ -322,7 +322,7 @@ real fitted model, until `python -m hazard.fit_v1` is run locally.
 
 | Area | Task | Status |
 | --- | --- | --- |
-| Interface | Frozen contract v1.4.0 | Done |
+| Interface | Frozen contract v1.4.0; v1.5.0 (optional pre-failure load history, default off) proposed | v1.4.0 Done; v1.5.0 awaiting sign-off |
 | Simulator | Episode, latency model, safety filter, scenarios, stress | Done |
 | Baselines | Fixed-rate and heuristic controllers, evaluation harness | Done |
 | Risk (placeholder) | `hazard/v0.py` constant-rate + SMART multiplier | Done; reachable via `sim.config.v0_config()`, no longer the simulator's default |

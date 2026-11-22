@@ -115,6 +115,7 @@ from sim.safety_filter import apply_safety_filter
 __all__ = [
     "Policy",
     "NeedsEnv",
+    "NeedsHistory",
     "LatencyRule",
     "BeliefConfig",
     "FixedRate",
@@ -175,6 +176,19 @@ class NeedsEnv(Protocol):
     """
 
     def bind(self, env: Any) -> None: ...
+
+
+@runtime_checkable
+class NeedsHistory(Protocol):
+    """A policy that uses the load history from before the episode started.
+
+    The harness calls ``set_history`` after ``env.reset()`` and ``policy.reset()`` and before the first
+    policy call, with the ``SimConfig.history_rows`` trace rows before the start row, oldest first, as
+    float64 arrays (foreground bandwidth in MB/s, read IOPS, write IOPS). The environment must have
+    ``history_rows`` set. Policies without this method are unchanged.
+    """
+
+    def set_history(self, fg_bw: np.ndarray, read_iops: np.ndarray, write_iops: np.ndarray) -> None: ...
 
 
 @dataclass(frozen=True)

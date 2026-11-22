@@ -1,0 +1,4 @@
+holdout risk_aware_rule_based: start row changed on 10 of 20 seeds [0, 1, 6, 7, 8, 9, 13, 15, 17, 18]; unchanged seeds identical rewards; changed-seed reward mean off -465.700 on -473.316; all-20 mean off -330.196 on -334.003
+holdout fixed_50: start row changed on 10 of 20 seeds [0, 1, 6, 7, 8, 9, 13, 15, 17, 18]; unchanged seeds identical rewards; changed-seed reward mean off -483.114 on -488.981; all-20 mean off -348.271 on -351.204
+altB risk_aware_rule_based: start row changed on 1 of 20 seeds [17]; unchanged seeds identical rewards; changed-seed reward mean off -581.369 on -1676.217; all-20 mean off -172.918 on -227.661
+altB fixed_50: start row changed on 1 of 20 seeds [17]; unchanged seeds identical rewards; changed-seed reward mean off -582.753 on -1688.770; all-20 mean off -174.742 on -230.043

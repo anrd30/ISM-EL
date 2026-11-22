@@ -193,6 +193,11 @@ class SimConfig:
         drive_spread_sd: Standard deviation, in degradation-level units, of a
             drive's deviation from the fleet level. Design decision: 0.15, so
             drives in one group are strongly but not perfectly coupled.
+        history_rows: Number of trace rows before the episode's start row that the reset ``info`` carries
+            (``contracts.RESET_HISTORY_INFO_KEYS``), the load a deployed system would have monitored before
+            the failure; 0 (default) is off and leaves every episode unchanged. When positive, a drawn start
+            row below ``history_rows`` is mapped onto ``[history_rows, len(trace))`` so the history never
+            wraps; start rows at or above it are unchanged.
         random_trace_offset: Start each episode at a uniformly random row of
             the replay trace rather than row 0. Design decision: on, so a
             rebuild may begin at any time of day instead of always at the
@@ -258,8 +263,11 @@ class SimConfig:
     label: str = "default"
     latency_filter: bool = field(default=False, kw_only=True)
     latency_filter_causal: bool = field(default=False, kw_only=True)
+    history_rows: int = field(default=0, kw_only=True)
 
     def __post_init__(self) -> None:
+        if isinstance(self.history_rows, bool) or not isinstance(self.history_rows, int) or self.history_rows < 0:
+            raise ValueError(f"history_rows must be a non-negative integer, got {self.history_rows!r}")
         if not (math.isfinite(self.latency_unloaded_ms) and self.latency_unloaded_ms > 0.0):
             raise ValueError(f"latency_unloaded_ms must be finite and > 0, got {self.latency_unloaded_ms!r}")
         if not (math.isfinite(self.latency_target_ms) and self.latency_target_ms > self.latency_unloaded_ms):

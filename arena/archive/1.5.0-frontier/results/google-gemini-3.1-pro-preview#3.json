@@ -1,0 +1,17 @@
+{
+  "name": "google-gemini-3.1-pro-preview#3",
+  "spec_version": "1.5.0",
+  "track": "zero-shot",
+  "submission": "C:\\Users\\Lenovo\\Desktop\\Workspaces\\ISM-EL-wtArena\\arena\\submissions\\google-gemini-3.1-pro-preview#3\\policy.py",
+  "timestamp": "2026-11-21T08:50:53.150265+00:00",
+  "dev": null,
+  "eval": [],
+  "error": "no policy: reply kept at C:\\Users\\Lenovo\\Desktop\\Workspaces\\ISM-EL-wtArena\\arena\\submissions\\google-gemini-3.1-pro-preview#3\\raw_reply.md",
+  "generation": {
+    "api": "openrouter",
+    "requested_slug": "google/gemini-3.1-pro-preview",
+    "pinned_provider": null,
+    "served_by": "Google",
+    "served_model": "google/gemini-3.1-pro-preview"
+  }
+}

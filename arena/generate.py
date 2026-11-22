@@ -3,7 +3,7 @@
 Two backends, chosen by the ``--model`` prefix:
 
     ollama:<model>            a local Ollama server (no extra dependency)
-    api:<provider>/<model>    an HTTP API, key from the environment
+    api:<provider>/<model>    an HTTP API: openrouter/<vendor>/<model> (every frontier model) or anthropic/<model>
     hf:<org>/<model>          a local transformers model, e.g. on a GPU
 
 Examples::
@@ -33,9 +33,15 @@ PROMPT = Path(__file__).resolve().parent / "prompts" / "task_prompt.md"
 #: a capable model as producing no policy. DeepSeek-R1-Distill-32B exhausted 2048
 #: tokens reasoning and never reached the function on all five repeats, which is a
 #: property of this constant and not of the model.
-DEFAULT_MAX_NEW_TOKENS = 8192
+DEFAULT_MAX_NEW_TOKENS = 32768
 
-__all__ = ["extract_policy", "generate", "main"]
+#: Exit codes of ``main``: 1 is a reply without a policy (the reply is kept); the others
+#: mean no reply was obtained.
+EXIT_NO_POLICY = 1
+EXIT_GUARD = 3
+EXIT_NO_KEY = 4
+
+__all__ = ["extract_policy", "generate", "main", "EXIT_NO_POLICY", "EXIT_GUARD", "EXIT_NO_KEY"]
 
 _FENCE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 
@@ -97,30 +103,71 @@ def _call_ollama(model: str, prompt: str, host: str, temperature: float, seed: i
     return message
 
 
-def _call_api(provider: str, model: str, prompt: str) -> str:
-    """One chat completion. Providers are added here as needed."""
-    if provider == "openai":
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+#: Routing details of the last ``_call_api`` call (the serving host, from the response), written next to the reply.
+LAST_CALL: dict = {}
+
+
+def _call_api(provider: str, model: str, prompt: str, temperature: float = 0.0,
+              max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS, seed: int | None = None) -> str:
+    """One chat completion from a provider's API; returns the reply text only.
+
+    ``openrouter`` serves every frontier model by its slug (``<vendor>/<model>``); the
+    ``anthropic`` branch is the direct fallback and is not used by the current batch.
+
+    Before the call ``arena.cost_ledger.check_before_call`` refuses to proceed if the
+    spending ceiling could be exceeded; after it the provider's reported usage is
+    recorded. The output budget counts reasoning tokens, so a reasoning model that
+    exhausts it returns no code, which is a recorded result.
+    """
+    from arena import cost_ledger, models
+
+    if provider not in ("openrouter", "anthropic"):
+        raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
+    cost_ledger.check_before_call(model, prompt, max_new_tokens)
+
+    if provider == "openrouter":
         from openai import OpenAI  # imported lazily; not an arena dependency
 
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        client = OpenAI(api_key=models.key_for("openrouter"), base_url=OPENROUTER_BASE_URL)
+        price_in, price_out = cost_ledger.PRICES[model]
+        provider_prefs: dict = {"max_price": {"prompt": price_in, "completion": price_out}}
+        pin = models.pinned_provider(model)
+        if pin:
+            # One host, no fallback: every repeat of the model lands on the same endpoint.
+            provider_prefs.update({"only": [pin], "allow_fallbacks": False})
         reply = client.chat.completions.create(
-            model=model, messages=[{"role": "user", "content": prompt}], temperature=0
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_new_tokens,
+            **({"seed": seed} if seed is not None else {}),
+            # Refuse any endpoint dearer than the price the ledger assumes (USD per million tokens).
+            extra_body={"provider": provider_prefs},
+        )
+        LAST_CALL.clear()
+        LAST_CALL.update({"api": "openrouter", "requested_slug": model, "pinned_provider": pin,
+                          "served_by": getattr(reply, "provider", None),
+                          "served_model": getattr(reply, "model", None)})
+        usage = reply.usage
+        cost_ledger.record(
+            provider, model, usage.prompt_tokens, usage.completion_tokens,
+            reported_cost_usd=getattr(usage, "cost", None),
         )
         return reply.choices[0].message.content or ""
 
-    if provider == "anthropic":
-        import anthropic
+    import anthropic
 
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        reply = client.messages.create(
-            model=model,
-            max_tokens=4096,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return "".join(b.text for b in reply.content if b.type == "text")
-
-    raise ValueError(f"unknown provider {provider!r}; add it to _call_api")
+    client = anthropic.Anthropic(api_key=models.key_for("anthropic"))
+    reply = client.messages.create(
+        model=model,
+        max_tokens=max_new_tokens,
+        temperature=temperature,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    cost_ledger.record(provider, model, reply.usage.input_tokens, reply.usage.output_tokens)
+    return "".join(b.text for b in reply.content if b.type == "text")
 
 
 def _call_local(model_id: str, prompt: str, temperature: float, seed: int,
@@ -188,7 +235,7 @@ def generate(
         return _call_ollama(rest, prompt, host, temperature, seed, max_new_tokens)
     if kind == "api":
         provider, _, name = rest.partition("/")
-        return _call_api(provider, name, prompt)
+        return _call_api(provider, name, prompt, temperature, max_new_tokens, seed)
     if kind == "hf":
         return _call_local(rest, prompt, temperature, seed, max_new_tokens)
     raise ValueError(f"--model must start with 'ollama:', 'api:' or 'hf:', got {model_spec!r}")
@@ -216,14 +263,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     prompt = args.prompt.read_text(encoding="utf-8")
-    reply = generate(
-        args.model, prompt, host=args.host,
-        temperature=args.temperature, seed=args.seed,
-        max_new_tokens=args.max_new_tokens,
-    )
+    from arena.cost_ledger import CostCeilingExceeded
+
+    try:
+        reply = generate(
+            args.model, prompt, host=args.host,
+            temperature=args.temperature, seed=args.seed,
+            max_new_tokens=args.max_new_tokens,
+        )
+    except CostCeilingExceeded as exc:
+        print(f"spending guard refused the call: {exc}")
+        return EXIT_GUARD
+    except RuntimeError as exc:
+        if "is not set" in str(exc):
+            print(str(exc))
+            return EXIT_NO_KEY
+        raise
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "raw_reply.md").write_text(reply, encoding="utf-8")
+    if LAST_CALL:
+        import json as _json
+
+        (args.out / "generation.json").write_text(_json.dumps(LAST_CALL, indent=2), encoding="utf-8")
     try:
         source = extract_policy(reply)
     except ValueError as exc:

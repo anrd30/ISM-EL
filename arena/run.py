@@ -136,8 +136,89 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
-def _report_by_model() -> int:
+def _display_names() -> dict[str, str]:
+    """Result-name prefix -> report label for the frontier roster (``ARENA_LABEL_*``), when one is set."""
+    from arena import models
+
+    out = {}
+    for slug in models.roster().values():
+        label = models.display_label(slug)
+        if label != slug:
+            out[slug.replace("/", "-")] = label
+    return out
+
+
+def _block(result: dict, env: str | None) -> dict | None:
+    """The evaluation block of ``result`` for environment ``env`` (the first block when ``env`` is None)."""
+    if env is None:
+        return result["eval"][0]
+    for block in result["eval"]:
+        if block["profile"] == env:
+            return block
+    return None
+
+
+SINE_RESULT = "_sine-nonsense"
+
+
+def _per_env_mean_g(results: list[dict]) -> dict[str, float]:
+    """Environment name -> mean over the runnable results of each run's mean G in that environment."""
+    out: dict[str, float] = {}
+    for env in EVAL_PROFILES:
+        gs = [b["mean_g"] for b in (_block(r, env) for r in results if not r.get("error") and r.get("eval"))
+              if b is not None]
+        if gs:
+            out[env] = sum(gs) / len(gs)
+    return out
+
+
+def _report_headline() -> int:
+    """One row per model: the median over the evaluation environments of its per-environment G.
+
+    A model's G in an environment is the mean over its runnable repeats of each repeat's mean G there.
+    ``beat_sine`` counts the environments in which that G exceeds the sine baseline's G
+    (``arena/results/_sine-nonsense.json``). A model with no runnable repeat has no G.
+    """
+    import statistics
+    from collections import defaultdict
+
+    labels = _display_names()
+    runs: dict[str, list[dict]] = defaultdict(list)
+    for path in sorted(RESULTS.glob("*.json")):
+        r = json.loads(path.read_text(encoding="utf-8"))
+        runs[r["name"].split("#")[0]].append(r)
+    sine = _per_env_mean_g(runs.get(SINE_RESULT, []))
+    n_env = len(EVAL_PROFILES)
+
+    rows = []
+    for model, results in runs.items():
+        per_env = _per_env_mean_g(results)
+        valid = sum(1 for r in results if not r.get("error"))
+        beat = sum(1 for e, g in per_env.items() if e in sine and g > sine[e])
+        rows.append({
+            "model": labels.get(model, model),
+            "valid": f"{valid}/{len(results)}",
+            "G_median": round(statistics.median(per_env.values()), 2) if len(per_env) == n_env else None,
+            "G_min": round(min(per_env.values()), 2) if per_env else None,
+            "G_max": round(max(per_env.values()), 2) if per_env else None,
+            "beat_sine": f"{beat}/{n_env}" if per_env and sine and model != SINE_RESULT else "-",
+        })
+    if not rows:
+        print("no results yet")
+        return 0
+    frame = pd.DataFrame(rows).sort_values("G_median", ascending=False, na_position="last")
+    print(f"headline: median over {n_env} environments of the per-environment G")
+    print(frame.to_string(index=False))
+    print()
+    print("per-environment G = mean over runnable repeats; beat_sine = environments where it exceeds the sine baseline's G")
+    return 0
+
+
+def _report_by_model(env: str | None = None) -> int:
     """Aggregate repeats per model.
+
+    ``env`` selects the evaluation block by environment name; ``None`` reads the
+    first block, which is the original held-out profile.
 
     A result name of the form ``<model>#<k>`` is treated as repeat ``k`` of
     ``<model>``. With repeats the interesting quantities are not one score but
@@ -148,6 +229,7 @@ def _report_by_model() -> int:
     import math
     from collections import defaultdict
 
+    labels = _display_names()
     runs: dict[str, list[dict]] = defaultdict(list)
     for path in sorted(RESULTS.glob("*.json")):
         r = json.loads(path.read_text(encoding="utf-8"))
@@ -156,13 +238,15 @@ def _report_by_model() -> int:
     rows = []
     for model, results in sorted(runs.items()):
         ok = [r for r in results if not r.get("error")]
-        gs = [r["eval"][0]["mean_g"] for r in ok if r.get("eval")]
-        viols = [r["eval"][0]["mean_violation_fraction"] for r in ok if r.get("eval")]
-        degen = sum(1 for r in ok if r.get("eval") and r["eval"][0].get("degenerate"))
+        blocks = [_block(r, env) for r in ok if r.get("eval")]
+        blocks = [b for b in blocks if b is not None]
+        gs = [b["mean_g"] for b in blocks]
+        viols = [b["mean_violation_fraction"] for b in blocks]
+        degen = sum(1 for b in blocks if b.get("degenerate"))
         breaches = sum(1 for v in viols if v > 0.05)
         rows.append(
             {
-                "model": model,
+                "model": labels.get(model, model),
                 "runs": len(results),
                 "valid": len(gs),
                 "G_mean": round(sum(gs) / len(gs), 2) if gs else None,
@@ -236,13 +320,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--by-model", action="store_true",
         help="aggregate repeats named <model>#<k> into one row per model",
     )
+    rep.add_argument(
+        "--env", default=None,
+        help="with --by-model: environment name (a workload file, optionally @variant) for one table, or "
+             "'all' for the headline table followed by one table per environment; default is the headline table",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "verify":
         return _verify()
     if args.cmd == "eval":
         return _eval(args)
-    return _report_by_model() if args.by_model else _report()
+    if not args.by_model:
+        return _report()
+    if args.env is None:
+        return _report_headline()
+    if args.env == "all":
+        _report_headline()
+        print()
+        for env in EVAL_PROFILES:
+            print(f"=== {env}")
+            _report_by_model(env)
+            print()
+        return 0
+    return _report_by_model(args.env)
 
 
 if __name__ == "__main__":

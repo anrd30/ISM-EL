@@ -1,0 +1,7 @@
+{
+  "api": "openrouter",
+  "requested_slug": "google/gemini-3.1-pro-preview",
+  "pinned_provider": "google-ai-studio",
+  "served_by": "Google AI Studio",
+  "served_model": "google/gemini-3.1-pro-preview"
+}

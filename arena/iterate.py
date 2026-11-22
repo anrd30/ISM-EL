@@ -47,6 +47,38 @@ __all__ = ["feedback_message", "run_repeat", "main"]
 #: Where a run writes its rounds. One directory per model, one file per repeat.
 ITERATIONS = Path(__file__).resolve().parent / "iterations"
 
+#: Characters per token, for the cheap pre-send estimate. Deliberately optimistic
+#: (real code and prose run nearer 3.5) so the guard trips late rather than early.
+CHARS_PER_TOKEN = 3.0
+
+
+def conversation_tokens(messages: list[dict]) -> int:
+    """Rough size of a conversation, for the context guard."""
+    chars = sum(len(str(m.get("content", ""))) for m in messages)
+    return int(chars / CHARS_PER_TOKEN)
+
+
+def ollama_context_length(model: str, host: str) -> int | None:
+    """The model's own context window, from Ollama, or None if it cannot be read."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    try:
+        request = urllib.request.Request(
+            f"{host.rstrip('/')}/api/show",
+            data=_json.dumps({"model": model}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            info = _json.loads(response.read()).get("model_info", {}) or {}
+    except (urllib.error.URLError, ValueError, OSError):
+        return None
+    for key, value in info.items():
+        if key.endswith("context_length"):
+            return int(value)
+    return None
+
 
 def feedback_message(result: dict | None, error: str | None) -> str:
     """The turn handed back to the model after a round.
@@ -106,6 +138,7 @@ def run_repeat(
     max_new_tokens: int = 8192,
     host: str = "http://localhost:11434",
     holdout_every: int = 1,
+    num_ctx: int | None = None,
 ) -> dict:
     """One conversation of ``rounds`` rounds. Returns the record written to disk."""
     task = PROMPT.read_text(encoding="utf-8")
@@ -128,13 +161,25 @@ def run_repeat(
     round_dir.mkdir(parents=True, exist_ok=True)
 
     best_dev = None
+    record["num_ctx"] = num_ctx
     for k in range(1, rounds + 1):
+        # Stop before the backend would truncate. A silently clipped conversation drops
+        # the earlier rounds the memory arm exists to measure, and leaves the record
+        # looking like a normal round, so a short-context model has to end here and say so.
+        if num_ctx is not None:
+            need = conversation_tokens(history) + max_new_tokens
+            if need > num_ctx:
+                record["rounds"].append(
+                    {"round": k, "context_exhausted": {"needed": need, "num_ctx": num_ctx}}
+                )
+                print(f"  round {k}: context exhausted ({need} > {num_ctx}); stopping", flush=True)
+                break
         t0 = time.time()
         LAST_USAGE.clear()
         try:
             reply = chat(
                 model_spec, history, host=host, temperature=temperature,
-                seed=repeat * 1000 + k, max_new_tokens=max_new_tokens,
+                seed=repeat * 1000 + k, max_new_tokens=max_new_tokens, num_ctx=num_ctx,
             )
         except Exception as exc:  # noqa: BLE001 - a dead backend ends the repeat, recorded
             record["rounds"].append({"round": k, "fatal": f"{type(exc).__name__}: {exc}"})
@@ -222,10 +267,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--host", default="http://localhost:11434")
     parser.add_argument("--holdout-every", type=int, default=1,
                         help="score the 8 held-out environments every N rounds (always on the last)")
+    parser.add_argument("--num-ctx", type=int, default=None,
+                        help="context window; for ollama: read from the model unless given. "
+                             "Ollama truncates silently, so the loop refuses to run without one")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
 
     name = args.name or args.model.partition(":")[2].replace("/", "-")
+
+    num_ctx = args.num_ctx
+    if args.model.startswith("ollama:") and num_ctx is None:
+        num_ctx = ollama_context_length(args.model.partition(":")[2], args.host)
+        if num_ctx is None:
+            print("could not read the model's context length; pass --num-ctx")
+            return 2
+        print(f"context window {num_ctx} (from Ollama)", flush=True)
+        if num_ctx < 8192:
+            print(f"  note: {num_ctx} tokens holds only a round or two of conversation; "
+                  "expect this run to stop early with context_exhausted", flush=True)
     out_dir = args.out or (ITERATIONS / f"{name}-{args.memory}")
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"arena spec {SPEC_VERSION} | iterative | {name} | memory={args.memory} | "
@@ -237,7 +296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.model, name, repeat, args.rounds, out_dir,
             memory=args.memory, temperature=args.temperature,
             max_new_tokens=args.max_new_tokens, host=args.host,
-            holdout_every=args.holdout_every,
+            holdout_every=args.holdout_every, num_ctx=num_ctx,
         )
     print(f"done. records in {out_dir}", flush=True)
     return 0

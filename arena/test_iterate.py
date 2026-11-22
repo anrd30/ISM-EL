@@ -149,3 +149,71 @@ def test_the_sine_floor_is_a_member_of_this_family():
         obs = np.array([0, 0, x] + [0] * 9, dtype=np.float32)
         sine = 1 if math.sin(obs[2]) > 0.3 else 2
         assert threshold(obs, {}) == sine, f"differ at obs[2]={x}"
+
+
+def test_context_guard_stops_before_the_backend_would_truncate(monkeypatch, tmp_path):
+    """Ollama clips a long conversation silently; a clipped memory arm measures nothing."""
+    sent, _ = _stub(monkeypatch, tmp_path, [POLICY] * 3, [dict(DEV_RESULT) for _ in range(3)])
+    record = iterate.run_repeat(
+        "stub:model", "m", 1, 3, tmp_path, holdout_every=99, num_ctx=2048, max_new_tokens=2048
+    )
+    assert sent == []  # the very first round already does not fit
+    assert record["rounds"][0]["context_exhausted"]["num_ctx"] == 2048
+    assert record["num_ctx"] == 2048
+
+
+def test_a_reasoning_model_that_never_reaches_code_is_a_reply_not_a_transport_failure(monkeypatch):
+    """qwen3 returns empty `content` and a populated `thinking` when the budget runs out."""
+    import json as _json
+    from arena import generate as g
+
+    payload = {
+        "message": {"role": "assistant", "content": "", "thinking": "Okay, let me think..."},
+        "prompt_eval_count": 7,
+        "eval_count": 600,
+        "done_reason": "length",
+    }
+
+    class _Response:
+        def read(self):
+            return _json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Response())
+    reply = g._call_ollama("m", [{"role": "user", "content": "x"}], "http://h", 0.0, 1, 600)
+    assert reply == "Okay, let me think..."
+    assert g.LAST_USAGE["completion_tokens"] == 600
+    with pytest.raises(ValueError):
+        g.extract_policy(reply)  # recorded as a reply without a policy
+
+
+def test_num_ctx_is_sent_to_ollama_when_given(monkeypatch):
+    from arena import generate as g
+
+    captured = {}
+
+    class _Response:
+        def read(self):
+            return b'{"message": {"content": "ok"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(request, *a, **k):
+        import json as _json
+
+        captured.update(_json.loads(request.data))
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    g._call_ollama("m", [{"role": "user", "content": "x"}], "http://h", 0.5, 2, 99, num_ctx=4096)
+    assert captured["options"]["num_ctx"] == 4096
+    assert captured["options"]["num_predict"] == 99

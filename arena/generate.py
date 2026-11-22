@@ -64,7 +64,7 @@ def extract_policy(text: str) -> str:
 
 
 def _call_ollama(model: str, messages: list[dict], host: str, temperature: float, seed: int,
-                 max_new_tokens: int) -> str:
+                 max_new_tokens: int, num_ctx: int | None = None) -> str:
     """One chat completion from a local Ollama server.
 
     ``messages`` is the whole conversation, so the iterative track can hand back
@@ -73,13 +73,22 @@ def _call_ollama(model: str, messages: list[dict], host: str, temperature: float
     Uses urllib so the arena gains no dependency: a participant with Ollama
     already running needs nothing else installed.
 
+    ``num_ctx`` must be set explicitly for the iterative track. Ollama's own default
+    context is small and it truncates a conversation that exceeds it *silently*, which
+    would drop the earlier rounds the memory arm exists to measure and leave no trace
+    in the result.
+
     Raises:
-        RuntimeError: if the server is unreachable or returns no message.
+        RuntimeError: if the server is unreachable or returns neither content nor
+            reasoning.
     """
     import json as _json
     import urllib.error
     import urllib.request
 
+    options: dict = {"temperature": temperature, "seed": seed, "num_predict": max_new_tokens}
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     body = _json.dumps(
         {
             "model": model,
@@ -87,7 +96,7 @@ def _call_ollama(model: str, messages: list[dict], host: str, temperature: float
             "stream": False,
             # Greedy at temperature 0, so a rerun reproduces the submission exactly.
             # Above 0 the seed is what makes a given repeat reproducible.
-            "options": {"temperature": temperature, "seed": seed, "num_predict": max_new_tokens},
+            "options": options,
         }
     ).encode()
     request = urllib.request.Request(
@@ -100,17 +109,26 @@ def _call_ollama(model: str, messages: list[dict], host: str, temperature: float
         raise RuntimeError(
             f"cannot reach Ollama at {host}: {exc}. Is `ollama serve` running?"
         ) from exc
-    message = payload.get("message", {}).get("content")
-    if not message:
-        raise RuntimeError(f"Ollama returned no message: {payload}")
     LAST_USAGE.clear()
     LAST_USAGE.update(
         {
             "prompt_tokens": int(payload.get("prompt_eval_count") or 0),
             "completion_tokens": int(payload.get("eval_count") or 0),
+            "done_reason": payload.get("done_reason"),
         }
     )
-    return message
+    message = payload.get("message", {}) or {}
+    content = message.get("content") or ""
+    if content:
+        return content
+    # A reasoning model that spends the whole budget thinking returns empty content and
+    # a populated `thinking`. That is a reply without a policy, which is a recorded
+    # result, not a transport failure: returning the reasoning keeps the evidence and
+    # lets `extract_policy` report it the same way a truncated HF reply is reported.
+    thinking = message.get("thinking") or ""
+    if thinking:
+        return thinking
+    raise RuntimeError(f"Ollama returned no message: {payload}")
 
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -298,6 +316,7 @@ def chat(
     temperature: float = 0.0,
     seed: int = 0,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    num_ctx: int | None = None,
 ) -> str:
     """Dispatch a whole conversation to the right backend and return the reply text.
 
@@ -309,7 +328,7 @@ def chat(
     """
     kind, _, rest = model_spec.partition(":")
     if kind == "ollama":
-        return _call_ollama(rest, messages, host, temperature, seed, max_new_tokens)
+        return _call_ollama(rest, messages, host, temperature, seed, max_new_tokens, num_ctx)
     if kind == "api":
         provider, _, name = rest.partition("/")
         return _call_api(provider, name, messages, temperature, max_new_tokens, seed)

@@ -1,0 +1,367 @@
+% Submit to an IEEE conference (DSN). IEEEtran.cls ships with Overleaf and with
+% TeX Live; it is not vendored here.
+%
+% Every number in this draft is either traced to a committed result file or wrapped in
+% \TODO. Do not remove a \TODO by guessing: the project has already retracted three
+% findings that were asserted before they were measured.
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{url}
+
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\newcommand{\G}{\ensuremath{G}}
+
+\begin{document}
+
+\title{What Does Generated Control Code Actually Do?\\
+A Storage-Recovery Benchmark with an Exact Optimum}
+
+\author{\IEEEauthorblockN{\TODO{author list}}
+\IEEEauthorblockA{R.V.\ College of Engineering, Bengaluru, India}}
+
+\maketitle
+
+\begin{abstract}
+Benchmarks for language-model-generated code ask whether the code runs. They cannot ask
+how good its behaviour is, because for the open-ended tasks of interest no one knows the
+best attainable behaviour. We present a benchmark where that question has an exact
+answer. The task is recovery-bandwidth scheduling during a storage rebuild: a closed-loop
+control problem over production block traces, with four discrete actions and a state
+small enough that the optimal policy is computed exactly by backward induction. Policies
+are scored as the fraction of the attainable improvement they capture over a tuned
+rule-based controller, so the score is dimensionless and bounded above by a reference
+that is optimal rather than merely best-known.
+
+Three results follow. First, control policies written by current models run, read
+plausibly, and perform worse than a constant policy that ignores all twelve observations:
+\TODO{final zero-shot median, pending the 1.6.0 rerun of the small-model roster}.
+Second, iterative refinement, in which a model sees its own policy's measurements and
+revises, yields no advantage over blind sampling at a matched evaluation budget: carrying
+the full conversation scores $-1.43$ against random search's $-1.445$, while deleting the
+model's memory of earlier rounds \emph{improves} it to $-0.43$. Third, held-out
+performance degrades after roughly five rounds even as the development score continues to
+improve, so additional iteration is not merely unhelpful but harmful.
+
+We explain these results structurally. Half of the simple policy space is behaviourally
+constant by accident, four constant policies account for $232$ of $460$ family members,
+and only $4\%$ of that family beats the best constant. The objective is therefore flat
+almost everywhere, which is why hill-climbing and random search both stall and why models
+converge on constants. Unlike existing benchmarks in this area, whose problems are drawn
+from long-published libraries, our environments are generated from a simulator and cannot
+appear in any model's training data.
+\end{abstract}
+
+\begin{IEEEkeywords}
+benchmarking, code generation, dependability, storage systems, reinforcement learning
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+A language model asked to write a controller will write one. It will compile, it will
+run, it will contain plausible thresholds and sensible-looking comments, and a reviewer
+reading it will usually not be able to say whether it is good. This is the ordinary
+condition of deploying generated code in a control path, and the benchmarks available
+today do not address it. Pass-rate benchmarks establish that code runs. Benchmarks that
+score solution quality compare against the best solution anybody has found, which answers
+a different and weaker question.
+
+We take a problem where the best attainable behaviour is not a matter of opinion. During
+a storage rebuild, a controller chooses how much device bandwidth to give recovery, every
+$300$ seconds, trading rebuild speed against user-visible latency and against the risk of
+a second failure while redundancy is reduced. Discretised to four rates and driven by a
+fixed workload trace, the problem has a state space small enough that backward induction
+returns the exact optimal policy in under $80$ seconds per environment. A generated policy
+can therefore be placed on an absolute scale: not ``better than the baseline we had'' but
+``captures this fraction of what was attainable.''
+
+Our contributions are:
+
+\begin{itemize}
+\item A control benchmark whose reference is an exact optimum computed by dynamic
+programming, rather than a best-known or expert solution, over eight environments that
+vary workload population, cost structure and device class.
+\item Environments that are procedurally generated rather than drawn from a published
+problem library, so contamination of the evaluation set is excluded by construction
+rather than argued about. \TODO{procedural generation is implemented for the parameter
+family but the paper currently reports the eight fixed instantiations}
+\item A measurement of iterative refinement against two controls that the existing
+literature does not run: the same search loop with the model replaced by a random
+mutation, and the same loop with the model's memory removed. Both are necessary to
+separate reasoning from sampling, and both change the conclusion.
+\item A structural account of why the task defeats both models and blind search, in terms
+of the measure of the policy space that is behaviourally constant.
+\end{itemize}
+
+\section{Related Work}
+
+\textbf{Algorithm discovery with language models.} FunSearch and its successors
+established that a model used as a mutation operator inside an evolutionary loop can
+discover programs that improve on human-designed ones. The evidence is strong but it is
+evidence about the loop, not about the model in isolation; the number of evaluations is
+large and the selection pressure does substantial work.
+
+\textbf{Benchmarks for generated algorithms.} CO-Bench~\cite{cobench} evaluates language
+model agents on $36$ combinatorial optimisation problems drawn largely from the
+OR-Library, scoring against best-known literature solutions, with $15$ models and nine
+agentic frameworks at $64$ iterations. HeuriGym~\cite{heurigym} evaluates heuristics
+written by nine models across systems, logistics and biology, feeding execution logs and
+costs back into the prompt for iterative refinement, and reports a Quality-Yield Index
+normalised so that an expert baseline scores $1$.
+
+Our benchmark differs from both in three respects, and we state the resemblances plainly
+because they are close. The scoring construction---normalise so that a reference scores
+$1$---is the same idea as HeuriGym's QYI. The iterative-refinement protocol is the same
+idea as HeuriGym's feedback loop. What differs is, first, that our reference is provably
+optimal rather than best-known or expert-produced, which is possible only because we chose
+a problem small enough to solve exactly; second, that our task is sequential
+decision-making under partial observability rather than one-shot construction of a
+solution to a static instance; and third, that our evaluation varies the environment
+rather than the instance, so a policy is tested under cost functions and device
+characteristics it was not developed against.
+
+A fourth difference is not about design but about provenance. The OR-Library problems
+have been public for decades, together with their best-known solutions and the standard
+heuristics for them. A model that produces a strong algorithm for one of them may be
+designing or may be recalling, and the benchmark cannot distinguish the two. Our
+environments are generated by a simulator written for this work; no solution to them has
+ever been published.
+
+\section{Benchmark Design}
+
+\subsection{The control problem}
+
+A disk has failed and the array is rebuilding onto a spare. Every $300$~s the controller
+observes a twelve-element vector---foreground read and write load, bandwidth share,
+current and target latency, a failure-hazard estimate and its uncertainty, remaining
+redundancy, rebuild progress, work remaining, the currently applied rate, and available
+headroom---and returns one of four rebuild rates, $\{20, 50, 80, 120\}$~MB/s. Every field
+is normalised to approximately $[0,1]$; the controller is told this and is told nothing
+about future load. An episode ends when the rebuild completes, a second disk fails, or
+$2400$ intervals elapse.
+
+Per-interval cost is
+\begin{equation}
+c_t = \alpha \, d_t + \beta \, u_t + \gamma \, v_t ,
+\end{equation}
+where $d_t$ is latency degradation, $u_t$ indicates the array is still degraded, and $v_t$
+indicates mean latency exceeded its target. The default weights are
+$(\alpha,\beta,\gamma) = (1.0, 0.1, 10.0)$.
+
+Two filters sit between the controller's request and what is applied. A reliability filter
+raises the action when redundancy exposure would be too high; a latency filter lowers it
+to keep utilisation under the violation threshold. The applied action is therefore
+$\max(\text{floor}, \min(\text{requested}, \text{ceiling}))$. Both filters act identically
+on every policy including the references, and Section~\ref{sec:saturation} shows that in
+one environment they dominate the outcome entirely.
+
+\subsection{Workload}
+
+Foreground load is taken from Tencent Cloud volume traces: $44$ volumes over a shared
+$14$-day window, aggregated at $300$~s resolution, selected for the strongest diurnal
+cycle. The selection is deliberate and is a limitation we state rather than hide---these
+are extremes, not a representative sample of the fleet. The device and failure response
+are modelled; in the configuration used here the failure hazard is an unfitted heuristic
+whose own documentation forbids describing it as a risk estimate, chosen so that the
+benchmark runs from a clean clone with no large artifacts to download.
+\TODO{report the fitted-hazard environment as an additional condition, or state its
+absence as a limitation}
+
+\subsection{Reference policies and the score}
+
+For each scenario we compute three quantities: $J_{\text{rule}}$, the return of a tuned
+risk-aware rule-based controller; $J^\star$, the exact optimum by backward induction over
+(rebuild progress $\times$ time); and $J_\pi$, the return of the policy under test. The
+score is
+\begin{equation}
+\G = \frac{J_\pi - J_{\text{rule}}}{J^\star - J_{\text{rule}}} ,
+\end{equation}
+so $\G = 1$ matches the optimum, $\G = 0$ matches the rule, and negative values are worse
+than the rule. $\G$ is dimensionless and invariant to the reward weights, which matters
+because those weights are a modelling choice rather than a measurement. A scenario is
+excluded when the headroom $J^\star - J_{\text{rule}}$ falls below $0.1\%$ of
+$|J_{\text{rule}}|$, since no policy can meaningfully differ there.
+
+\subsection{Environments}
+
+Eight held-out environments vary three axes: workload population (three populations
+disjoint from the development set), cost structure (a variant with the violation weight
+reduced to $1$, and one with the degraded-state weight raised to $1.0$), and device class
+(an SSD-like latency model with a tight target, and an HDD-like one). Mean headroom
+differs by a factor of thirty across them, from $2.96$ to $89.04$, which has consequences
+we return to in Section~\ref{sec:saturation}.
+
+\subsection{Execution}
+
+Submitted code runs in an isolated subprocess with an import allowlist, no file or network
+access, a per-decision time budget and a memory cap. Failures are recorded rather than
+retried. A submission that fails to produce a policy function is a recorded zero, not a
+missing row. Failures of the harness itself---a sandbox worker that never starts---are
+recorded separately and never counted against a model, because on a benchmark whose
+headline is a count of working policies, attributing infrastructure failures to models
+inflates precisely the statistic being reported.
+
+\section{Baselines}
+\label{sec:baselines}
+
+A benchmark of this kind is only as meaningful as its floor. We report four.
+
+\textbf{Uniform random}, selecting an action uniformly at each decision, scores a median
+$\G$ of $-99.37$ across the eight environments.
+
+\textbf{Constant policies}, returning one fixed rate and reading no observation at all.
+The best of the four, $50$~MB/s, scores $-1.246$.
+
+\textbf{The single-threshold family}: a constant, or one threshold on one observation
+field selecting between two actions. We enumerate all $460$ members. The best scores
+$-0.377$, which still does not match the tuned rule.
+
+\textbf{A four-line policy} used in early versions of this work as a nonsense floor,
+$\texttt{1 if } \sin(\texttt{obs[2]}) > 0.3 \texttt{ else 2}$. It is not nonsense.
+Over the normalised range of its input, $\sin$ is monotonic and crosses $0.3$ at $0.305$,
+so the policy is exactly a load threshold at $0.305$, and it scores $-0.625$, within noise
+of the corresponding explicit threshold at $-0.641$. We report it because the distinction
+between ``worse than nonsense'' and ``worse than a one-line rule'' is the difference
+between a claim that is false and one that is defensible.
+
+\section{Results}
+
+\subsection{Zero-shot}
+
+\TODO{final table: the 1.6.0 frontier batch is complete; the small-model roster is still
+stamped 1.5.0 and must be rescored before the two appear in one table}
+
+\subsection{Iterative refinement}
+
+We ran a conversational loop for ten rounds: the model writes a policy, the policy is
+scored on the development workload, and the measurements are returned as the next turn.
+The eight evaluation environments are scored every round and recorded but never shown.
+Two arms differ in one respect: whether the conversation is carried forward
+(\texttt{full}) or discarded between rounds (\texttt{none}).
+
+Table~\ref{tab:iterative} reports, for each arm, the held-out score of whichever round
+scored best on development---the selection rule a practitioner would actually use.
+
+\begin{table}[t]
+\caption{Iterative refinement, best-on-development selection. Held-out $\G$ is the median
+over the eight environments. Random search is over the single-threshold family at a
+matched budget of evaluations.}
+\label{tab:iterative}
+\centering
+\begin{tabular}{lr}
+\toprule
+Method, 10 attempts & Held-out \G \\
+\midrule
+Random search, 10 evaluations      & $-1.445$ \\
+DeepSeek-V4-Pro, full memory       & $-1.43$ \\
+DeepSeek-V4-Pro, no memory         & $-0.43$ \\
+GPT-6.2-sol, no memory\footnotemark[1] & $-0.64$ \\
+GPT-6-luna, full memory            & $-14.63$ \\
+GPT-6-luna, no memory              & $-17.47$ \\
+\bottomrule
+\end{tabular}
+\footnotetext[1]{Two repeats at a different generation budget; not matched.}
+\end{table}
+
+Three observations. Carrying the conversation produces $-1.43$, and blind random search at
+the same budget produces $-1.445$: indistinguishable. Deleting the model's memory of its
+own earlier attempts \emph{improves} the result by a factor of three. And taking the final
+round rather than the best round is catastrophic---$-11.78$ against $-1.58$ with memory,
+$-52.58$ against $-0.69$ without---so the gain that iteration appears to deliver is
+produced by selection, not by refinement.
+
+Held-out performance degrades with further iteration. In four of the five conversations
+where we measured rounds $1$, $5$ and $10$, round $10$ generalises worse than round $5$;
+in one case the held-out score moves from $-0.28$ to $-171.04$ while the development score
+the model was optimising continued to look acceptable.
+
+\subsection{Population search}
+
+Because the conversational loop is not what the comparable benchmarks run, we repeated the
+comparison inside a population search: keep a pool of the best candidates, draw a parent,
+produce a child, score it, insert. Only the operator producing the child differs---a
+language model asked to improve the parent, a random perturbation of one numeric constant
+in the parent's own source, or a fresh draw from the simple family. Budget is $64$ scored
+candidates, matching CO-Bench.
+
+Both non-model arms converge to $-1.588$ on development, on every seed, by the eighth
+candidate, and none of the six control runs finds a policy better than the best constant.
+\TODO{language-model arm, seed 0, in progress}
+
+\section{Why the Task Is Hard}
+\label{sec:saturation}
+
+The control results are not a property of weak baselines. They follow from the shape of
+the objective.
+
+Of the $460$ members of the single-threshold family, $232$---exactly half---score one of
+four values, and those four values are the scores of the four constant policies. The
+reason is that a threshold placed where the observation never crosses it yields a policy
+that is behaviourally constant: \texttt{3 if obs[2] > 0.92 else 1} is simply ``always
+$1$''. Only $19$ members, $4\%$, beat the best constant, and they occupy narrow threshold
+bands. A hill-climber inside a plateau receives an identical score for every perturbation
+and has nothing to climb, which is why both control operators stall at the best constant
+and why models converge on constant policies rather than because they are lazy.
+
+A second mechanism operates in one environment. The reliability floor and the latency
+ceiling compose as $\max(\text{floor}, \min(\text{requested}, \text{ceiling}))$, so when
+the ceiling is pinned low almost everywhere, every request above it collapses to the same
+applied action. In the SSD-class environment, whose mean headroom of $2.96$ is four times
+smaller than the next smallest, two submissions with different action distributions and
+different per-decision timings produce violation fractions identical to sixteen
+significant figures and bit-identical per-scenario returns: the filters erased every one of
+one policy's $416$ deviations before they reached the trajectory. That environment measures
+the safety architecture, not the policy, and we report it as a stress probe rather than as
+a ninth ordinary environment. \TODO{report the clipped-decision fraction per environment
+once the instrumentation lands}
+
+\section{Threats to Validity}
+
+\textbf{One simulator.} The eight environments are eight parameterisations of a single
+simulator. They vary workload, cost structure and device response, but they do not vary
+the underlying dynamics, and a result that holds across them may not transfer to a
+different recovery mechanism.
+
+\textbf{Modelled failure process.} The hazard model in the configuration reported here is
+an unfitted heuristic. A fitted model exists in this project and is not wired into the
+benchmark, by a deliberate choice to keep the artifact small.
+
+\textbf{Selected workload.} The $44$ volumes were chosen for the strongest diurnal cycle
+and are extremes rather than a representative sample.
+
+\textbf{Iteration budget.} We report ten rounds of conversational refinement and $64$
+candidates of population search. CO-Bench reports gains at $64$ iterations across nine
+frameworks; our negative result is scoped to the loops we ran and does not establish that
+no agentic framework can do better.
+
+\textbf{Scale of the model evidence.} Three repeats per arm, two language models in the
+iterative track. The variance between repeats is large and the conclusions about memory
+rest on a narrow base. \TODO{additional models if budget permits}
+
+\textbf{Hosted inference.} Models were served through a routing provider. An earlier batch
+in which repeats were served by different hosts produced bimodal results that vanished
+once each model was pinned to a single provider, so we pin, and we note that scores from
+hosted endpoints are not reproducible in the way local weights are.
+
+\section{Conclusion}
+
+Given a task where the optimum is computable, generated control code can be measured
+rather than reviewed, and what the measurement shows is uncomfortable: policies that run
+and read sensibly can be beaten by a constant; refinement loops deliver what sampling
+delivers; and the obvious selection rule, taking the last iteration, is far worse than
+keeping the best. None of this is visible from pass rates, and none of it would have been
+visible without a reference that is optimal rather than merely good.
+
+\begin{thebibliography}{9}
+\bibitem{cobench} W.~Sun, S.~Feng, S.~Li, and Y.~Yang, ``CO-Bench: Benchmarking Language
+Model Agents in Algorithm Search for Combinatorial Optimization,'' AAAI, 2026.
+\bibitem{heurigym} H.~Chen \emph{et al.}, ``HeuriGym: An Agentic Benchmark for LLM-Crafted
+Heuristics in Combinatorial Optimization,'' ICLR, 2026.
+\TODO{FunSearch, AlphaEvolve, Eureka, OR-Library, Tencent trace, Backblaze}
+\end{thebibliography}
+
+\end{document}

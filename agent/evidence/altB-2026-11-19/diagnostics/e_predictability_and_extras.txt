@@ -1,0 +1,9 @@
+== predictability of the load by the 'same time yesterday' and 'last value' (MB/s) ==
+profile  rmse_yesterday  rmse_last_value  step_change_corr_1day  mean_read_iops  mean_write_iops  p99_read_iops  mean_bw  std_bw  step_change_sd
+  train           2.739           10.124                  0.970        4535.802         5794.357       10907.21   69.793  23.149          10.117
+holdout           2.013           10.358                  0.987        4741.833         6161.697       11266.58   70.230  23.125          10.308
+   altB          13.450            9.019                  0.585       28125.675        57524.397       97909.52   63.902  22.165           8.957
+
+paired violations per episode, residual_q minus seasonal: 4.383 sem 0.699 t=6.27
+violation term (gamma=10) contribution to gap: -43.83 ; remainder (degradation D): -6.41
+scenarios where residual_q has more violations than rule: 18 /20

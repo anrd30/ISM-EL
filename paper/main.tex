@@ -38,14 +38,18 @@ rule-based controller, so the score is dimensionless and bounded above by a refe
 that is optimal rather than merely best-known.
 
 Three results follow. First, control policies written by current models run, read
-plausibly, and perform worse than a constant policy that ignores all twelve observations:
-\TODO{final zero-shot median, pending the 1.6.0 rerun of the small-model roster}.
+plausibly, and perform worse than a one-line threshold rule on a single input: across
+five hosted frontier models the best median score is $-2.62$ against the rule's $-0.62$,
+and four of the five never exceed it on any of eight held-out environments.
 Second, iterative refinement, in which a model sees its own policy's measurements and
 revises, yields no advantage over blind sampling at a matched evaluation budget: carrying
 the full conversation scores $-1.43$ against random search's $-1.445$, while deleting the
-model's memory of earlier rounds \emph{improves} it to $-0.43$. Third, held-out
-performance degrades after roughly five rounds even as the development score continues to
-improve, so additional iteration is not merely unhelpful but harmful.
+model's memory of earlier rounds \emph{improves} it to $-0.43$. Third, inside a population search at the $64$-candidate budget used by comparable
+benchmarks, a model used as the mutation operator scores inside the range covered by
+random perturbation of a numeric constant, while consuming $1.74$ million output tokens
+against the control's none. Held-out performance also degrades after roughly five rounds
+of refinement even as the development score continues to improve, so additional iteration
+is not merely unhelpful but harmful.
 
 We explain these results structurally. Half of the simple policy space is behaviourally
 constant by accident, four constant policies account for $232$ of $460$ family members,
@@ -232,8 +236,52 @@ between a claim that is false and one that is defensible.
 
 \subsection{Zero-shot}
 
-\TODO{final table: the 1.6.0 frontier batch is complete; the small-model roster is still
-stamped 1.5.0 and must be rescored before the two appear in one table}
+Table~\ref{tab:zeroshot} reports the hosted frontier models, five independently sampled
+policies each, at a generation budget of $32768$ tokens. We summarise by the median over
+the eight environments rather than the mean, because the environments differ in headroom
+by a factor of thirty and a mean is decided almost entirely by the environment with the
+least room for a policy to matter. \emph{beat\_sine} counts the environments on which a
+model exceeds the single-threshold baseline of Section~\ref{sec:baselines}.
+
+\begin{table}[t]
+\caption{Zero-shot, hosted frontier models at a $32768$-token generation budget. Median
+$\G$ over the eight held-out environments; \emph{valid} counts samples that produced a
+runnable policy.}
+\label{tab:zeroshot}
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Model & valid & median \G & beat\_sine \\
+\midrule
+\textit{single-threshold baseline} & 1/1 & $-0.62$ & --- \\
+\textit{greedy template}           & 1/1 & $-1.68$ & 3/8 \\
+\midrule
+GPT-6.2-sol                  & 5/5 & $-2.62$  & 1/8 \\
+Gemini-3.1-pro-preview       & 5/5 & $-2.82$  & 0/8 \\
+DeepSeek-V4.1-flash          & 5/5 & $-9.19$  & 0/8 \\
+DeepSeek-V4-Pro              & 5/5 & $-17.54$ & 0/8 \\
+Gemini-3.1-flash-lite        & 5/5 & $-28.60$ & 0/8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every model is below the single-threshold baseline, and all but one are below the
+constant-rate policy at $-1.246$. The best model exceeds the baseline on one environment
+of eight; four models exceed it on none.
+
+\subsection{A note on generation budget}
+\label{sec:budget}
+
+The generation budget is part of the protocol, not an implementation detail: a model that
+exhausts it is recorded as producing no policy, which is a property of the constant rather
+than of the model. We therefore report only models that shared a budget. An earlier
+open-weight roster was generated at $8192$ tokens and is excluded from
+Table~\ref{tab:zeroshot}. The exclusion is not precautionary. Inspecting the retained raw
+replies, DeepSeek-R1-Distill-32B's terminate mid-expression---one ends
+\texttt{if work\_remaining >0.}---so the budget bound for that model, and one of its five
+samples produced no policy for that reason alone. Because every reply is retained, this is
+auditable rather than inferred. \TODO{regenerate the open-weight roster at 32768 and
+report it as a second table; blocked on cluster access}
 
 \subsection{Iterative refinement}
 
@@ -288,9 +336,46 @@ language model asked to improve the parent, a random perturbation of one numeric
 in the parent's own source, or a fresh draw from the simple family. Budget is $64$ scored
 candidates, matching CO-Bench.
 
-Both non-model arms converge to $-1.588$ on development, on every seed, by the eighth
-candidate, and none of the six control runs finds a policy better than the best constant.
-\TODO{language-model arm, seed 0, in progress}
+\begin{table}[t]
+\caption{Population search at a budget of $64$ scored candidates, matching CO-Bench.
+Development score of the best candidate found, the held-out score of that same candidate,
+and the output tokens the arm consumed.}
+\label{tab:evolve}
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Arm & dev \G & held-out \G & valid & output tokens \\
+\midrule
+mutate, seed 0 & $-1.588$ & $-1.246$ & 64/64 & $0$ \\
+mutate, seed 1 & $-1.588$ & $-1.246$ & 64/64 & $0$ \\
+mutate, seed 2 & $-1.588$ & $-1.384$ & 64/64 & $0$ \\
+sample, seed 0 & $-1.588$ & $-1.246$ & 64/64 & $0$ \\
+sample, seed 1 & $-1.588$ & $-1.548$ & 64/64 & $0$ \\
+sample, seed 2 & $\mathbf{-0.390}$ & $-0.708$ & 63/64 & $0$ \\
+\midrule
+DeepSeek-V4.1-flash, seed 0 & $-0.553$ & $-0.447$ & 52/64 & $1{,}744{,}920$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:evolve} gives the result. Both control operators converge to $-1.588$ on
+development---the best constant policy---on five of six seeds, typically by the eighth
+candidate. The exception is informative: one \texttt{sample} seed found $-0.390$, which is
+the exact optimum of the single-threshold family, so blind sampling occasionally solves
+the restricted space outright.
+
+The language model's $-0.553$ falls \emph{inside} the control range of $-1.588$ to
+$-0.390$, and is worse than the best control seed. With one language-model seed against
+three seeds per control operator we do not claim a difference in either direction; we
+claim the absence of a detectable one. \TODO{two further seeds of the reasoning model and
+three of a non-reasoning model are running; update this paragraph and the table}
+
+What does separate is cost. The model consumed $1.74$ million output tokens and
+approximately four hours of wall-clock to reach a score the controls reach in ten minutes
+with no model at all, and it produced unrunnable code on $12$ of $64$ candidates against
+roughly one for the controls. It was also behind for most of the run, holding at $-3.21$
+through candidate $32$ and only reaching $-0.553$ at candidate $60$; truncating the budget
+slightly below CO-Bench's would have recorded it as clearly worse.
 
 \section{Why the Task Is Hard}
 \label{sec:saturation}

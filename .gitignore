@@ -48,3 +48,11 @@ arena/iterations/
 
 # Population-search runs (every candidate source + reply). Large and regenerable.
 arena/evolve_runs/
+
+# LaTeX build artifacts; main.tex is the source of truth.
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.pdf
+paper/b[0-9].log
+paper/build*.log
